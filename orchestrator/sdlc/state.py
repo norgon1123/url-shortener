@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -117,24 +118,58 @@ class RunStore:
 
     path: str | Path
     clock: Callable[[], str] = _utc_now
-    _conn: sqlite3.Connection = field(init=False, repr=False)
+    _local: threading.local = field(init=False, repr=False, default_factory=threading.local)
+    _memory_conn: sqlite3.Connection | None = field(init=False, repr=False, default=None)
 
     def __post_init__(self) -> None:
         self.path = Path(self.path)
-        if str(self.path) != ":memory:":
+        self._in_memory = str(self.path) == ":memory:"
+        if not self._in_memory:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self.path))
-        self._conn.row_factory = sqlite3.Row
+        conn = self._conn
         # WAL so `orchestrator status` and `orchestrator stop` can read while a
         # run is mid-flight instead of blocking on the writer's lock.
-        if str(self.path) != ":memory:":
-            self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA foreign_keys=ON")
-        self._conn.executescript(SCHEMA)
-        self._conn.commit()
+        if not self._in_memory:
+            conn.execute("PRAGMA journal_mode=WAL")
+        conn.executescript(SCHEMA)
+        conn.commit()
+
+    @property
+    def _conn(self) -> sqlite3.Connection:
+        """One connection per thread.
+
+        The parallel branch runs two node bodies concurrently and both write
+        state, and a sqlite3 connection may not cross threads. Giving each
+        thread its own connection over a WAL database is simpler and less
+        deadlock-prone than serializing every call through a lock, and SQLite
+        already knows how to arbitrate concurrent writers -- `timeout` is the
+        busy-wait for that.
+        """
+        if self._in_memory:
+            # An in-memory database is private to its connection, so it cannot
+            # be shared across threads at all. Single-threaded use only.
+            if self._memory_conn is None:
+                self._memory_conn = sqlite3.connect(":memory:")
+                self._memory_conn.row_factory = sqlite3.Row
+            return self._memory_conn
+
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = sqlite3.connect(str(self.path), timeout=30.0)
+            conn.row_factory = sqlite3.Row
+            self._local.conn = conn
+        return conn
 
     def close(self) -> None:
-        self._conn.close()
+        """Closes this thread's connection. Others are closed by their own threads."""
+        if self._in_memory:
+            if self._memory_conn is not None:
+                self._memory_conn.close()
+                self._memory_conn = None
+            return
+        if (conn := getattr(self._local, "conn", None)) is not None:
+            conn.close()
+            self._local.conn = None
 
     def __enter__(self) -> RunStore:
         return self
@@ -359,6 +394,21 @@ class RunStore:
                     json.dumps(approval.answers, sort_keys=True),
                     approval.ts or self.clock(),
                 ),
+            )
+
+    def clear_approval(self, run_id: str, node_id: str) -> None:
+        """Discard a decision so the node must be approved again.
+
+        Used after a rejection: the node re-runs with the reviewer's note, and
+        the revised result has to face a fresh decision. Leaving the rejection
+        on file would fail the gate forever; deleting it silently would lose
+        the four-eyes record -- which is why the journal, not this table, is the
+        evidence.
+        """
+        with self._conn:
+            self._conn.execute(
+                "DELETE FROM approvals WHERE run_id = ? AND node_id = ?",
+                (run_id, node_id),
             )
 
     def approvals(self, run_id: str) -> dict[str, Approval]:

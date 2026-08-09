@@ -144,12 +144,21 @@ class TestMockBackend:
                 ]
             }
         )
-        assert not backend.run(invocation(tmp_path, attempt=0)).ok
-        assert backend.run(invocation(tmp_path, attempt=1)).ok
+        assert not backend.run(invocation(tmp_path)).ok
+        assert backend.run(invocation(tmp_path)).ok
 
-    def test_the_last_attempt_repeats_past_the_end_of_the_script(self, tmp_path: Path) -> None:
+    def test_entries_advance_by_call_not_by_attempt_number(self, tmp_path: Path) -> None:
+        """A replan re-enters a node with its attempt counter reset to zero."""
+        backend = MockBackend(
+            {"implement": [ScriptedAttempt(fail="one"), ScriptedAttempt(fail="two")]}
+        )
+        assert backend.run(invocation(tmp_path, attempt=0)).error == "one"
+        assert backend.run(invocation(tmp_path, attempt=0)).error == "two"
+
+    def test_the_last_entry_repeats_past_the_end_of_the_script(self, tmp_path: Path) -> None:
         backend = MockBackend({"implement": [ScriptedAttempt(fail="always broken")]})
-        assert not backend.run(invocation(tmp_path, attempt=5)).ok
+        for _ in range(6):
+            assert not backend.run(invocation(tmp_path)).ok
 
     def test_deletes_are_applied(self, tmp_path: Path) -> None:
         """Needed for the brownfield scenario, where a node removes code."""

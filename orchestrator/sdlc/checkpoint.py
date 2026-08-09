@@ -172,11 +172,23 @@ class CheckpointManager:
         self.git.create_branch(name)
         return name
 
-    def checkpoint(self, node_id: str, *, attempt: int = 0, summary: str = "") -> str | None:
+    def checkpoint(
+        self,
+        node_id: str,
+        *,
+        attempt: int = 0,
+        summary: str = "",
+        worktree: str | None = None,
+    ) -> str | None:
+        """Commit where the node actually worked.
+
+        A node running in a worktree must commit *there* -- committing in the
+        main checkout would record an empty change and leave the branch the
+        barrier later merges with nothing on it.
+        """
         subject = f"{node_id}: {summary}" if summary else f"checkpoint after {node_id}"
-        return self.git.commit(
-            subject, run_id=self.run_id, node_id=node_id, attempt=attempt
-        )
+        git = self.worktree(worktree) if worktree else self.git
+        return git.commit(subject, run_id=self.run_id, node_id=node_id, attempt=attempt)
 
     def rollback(self, sha: str) -> None:
         self.git.reset_hard(sha)

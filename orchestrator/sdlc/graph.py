@@ -316,6 +316,30 @@ def schedule(pipeline: Pipeline) -> list[tuple[str, ...]]:
     return levels
 
 
+def descendants(pipeline: Pipeline, node_id: str) -> set[str]:
+    """Everything downstream of a node.
+
+    Used by both replan paths: when a node is re-run, whatever consumed its
+    output is no longer valid and must run again too. Doing this by graph
+    reachability rather than by a hand-maintained list is the difference
+    between a rule and a habit.
+    """
+    dependents: dict[str, list[str]] = {n.id: [] for n in pipeline.nodes}
+    for node in pipeline.nodes:
+        for dep in node.depends_on:
+            dependents[dep].append(node.id)
+
+    out: set[str] = set()
+    queue = list(dependents.get(node_id, []))
+    while queue:
+        nid = queue.pop()
+        if nid in out:
+            continue
+        out.add(nid)
+        queue.extend(dependents[nid])
+    return out
+
+
 def parallel_groups(pipeline: Pipeline) -> list[tuple[str, ...]]:
     """Levels that genuinely fan out. Used by the report to highlight concurrency."""
     return [lvl for lvl in schedule(pipeline) if len(lvl) > 1]
