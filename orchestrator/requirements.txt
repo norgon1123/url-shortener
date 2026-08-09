@@ -1,0 +1,11 @@
+# Orchestrator runtime.
+#
+# Deliberately small. The graph, gates, journal, checkpoints, and metrics are
+# hand-written -- the SDK supplies the agent loop and its built-in tools, and
+# nothing else here is a framework.
+claude-agent-sdk>=0.2.134   # Claude Code as a library: agent loop, tools, permissions, sandbox
+jsonschema>=4.26            # node output schemas, used for both output_format and exit gates
+PyYAML>=6.0                 # pipeline definition and OpenAPI parsing
+
+# Development
+pytest>=9.0

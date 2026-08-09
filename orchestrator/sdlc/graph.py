@@ -203,6 +203,7 @@ def validate(pipeline: Pipeline) -> None:
             )
 
     _assert_acyclic(pipeline)
+    _assert_checks_exist(pipeline)
 
     for node in pipeline.nodes:
         if node.has_self_report_gate and not _has_downstream_human_gate(pipeline, node):
@@ -211,6 +212,26 @@ def validate(pipeline: Pipeline) -> None:
                 "ADR-001 requires every model-populated predicate to be backstopped "
                 "by a human checkpoint."
             )
+
+
+def _assert_checks_exist(pipeline: Pipeline) -> None:
+    """Every gate must name a check that is actually implemented.
+
+    Imported here rather than at module scope to keep the dependency one-way:
+    gates reads the model, the graph reads gates, and neither imports the other
+    at import time. The payoff is that a typo'd check name is a load-time error
+    instead of a surprise forty minutes and several dollars into a run.
+    """
+    from .gates import known_checks
+
+    available = known_checks()
+    for node in pipeline.nodes:
+        for gate in (*node.entry_gates, *node.exit_gates):
+            if gate.check not in available:
+                raise PipelineError(
+                    f"node {node.id}: gate '{gate.check}' is not implemented. "
+                    f"Available: {', '.join(sorted(available))}"
+                )
 
 
 def _assert_acyclic(pipeline: Pipeline) -> None:

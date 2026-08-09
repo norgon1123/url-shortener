@@ -80,6 +80,32 @@ class NodeKind(str, enum.Enum):
     BARRIER = "barrier"  # join point for parallel branches
 
 
+class ApprovalDecision(str, enum.Enum):
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+@dataclass(frozen=True)
+class Approval:
+    """A recorded human decision at a checkpoint.
+
+    The note is not decoration: a rejection note is appended to the node's
+    prompt on the replan attempt, so the human's reasoning materially changes
+    what happens next. It is also the four-eyes evidence in the journal.
+    """
+
+    node_id: str
+    decision: ApprovalDecision
+    approver: str
+    note: str = ""
+    ts: str = ""
+    answers: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def approved(self) -> bool:
+        return self.decision is ApprovalDecision.APPROVED
+
+
 @dataclass(frozen=True)
 class RetryPolicy:
     max_attempts: int = 2
