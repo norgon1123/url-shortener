@@ -119,6 +119,24 @@ class TestNodes:
         order = ["design", "implement", "verify"]
         assert store.latest_checkpoint(run_id, order) == "bbb"
 
+    def test_invocations_count_up_and_never_reset(self, store: RunStore, run_id: str) -> None:
+        """Unlike `attempt`, which restarts whenever a replan re-enters a node."""
+        assert store.next_invocation(run_id, "design") == 0
+        assert store.next_invocation(run_id, "design") == 1
+        store.set_node(run_id, "design", NodeStatus.PENDING, attempt=0)
+        assert store.next_invocation(run_id, "design") == 2
+
+    def test_invocations_survive_a_process_restart(self, tmp_path: Path, run_id: str, store: RunStore) -> None:
+        """A run that pauses for approval resumes in a different process."""
+        store.next_invocation(run_id, "design")
+        store.close()
+        resumed = RunStore(tmp_path / "state.db", clock=fixed_clock())
+        assert resumed.next_invocation(run_id, "design") == 1
+
+    def test_invocations_are_tracked_per_node(self, store: RunStore, run_id: str) -> None:
+        store.next_invocation(run_id, "design")
+        assert store.next_invocation(run_id, "implement") == 0
+
     def test_latest_checkpoint_is_none_when_nothing_committed(
         self, store: RunStore, run_id: str
     ) -> None:

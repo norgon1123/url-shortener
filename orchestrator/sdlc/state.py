@@ -60,6 +60,10 @@ CREATE TABLE IF NOT EXISTS node_state (
     ended_at           TEXT,
     cost_usd           REAL NOT NULL DEFAULT 0,
     error              TEXT,
+    -- Never reset, unlike `attempt`, which restarts whenever a replan
+    -- re-enters the node. This is the durable "how many times has this node
+    -- actually been invoked" counter, and it survives process restarts.
+    invocations        INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (run_id, node_id)
 );
 
@@ -110,6 +114,7 @@ class NodeState:
     ended_at: str | None = None
     cost_usd: float = 0.0
     error: str | None = None
+    invocations: int = 0
 
 
 @dataclass
@@ -348,7 +353,28 @@ class RunStore:
             ended_at=row["ended_at"],
             cost_usd=row["cost_usd"],
             error=row["error"],
+            invocations=row["invocations"],
         )
+
+    def next_invocation(self, run_id: str, node_id: str) -> int:
+        """Reserve the next invocation number for a node.
+
+        Distinct from `attempt`, which counts tries within one execution and
+        resets when a replan re-enters the node. This one only ever goes up, and
+        it lives in the database rather than in the engine's memory so it means
+        the same thing across a `run` and a later `resume` -- two different
+        processes. The scripted backend indexes on it, which is what makes a
+        replay identical no matter how many times the process restarted.
+        """
+        with self._conn:
+            self._conn.execute(
+                "INSERT INTO node_state (run_id, node_id, status, invocations) "
+                "VALUES (?, ?, ?, 1) "
+                "ON CONFLICT(run_id, node_id) DO UPDATE SET "
+                "invocations = node_state.invocations + 1",
+                (run_id, node_id, NodeStatus.RUNNING.value),
+            )
+        return self.get_node(run_id, node_id).invocations - 1
 
     def node_states(self, run_id: str) -> dict[str, NodeState]:
         rows = self._conn.execute(

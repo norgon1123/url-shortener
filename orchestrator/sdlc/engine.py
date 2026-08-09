@@ -416,6 +416,7 @@ class Engine:
             run_id=self.run_id,
             workspace=self._workspace_for(node),
             attempt=attempt,
+            sequence=self.store.next_invocation(self.run_id, node.id),
             context=self._context_for(node),
             gate_failures=gate_failures,
             rejection_note=rejection_note,

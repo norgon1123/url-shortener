@@ -144,21 +144,27 @@ class TestMockBackend:
                 ]
             }
         )
-        assert not backend.run(invocation(tmp_path)).ok
-        assert backend.run(invocation(tmp_path)).ok
+        assert not backend.run(invocation(tmp_path, sequence=0)).ok
+        assert backend.run(invocation(tmp_path, sequence=1)).ok
 
-    def test_entries_advance_by_call_not_by_attempt_number(self, tmp_path: Path) -> None:
+    def test_entries_advance_by_sequence_not_by_attempt_number(self, tmp_path: Path) -> None:
         """A replan re-enters a node with its attempt counter reset to zero."""
         backend = MockBackend(
             {"implement": [ScriptedAttempt(fail="one"), ScriptedAttempt(fail="two")]}
         )
-        assert backend.run(invocation(tmp_path, attempt=0)).error == "one"
-        assert backend.run(invocation(tmp_path, attempt=0)).error == "two"
+        assert backend.run(invocation(tmp_path, attempt=0, sequence=0)).error == "one"
+        assert backend.run(invocation(tmp_path, attempt=0, sequence=1)).error == "two"
+
+    def test_the_backend_is_stateless(self, tmp_path: Path) -> None:
+        """Two backend instances must replay a sequence identically."""
+        script = {"implement": [ScriptedAttempt(fail="one"), ScriptedAttempt(fail="two")]}
+        assert MockBackend(dict(script)).run(invocation(tmp_path, sequence=1)).error == "two"
+        assert MockBackend(dict(script)).run(invocation(tmp_path, sequence=1)).error == "two"
 
     def test_the_last_entry_repeats_past_the_end_of_the_script(self, tmp_path: Path) -> None:
         backend = MockBackend({"implement": [ScriptedAttempt(fail="always broken")]})
-        for _ in range(6):
-            assert not backend.run(invocation(tmp_path)).ok
+        for sequence in range(6):
+            assert not backend.run(invocation(tmp_path, sequence=sequence)).ok
 
     def test_deletes_are_applied(self, tmp_path: Path) -> None:
         """Needed for the brownfield scenario, where a node removes code."""

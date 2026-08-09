@@ -33,6 +33,10 @@ class NodeInvocation:
     run_id: str
     workspace: Path
     attempt: int = 0
+    # Monotonic across the whole run, unlike `attempt`, which resets when a
+    # replan re-enters the node. Scripted backends index on it so a replay is
+    # identical regardless of how many processes the run spanned.
+    sequence: int = 0
     # Outputs of upstream nodes, keyed by node id. Passed explicitly rather
     # than left for the agent to go and find, so cross-stage context is a
     # recorded input rather than an emergent property of what it happened to read.

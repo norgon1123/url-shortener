@@ -94,7 +94,6 @@ class MockBackend:
 
     script: dict[str, list[ScriptedAttempt]]
     strict: bool = True
-    _calls: dict[str, int] = field(default_factory=dict)
 
     def run(self, invocation: NodeInvocation) -> NodeResult:
         node = invocation.node
@@ -107,12 +106,14 @@ class MockBackend:
                 )
             return NodeResult(node_id=node.id, ok=True)
 
-        # Indexed by call count rather than by `attempt`, because a node can be
-        # re-entered by a replan with its attempt counter reset. Call order is
-        # the only thing that reliably advances, and it is what a script author
-        # is thinking in anyway: "this happens, then this happens".
-        index = self._calls.get(node.id, 0)
-        self._calls[node.id] = index + 1
+        # Indexed by the run's durable invocation counter rather than by
+        # `attempt` or by an internal tally. `attempt` resets when a replan
+        # re-enters a node, and an internal tally would reset when the process
+        # does -- so a run that paused for approval and resumed in a second
+        # process would silently replay its first entry. Keeping the counter in
+        # the run's state, and the backend stateless, makes a replay identical
+        # however many processes it spanned.
+        index = invocation.sequence
         # Past the end of the script the last entry repeats, so "fails forever"
         # is one line rather than one per possible retry.
         attempt = attempts[min(index, len(attempts) - 1)]
