@@ -1,0 +1,240 @@
+# Agentic SDLC pipeline definition.
+#
+# This file is the orchestrator's dependency graph. It is declarative on
+# purpose: the scheduler, gates, and policy engine read it, and nothing about
+# the graph shape is hardcoded in Python. Swapping this file swaps the process.
+#
+# Gate classes (ADR-001):
+#   mechanical   - fully deterministic; exit codes and thresholds
+#   self_report  - schema/threshold check on a field the LLM emitted; MUST be
+#                  backstopped by a downstream human gate
+#   human        - explicit approval, persisted with the approver's note
+version: 1
+
+defaults:
+  model: claude-opus-5
+  effort: high
+  autonomy: apply
+  retry:
+    max_attempts: 2
+    backoff_seconds: 5
+  on_failure: retry
+
+budget:
+  max_cost_usd: 25.0
+  max_wallclock_seconds: 5400
+
+policy:
+  # Writes to these paths force PENDING_APPROVAL regardless of node autonomy.
+  # Enforced live via the Agent SDK can_use_tool callback, and again after the
+  # node returns by diffing the worktree (belt and braces: the callback can be
+  # bypassed by a Bash heredoc, the diff classifier cannot).
+  protected_paths:
+    - "service/pom.xml"
+    - "service/src/main/resources/db/migration/**"
+    - "service/src/main/resources/application*.yml"
+    - "docker-compose.yml"
+
+  # No node may ever write here. Agents do not modify the orchestrator that
+  # governs them, and they do not touch git internals.
+  forbidden_paths:
+    - ".git/**"
+    - "orchestrator/**"
+    - "docs/adr/**"
+    - "**/.env"
+    - "**/*.pem"
+    - "**/id_rsa*"
+
+  forbidden_commands:
+    - "git push"
+    - "git reset --hard"
+    - "git clean"
+    - "rm -rf /"
+    - "sudo"
+    - "curl"
+    - "wget"
+
+  secret_patterns:
+    - "sk-ant-[A-Za-z0-9_-]{20,}"
+    - "AKIA[0-9A-Z]{16}"
+    - "-----BEGIN [A-Z ]*PRIVATE KEY-----"
+    - "(?i)(password|passwd|secret|token)\\s*[:=]\\s*['\"][^'\"]{8,}['\"]"
+
+  # Real enforced egress control, not a best-effort command deny-list.
+  # Maven needs Central; nothing else needs the network.
+  sandbox:
+    enabled: true
+    network:
+      allowedDomains:
+        - "repo.maven.apache.org"
+        - "repo1.maven.org"
+      allowLocalBinding: true
+
+nodes:
+  - id: intake
+    description: Normalize a raw requirement into a structured engineering problem.
+    prompt: prompts/intake.md
+    tools: [Read, Write]
+    write_paths: ["artifacts/**"]
+    output_schema: requirement
+    effort: medium
+    entry_gates:
+      - {check: artifact_present, gate_class: mechanical, path: "input/requirement.txt"}
+    exit_gates:
+      - {check: schema_valid, gate_class: mechanical, artifact: requirement.json}
+      - {check: paths_confined, gate_class: mechanical}
+
+  - id: clarify
+    description: Identify ambiguity. Emit assumptions even when nothing is ambiguous.
+    prompt: prompts/clarify.md
+    tools: [Read, Write]
+    write_paths: ["artifacts/**"]
+    output_schema: clarification
+    depends_on: [intake]
+    entry_gates:
+      - {check: artifact_present, gate_class: mechanical, path: "artifacts/requirement.json"}
+    exit_gates:
+      - {check: schema_valid, gate_class: mechanical, artifact: clarification.json}
+      # ADR-001: this is a self-report gate. The LLM populates the field the
+      # predicate reads, so it cannot be trusted alone -- assumptions are
+      # forced non-empty and surfaced at the design human gate below.
+      - {check: assumptions_present, gate_class: self_report, artifact: clarification.json}
+      - {check: no_blocking_ambiguities, gate_class: self_report, artifact: clarification.json,
+         on_fail: escalate}
+
+  - id: decompose
+    description: Convert the clarified requirement into a task DAG with dependencies.
+    prompt: prompts/decompose.md
+    tools: [Read, Write, Grep, Glob]
+    write_paths: ["artifacts/**"]
+    output_schema: plan
+    depends_on: [clarify]
+    entry_gates:
+      - {check: no_unresolved_ambiguities, gate_class: mechanical}
+    exit_gates:
+      - {check: schema_valid, gate_class: mechanical, artifact: plan.json}
+      - {check: plan_is_dag, gate_class: mechanical, artifact: plan.json}
+
+  - id: design
+    description: >
+      Produce the frozen contract. Everything the parallel branches need to work
+      independently is fixed here: OpenAPI spec, compilable interfaces and DTOs,
+      and the finalized pom.xml. Neither branch may change it afterwards.
+    prompt: prompts/design.md
+    tools: [Read, Write, Edit, Grep, Glob, Bash]
+    write_paths: ["artifacts/**", "service/src/main/java/**", "service/pom.xml"]
+    output_schema: design
+    depends_on: [decompose]
+    effort: xhigh
+    entry_gates:
+      - {check: artifact_present, gate_class: mechanical, path: "artifacts/plan.json"}
+    exit_gates:
+      - {check: schema_valid, gate_class: mechanical, artifact: design.json}
+      - {check: openapi_lints, gate_class: mechanical, artifact: openapi.yaml}
+      - {check: maven_compiles, gate_class: mechanical}
+      - {check: human_approval, gate_class: human, reason: "Frozen contract review (four-eyes)"}
+
+  # ---- parallel branch -------------------------------------------------
+  # implement and author-tests fan out from the frozen contract into separate
+  # git worktrees and rejoin at the barrier below.
+  #
+  # The allowlists are the segregation-of-duties control (ADR-003):
+  # `implement` cannot write to src/test, so the agent producing the code is
+  # structurally incapable of weakening the tests that gate it.
+
+  - id: implement
+    description: Implement the contract. Cannot touch tests.
+    prompt: prompts/implement.md
+    tools: [Read, Write, Edit, Grep, Glob, Bash]
+    write_paths: ["service/src/main/**"]
+    deny_paths: ["service/src/test/**", "service/pom.xml"]
+    depends_on: [design]
+    worktree: implement
+    effort: xhigh
+    retry: {max_attempts: 3, backoff_seconds: 10}
+    on_failure: retry
+    entry_gates:
+      - {check: contract_frozen, gate_class: mechanical}
+    exit_gates:
+      - {check: maven_compiles, gate_class: mechanical}
+      - {check: paths_confined, gate_class: mechanical}
+      - {check: no_secrets, gate_class: mechanical}
+
+  - id: author-tests
+    description: >
+      Author black-box HTTP/integration tests against the OpenAPI contract only.
+      Written blind: this node never sees the implementation.
+    prompt: prompts/author-tests.md
+    tools: [Read, Write, Edit, Grep, Glob, Bash]
+    write_paths: ["service/src/test/**"]
+    deny_paths: ["service/src/main/**", "service/pom.xml"]
+    depends_on: [design]
+    worktree: tests
+    effort: high
+    entry_gates:
+      - {check: contract_frozen, gate_class: mechanical}
+    exit_gates:
+      - {check: tests_compile, gate_class: mechanical}
+      - {check: paths_confined, gate_class: mechanical}
+
+  - id: join
+    description: Merge the parallel worktrees. Conflict escalates to a human.
+    type: barrier
+    depends_on: [implement, author-tests]
+    exit_gates:
+      - {check: merge_clean, gate_class: mechanical, on_fail: escalate}
+
+  # ---- verification ----------------------------------------------------
+
+  - id: verify
+    description: The authoritative mechanical gate.
+    type: deterministic          # no LLM call at all
+    depends_on: [join]
+    on_failure: replan
+    replan_target: decompose
+    replan_after_attempts: 2
+    max_replans: 2
+    exit_gates:
+      - {check: maven_verify, gate_class: mechanical}
+      - {check: coverage_floor, gate_class: mechanical, min_line_coverage: 0.70}
+      - {check: routes_match_openapi, gate_class: mechanical}
+
+  - id: docs
+    description: Generate user-facing documentation from the contract and code.
+    prompt: prompts/docs.md
+    tools: [Read, Write, Edit, Grep, Glob]
+    write_paths: ["docs/**", "README.md"]
+    depends_on: [verify]
+    effort: medium
+    on_failure: fallback          # degrade to `propose`; a human applies the diff
+    exit_gates:
+      - {check: paths_confined, gate_class: mechanical}
+      - {check: links_resolve, gate_class: mechanical}
+
+  - id: review
+    description: >
+      Adversarial review. ADVISORY ONLY -- cannot fail the run (ADR-001).
+      Deterministic static analysis gates; LLM blocker findings escalate.
+    prompt: prompts/review.md
+    tools: [Read, Grep, Glob, Bash]
+    write_paths: ["artifacts/**"]
+    output_schema: review
+    depends_on: [docs]
+    effort: xhigh
+    exit_gates:
+      - {check: static_analysis, gate_class: mechanical, max_severity: high}
+      - {check: blocker_findings_escalate, gate_class: self_report, artifact: review.json,
+         on_fail: escalate}
+
+  - id: release-readiness
+    description: Final human sign-off before anything leaves the machine.
+    prompt: prompts/release-readiness.md
+    tools: [Read, Grep, Glob, Bash]
+    write_paths: ["artifacts/**"]
+    output_schema: release
+    depends_on: [review]
+    autonomy: propose
+    effort: medium
+    exit_gates:
+      - {check: human_approval, gate_class: human,
+         reason: "Release sign-off: review full diff before push/PR"}
