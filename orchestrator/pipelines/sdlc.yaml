@@ -21,8 +21,14 @@ defaults:
   on_failure: retry
 
 budget:
-  max_cost_usd: 25.0
-  max_wallclock_seconds: 5400
+  # Sized from a measured run rather than guessed: the 11-node graph cost about
+  # $17 with one rejected contract. This graph adds two analysis nodes and turns
+  # one reviewer into six, and the review fan-out is the expensive half. A
+  # ceiling set below what a healthy run costs does not protect anything -- it
+  # just safe-stops every run at the same place and trains whoever is watching
+  # to raise it without looking.
+  max_cost_usd: 60.0
+  max_wallclock_seconds: 10800
 
 policy:
   # Writes to these paths force PENDING_APPROVAL regardless of node autonomy.
