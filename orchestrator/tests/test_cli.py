@@ -213,7 +213,15 @@ class TestReporting:
         cli(env, "report", "run-cli", "--json")
         payload = json.loads(capsys.readouterr().out)
         assert payload["status"] == "completed"
-        assert payload["total_cost_usd"] == pytest.approx(2.0)
+        # $0.50 for design plus $1.00 for build. This asserted $2.00 until the
+        # cost accounting was fixed: approving design and resuming re-gated the
+        # existing result without re-running it, and the replayed entry carried
+        # the original cost, so the same $0.50 was counted where it was spent
+        # and again where it was merely re-examined.
+        assert payload["total_cost_usd"] == pytest.approx(1.5)
+        assert sum(payload["node_cost_usd"].values()) == pytest.approx(
+            payload["total_cost_usd"]
+        )
 
     def test_verify_confirms_an_untouched_chain(self, env: dict, capsys) -> None:
         self._complete(env)

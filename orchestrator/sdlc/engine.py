@@ -416,6 +416,23 @@ class Engine:
             execution = self._evaluate_exit(node, result, attempt=attempt)
             if execution.status is not NodeStatus.FAILED:
                 return execution
+            # An attempt rejected by a gate cost exactly as much as one that
+            # crashed, and until this record existed the journal only carried
+            # the cost of attempts that *succeeded*. Everything spent on work
+            # that was thrown away was invisible -- which is precisely the
+            # number anyone asks for when they ask what the governance costs.
+            self._record(
+                "node_attempt_failed",
+                node_id=node.id,
+                attempt=attempt,
+                parent_ids=self._parents(node.id),
+                error="; ".join(
+                    f"{g.check}: {g.detail}"
+                    for g in execution.gate_results
+                    if g.outcome is GateOutcome.FAIL
+                )[:500],
+                cost_usd=result.cost_usd,
+            )
             gate_failures = tuple(
                 g for g in execution.gate_results if g.outcome is GateOutcome.FAIL
             )
@@ -597,7 +614,14 @@ class Engine:
                     ok=True,
                     output=entry.payload.get("output") or {},
                     files_written=tuple(entry.payload.get("files_written") or ()),
-                    cost_usd=float(entry.payload.get("cost_usd") or 0.0),
+                    # Deliberately zero. This path exists so that resuming into
+                    # an approved checkpoint re-gates the work instead of paying
+                    # for it twice -- so carrying the original cost forward
+                    # would have the journal record the same money twice, once
+                    # where it was spent and again where it was merely
+                    # re-examined. The cost belongs to the invocation that
+                    # incurred it, and that entry is still in the journal.
+                    cost_usd=0.0,
                 )
         return None
 

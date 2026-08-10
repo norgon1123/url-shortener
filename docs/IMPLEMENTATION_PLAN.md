@@ -294,7 +294,33 @@ the numbers cannot quietly disagree with the audit record.
 MTTR has no standard meaning in a pipeline (there is no "service restored"
 event), so it is defined explicitly: **first failing gate → next passing gate on
 the same node**. A clean run reports `n/a (no failures)` rather than `0.0`,
-which would read as instant recovery instead of never having broken.
+which would read as instant recovery instead of never having broken — and a run
+that broke and never came back reports `n/a (failed, never recovered)`, because
+one sentence for both causes made the two indistinguishable.
+
+**Rework cost** is reported beside the total: spend on attempts that a later
+attempt replaced — a rejected contract, a retry after a failed gate, a node
+re-entered by a replan. This is the question the system invites, so it is
+answered explicitly rather than buried in an aggregate. The first live
+greenfield run spent **71%** of its budget on rework, almost all of it on one
+rejected contract; that is the honest cost of a human checkpoint that a
+reviewer actually used.
+
+Three defects in this accounting were found by running it and are worth
+recording, because each made the report flatter than the truth:
+
+- per-node cost accumulated only where a node *passed*, so a rejected or failed
+  attempt showed `$0.00` next to ten minutes of work;
+- resuming into an approved checkpoint re-gates the existing result rather than
+  re-running it, and the replayed journal entry carried the original cost, so
+  the same money was counted where it was spent and again where it was merely
+  re-examined;
+- an attempt rejected by a *gate* — as opposed to one that crashed — was
+  journalled with no cost at all, which is why the run total and the ledger in
+  the run store disagreed by the entire cost of the failed parallel branches.
+
+The per-node column and the run total are now the same arithmetic, so they
+cannot tell different stories.
 
 ---
 

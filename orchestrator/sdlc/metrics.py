@@ -48,7 +48,11 @@ class NodeMetrics:
     gate_passes: int = 0
     gate_failures: int = 0
     escalations: int = 0
+    # Everything this node ever spent, across every attempt.
     cost_usd: float = 0.0
+    # The most recent spend, which is the only one not yet superseded. Bookkeeping
+    # for the rework figure rather than something worth reporting on its own.
+    latest_cost_usd: float = 0.0
     duration_seconds: float | None = None
     recovered_in_seconds: list[float] = field(default_factory=list)
     final_status: str = "pending"
@@ -64,6 +68,12 @@ class RunMetrics:
     status: str = "unknown"
     nodes: dict[str, NodeMetrics] = field(default_factory=dict)
     total_cost_usd: float = 0.0
+    # Spend on attempts that a later attempt replaced: a rejected contract, a
+    # retry after a failed gate, a node re-entered by a replan. Reported
+    # separately because it is the question this system invites -- what does the
+    # governance cost -- and burying it inside the total is how that question
+    # goes unanswered.
+    rework_cost_usd: float = 0.0
     e2e_latency_seconds: float | None = None
     replans: int = 0
     rollbacks: int = 0
@@ -100,6 +110,10 @@ class RunMetrics:
         return (self.rollbacks / len(ran)) if ran else 0.0
 
     @property
+    def rework_share(self) -> float:
+        return self.rework_cost_usd / self.total_cost_usd if self.total_cost_usd else 0.0
+
+    @property
     def mttr_seconds(self) -> float | None:
         samples = [s for n in self.nodes.values() for s in n.recovered_in_seconds]
         return mean(samples) if samples else None
@@ -122,6 +136,10 @@ class RunMetrics:
                 round(self.e2e_latency_seconds, 2) if self.e2e_latency_seconds else None
             ),
             "total_cost_usd": round(self.total_cost_usd, 4),
+            "rework_cost_usd": round(self.rework_cost_usd, 4),
+            "node_cost_usd": {
+                nid: round(n.cost_usd, 4) for nid, n in sorted(self.nodes.items())
+            },
         }
 
 
@@ -146,7 +164,23 @@ def compute(journal: Journal, *, verify: bool = True) -> RunMetrics:
     for entry in entries:
         node = _node_metrics(metrics, entry)
         payload = entry.payload
-        metrics.total_cost_usd += float(payload.get("cost_usd") or 0.0)
+
+        # Cost is attributed wherever it appears, not only where a node
+        # succeeded. Accumulating it in one place is the point: the per-node
+        # column and the run total are now the same arithmetic, so they cannot
+        # tell different stories. They did -- the table showed the cost of the
+        # attempt that happened to be accepted and the total showed everything,
+        # and the gap between them was exactly the rework.
+        cost = float(payload.get("cost_usd") or 0.0)
+        if cost:
+            metrics.total_cost_usd += cost
+            if node:
+                # Whatever this node last spent has just been superseded by a
+                # newer attempt -- rejected, retried, or re-planned -- so it
+                # becomes rework. Only the most recent spend is still standing.
+                metrics.rework_cost_usd += node.latest_cost_usd
+                node.latest_cost_usd = cost
+                node.cost_usd += cost
 
         match entry.event:
             case "node_started":
@@ -161,7 +195,6 @@ def compute(journal: Journal, *, verify: bool = True) -> RunMetrics:
             case "node_passed":
                 if node:
                     node.final_status = "passed"
-                    node.cost_usd += float(payload.get("cost_usd") or 0.0)
                     _record_recovery(node, entry, broke_at)
             case "node_failed":
                 if node:
@@ -264,7 +297,15 @@ def render_text(metrics: RunMetrics) -> str:
             f"{gates:>7} {node.cost_usd:>8.2f}$ {secs:>8}"
         )
 
-    mttr = f"{metrics.mttr_seconds:.1f}s" if metrics.mttr_seconds is not None else "n/a (no failures)"
+    # "n/a" has two very different causes and reporting one sentence for both
+    # was actively misleading: a run where nothing broke read identically to a
+    # run where something broke and never came back.
+    if metrics.mttr_seconds is not None:
+        mttr = f"{metrics.mttr_seconds:.1f}s"
+    elif any(n.gate_failures or n.final_status == "failed" for n in metrics.nodes.values()):
+        mttr = "n/a (failed, never recovered)"
+    else:
+        mttr = "n/a (no failures)"
     latency = (
         f"{metrics.e2e_latency_seconds:.1f}s"
         if metrics.e2e_latency_seconds is not None
@@ -282,5 +323,7 @@ def render_text(metrics: RunMetrics) -> str:
         f"MTTR                 {mttr}",
         f"end-to-end latency   {latency}",
         f"total cost           ${metrics.total_cost_usd:.2f}",
+        f"  of which rework     ${metrics.rework_cost_usd:.2f}"
+        f" ({metrics.rework_share:.0%} — rejected, retried, or re-planned attempts)",
     ]
     return "\n".join(lines)

@@ -158,3 +158,78 @@ class TestRendering:
 
         seed_clean(journal)
         assert json.loads(json.dumps(compute(journal).as_dict()))["status"] == "completed"
+
+
+class TestCostAccounting:
+    """What a run cost, and how much of it bought nothing.
+
+    Every number here was wrong before: the per-node column reported only the
+    attempt that happened to be accepted, the total counted re-gated entries
+    twice, and attempts rejected by a gate were recorded with no cost at all.
+    Three different ways for the same report to understate or overstate the
+    same spend.
+    """
+
+    def _spend(self, journal: Journal) -> None:
+        journal.append("run_started")
+        journal.append("node_started", node_id="design")
+        # Rejected by a human: the money was spent and the work was thrown away.
+        journal.append("node_pending_approval", node_id="design", cost_usd=4.0)
+        journal.append("node_started", node_id="design", attempt=1)
+        journal.append("node_pending_approval", node_id="design", cost_usd=1.0)
+        # Approved, then resumed: re-gated, not re-run, so it cost nothing.
+        journal.append("node_passed", node_id="design", cost_usd=0.0)
+        journal.append("node_started", node_id="implement")
+        journal.append("node_attempt_failed", node_id="implement", cost_usd=2.0)
+        journal.append("node_started", node_id="implement", attempt=1)
+        journal.append("node_passed", node_id="implement", cost_usd=3.0)
+
+    def test_a_nodes_cost_includes_the_attempts_that_were_thrown_away(
+        self, journal: Journal
+    ) -> None:
+        self._spend(journal)
+        metrics = compute(journal, verify=False)
+        assert metrics.nodes["design"].cost_usd == pytest.approx(5.0)
+        assert metrics.nodes["implement"].cost_usd == pytest.approx(5.0)
+
+    def test_the_total_is_the_sum_of_the_nodes(self, journal: Journal) -> None:
+        """Same arithmetic in both places, so they cannot tell different stories."""
+        self._spend(journal)
+        metrics = compute(journal, verify=False)
+        assert metrics.total_cost_usd == pytest.approx(
+            sum(n.cost_usd for n in metrics.nodes.values())
+        )
+
+    def test_rework_is_the_spend_a_later_attempt_replaced(self, journal: Journal) -> None:
+        """$4 on the rejected contract, $2 on the failed attempt. 60% of the run."""
+        self._spend(journal)
+        metrics = compute(journal, verify=False)
+        assert metrics.rework_cost_usd == pytest.approx(6.0)
+        assert metrics.rework_share == pytest.approx(0.6)
+
+    def test_a_clean_run_reports_no_rework(self, journal: Journal) -> None:
+        seed_clean(journal)
+        metrics = compute(journal, verify=False)
+        assert metrics.rework_cost_usd == pytest.approx(0.0)
+
+    def test_the_report_states_the_rework_beside_the_total(self, journal: Journal) -> None:
+        self._spend(journal)
+        rendered = render_text(compute(journal, verify=False))
+        assert "of which rework     $6.00" in rendered
+
+    def test_mttr_distinguishes_never_broke_from_never_recovered(
+        self, journal: Journal
+    ) -> None:
+        """Reporting one sentence for both read as a clean run either way."""
+        journal.append("run_started")
+        journal.append("node_started", node_id="verify")
+        journal.append(
+            "gate_evaluated",
+            node_id="verify",
+            check="maven_verify",
+            outcome="fail",
+            gate_class="mechanical",
+            phase="exit",
+        )
+        journal.append("node_failed", node_id="verify")
+        assert "never recovered" in render_text(compute(journal, verify=False))
