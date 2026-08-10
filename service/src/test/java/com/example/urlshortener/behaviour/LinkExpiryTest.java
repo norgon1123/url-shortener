@@ -1,6 +1,19 @@
 package com.example.urlshortener.behaviour;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.example.urlshortener.api.ApiError;
+import com.example.urlshortener.api.LinkResponse;
+import com.example.urlshortener.domain.LinkStatus;
 import com.example.urlshortener.support.AbstractIntegrationTest;
+import com.example.urlshortener.support.ApiClient;
+import com.example.urlshortener.support.Fixtures;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -23,7 +36,16 @@ class LinkExpiryTest extends AbstractIntegrationTest {
      */
     @Test
     void aLinkCreatedWithoutAnExpiryGetsTheDefaultOne() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        LinkResponse link = givenLink(alice());
+
+        Duration granted = Duration.between(link.createdAt(), link.expiresAt());
+        Duration drift = granted.minus(Fixtures.DEFAULT_LINK_TTL).abs();
+        assertAll(
+                () -> assertTrue(link.expiresAt().isAfter(link.createdAt())),
+                () -> assertTrue(
+                        drift.compareTo(Duration.ofMinutes(5)) < 0,
+                        "about a month out, from app.links.default-ttl: got " + granted),
+                () -> assertEquals(LinkStatus.ACTIVE, link.status()));
     }
 
     /**
@@ -34,11 +56,26 @@ class LinkExpiryTest extends AbstractIntegrationTest {
      */
     @Test
     void anExpiredLinkNoLongerRedirects() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        LinkResponse link = givenLinkExpiringIn(alice, Fixtures.SHORT_EXPIRY);
+        assertEquals(302, api.click(link.code()).statusCode(), "it redirects while it is live");
+
+        // The harness own way of reaching an expired link: sit through the expiry,
+        // then clear the resolution cache so that a cached row cannot be the reason
+        // the next click answers either way.
+        awaitExpiry(link);
+
+        HttpResponse<String> click = api.click(link.code());
+        LinkResponse asTheOwnerSeesIt = ApiClient.asLink(api.getLink(alice, link.code()));
+        assertAll(
+                () -> assertEquals(404, click.statusCode()),
+                () -> assertEquals(Fixtures.NOT_FOUND_BODY, click.body()),
+                () -> assertEquals(
+                        LinkStatus.EXPIRED, asTheOwnerSeesIt.status(), "and its owner sees why"));
     }
 
     /**
-     * An individual link's expiry can be set to a new future instant, the response
+     * An individual link expiry can be set to a new future instant, the response
      * carries the new value, and a later fetch agrees - the change is per link and
      * needs no code change.
      *
@@ -46,7 +83,22 @@ class LinkExpiryTest extends AbstractIntegrationTest {
      */
     @Test
     void theExpiryOfAnIndividualLinkCanBeChanged() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        LinkResponse link = givenLink(alice);
+        Instant newExpiry = Instant.now().plus(Duration.ofDays(90)).truncatedTo(ChronoUnit.SECONDS);
+
+        HttpResponse<String> patched = api.updateExpiry(alice, link.code(), newExpiry);
+
+        assertEquals(200, patched.statusCode(), patched.body());
+        LinkResponse updated = ApiClient.asLink(patched);
+        LinkResponse refetched = ApiClient.asLink(api.getLink(alice, link.code()));
+        assertAll(
+                () -> assertEquals(newExpiry, updated.expiresAt(), "the response carries the new value"),
+                () -> assertEquals(newExpiry, refetched.expiresAt(), "and so does a later fetch"),
+                () -> assertEquals(link.code(), updated.code()),
+                () -> assertEquals(link.longUrl(), updated.longUrl(), "nothing else moved"),
+                () -> assertEquals(LinkStatus.ACTIVE, updated.status()),
+                () -> assertEquals(302, api.click(link.code()).statusCode()));
     }
 
     /**
@@ -58,18 +110,64 @@ class LinkExpiryTest extends AbstractIntegrationTest {
      */
     @Test
     void bringingTheExpiryForwardStopsTheRedirectWhenItPasses() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        // Default expiry, a month out, and clicked once first so that whatever the
+        // resolution cache does with a live link has already happened.
+        LinkResponse link = givenLink(alice);
+        assertEquals(302, api.click(link.code()).statusCode(), "live before the change");
+
+        Instant broughtForward =
+                Instant.now().plus(Fixtures.SHORT_EXPIRY).truncatedTo(ChronoUnit.SECONDS);
+        HttpResponse<String> patched = api.updateExpiry(alice, link.code(), broughtForward);
+        assertEquals(200, patched.statusCode(), patched.body());
+
+        // Deliberately no cache eviction here: the contract says shortening the
+        // expiry takes effect once the new time passes, and a test that cleared the
+        // cache itself would pass against a service that never invalidated anything.
+        awaitInstant(broughtForward.plusMillis(1500));
+
+        HttpResponse<String> afterTheNewExpiry = api.click(link.code());
+        LinkResponse asTheOwnerSeesIt = ApiClient.asLink(api.getLink(alice, link.code()));
+        assertAll(
+                () -> assertEquals(broughtForward, ApiClient.asLink(patched).expiresAt()),
+                () -> assertTrue(
+                        link.expiresAt().isAfter(broughtForward),
+                        "the original expiry is still far away, so only the change explains a 404"),
+                () -> assertEquals(404, afterTheNewExpiry.statusCode(), afterTheNewExpiry.body()),
+                () -> assertEquals(Fixtures.NOT_FOUND_BODY, afterTheNewExpiry.body()),
+                () -> assertEquals(LinkStatus.EXPIRED, asTheOwnerSeesIt.status()));
     }
 
     /**
-     * Pushing a soon-to-expire link's expiry further out keeps it redirecting past
+     * Pushing a soon-to-expire link expiry further out keeps it redirecting past
      * the original time.
      *
      * <p>Demonstrates: AC11, AC10.
      */
     @Test
     void pushingTheExpiryOutKeepsALinkRedirecting() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        LinkResponse link = givenLinkExpiringIn(alice, Fixtures.SHORT_EXPIRY);
+        Instant originalExpiry = link.expiresAt();
+        Instant pushedOut = Instant.now().plus(Duration.ofDays(7)).truncatedTo(ChronoUnit.SECONDS);
+
+        HttpResponse<String> patched = api.updateExpiry(alice, link.code(), pushedOut);
+        assertEquals(200, patched.statusCode(), patched.body());
+
+        awaitInstant(originalExpiry.plusMillis(1500));
+
+        HttpResponse<String> afterTheOriginalExpiry = api.click(link.code());
+        LinkResponse asTheOwnerSeesIt = ApiClient.asLink(api.getLink(alice, link.code()));
+        assertAll(
+                () -> assertTrue(
+                        Instant.now().isAfter(originalExpiry), "the original expiry really has passed"),
+                () -> assertEquals(
+                        302, afterTheOriginalExpiry.statusCode(), afterTheOriginalExpiry.body()),
+                () -> assertEquals(
+                        Fixtures.TARGET_URL,
+                        ApiClient.header(afterTheOriginalExpiry, Fixtures.LOCATION).orElse(null)),
+                () -> assertEquals(pushedOut, asTheOwnerSeesIt.expiresAt()),
+                () -> assertEquals(LinkStatus.ACTIVE, asTheOwnerSeesIt.status()));
     }
 
     /**
@@ -81,7 +179,21 @@ class LinkExpiryTest extends AbstractIntegrationTest {
      */
     @Test
     void anExpiryInThePastIsRejectedAndChangesNothing() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        LinkResponse link = givenLink(alice);
+
+        HttpResponse<String> backdated =
+                api.updateExpiry(alice, link.code(), Instant.now().minus(Duration.ofDays(1)));
+
+        LinkResponse afterwards = ApiClient.asLink(api.getLink(alice, link.code()));
+        HttpResponse<String> click = api.click(link.code());
+        assertAll(
+                () -> assertEquals(400, backdated.statusCode(), backdated.body()),
+                () -> assertEquals("invalid_request", ApiClient.asError(backdated).error()),
+                () -> assertTrue(namesField(backdated, "expiresAt"), backdated.body()),
+                () -> assertEquals(link.expiresAt(), afterwards.expiresAt(), "the old expiry stands"),
+                () -> assertEquals(LinkStatus.ACTIVE, afterwards.status()),
+                () -> assertEquals(302, click.statusCode(), "a backdated expiry is not a takedown"));
     }
 
     /**
@@ -92,12 +204,23 @@ class LinkExpiryTest extends AbstractIntegrationTest {
      */
     @Test
     void aPatchWithoutAnExpiryIsRejected() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        LinkResponse link = givenLink(alice);
+
+        HttpResponse<String> empty = api.updateLinkRaw(alice, link.code(), "{}");
+
+        LinkResponse afterwards = ApiClient.asLink(api.getLink(alice, link.code()));
+        assertAll(
+                () -> assertEquals(400, empty.statusCode(), empty.body()),
+                () -> assertEquals("invalid_request", ApiClient.asError(empty).error()),
+                () -> assertEquals("The request is not valid.", ApiClient.asError(empty).message()),
+                () -> assertTrue(namesField(empty, "expiresAt"), empty.body()),
+                () -> assertEquals(link.expiresAt(), afterwards.expiresAt(), "and nothing happened"));
     }
 
     /**
      * A patch carrying the target URL - or any other property - is 400, and the
-     * link's target is unchanged afterwards. Immutability is mechanical: the field
+     * link target is unchanged afterwards. Immutability is mechanical: the field
      * fails loudly instead of being silently ignored, which is what stops a shared
      * link being repointed at something else after the fact.
      *
@@ -105,23 +228,74 @@ class LinkExpiryTest extends AbstractIntegrationTest {
      */
     @Test
     void aPatchCarryingTheTargetUrlIsRejectedRatherThanIgnored() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        LinkResponse link = givenLink(alice);
+        String newExpiry =
+                Instant.now().plus(Duration.ofDays(5)).truncatedTo(ChronoUnit.SECONDS).toString();
+
+        HttpResponse<String> repoint = api.updateLinkRaw(
+                alice, link.code(), "{\"longUrl\":\"" + Fixtures.OTHER_TARGET_URL + "\"}");
+        HttpResponse<String> smuggled = api.updateLinkRaw(
+                alice,
+                link.code(),
+                "{\"expiresAt\":\"" + newExpiry + "\",\"longUrl\":\"" + Fixtures.OTHER_TARGET_URL
+                        + "\"}");
+        HttpResponse<String> statusChange = api.updateLinkRaw(
+                alice, link.code(), "{\"expiresAt\":\"" + newExpiry + "\",\"status\":\"ACTIVE\"}");
+
+
+        LinkResponse afterwards = ApiClient.asLink(api.getLink(alice, link.code()));
+        HttpResponse<String> click = api.click(link.code());
+        assertAll(
+                () -> assertEquals(400, repoint.statusCode(), repoint.body()),
+                () -> assertEquals("invalid_request", ApiClient.asError(repoint).error()),
+                () -> assertEquals(400, smuggled.statusCode(), smuggled.body()),
+                () -> assertEquals("invalid_request", ApiClient.asError(smuggled).error()),
+                () -> assertEquals(400, statusChange.statusCode(), statusChange.body()),
+                () -> assertEquals(Fixtures.TARGET_URL, afterwards.longUrl(), "the target never moves"),
+                () -> assertEquals(
+                        link.expiresAt(),
+                        afterwards.expiresAt(),
+                        "a refused patch changes nothing, not even the part that was valid"),
+                () -> assertEquals(
+                        Fixtures.TARGET_URL, ApiClient.header(click, Fixtures.LOCATION).orElse(null)));
     }
 
     /**
-     * Patching another customer's link is 404 - identical to patching a code that
-     * was never issued - and that customer's link is untouched: same expiry, still
+     * Patching another customer link is 404 - identical to patching a code that
+     * was never issued - and that customer link is untouched: same expiry, still
      * redirecting.
      *
      * <p>Demonstrates: AC13, AC15.
      */
     @Test
     void patchingAnotherCustomersLinkIsNotFoundAndChangesNothing() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        String bob = bob();
+        LinkResponse bobsLink = givenLink(bob);
+        Instant attempted = Instant.now().plus(Duration.ofDays(1)).truncatedTo(ChronoUnit.SECONDS);
+
+        HttpResponse<String> onBobsLink = api.updateExpiry(alice, bobsLink.code(), attempted);
+        HttpResponse<String> onAnUnissuedCode =
+                api.updateExpiry(alice, Fixtures.UNISSUED_CODE, attempted);
+
+        LinkResponse bobsLinkAfterwards = ApiClient.asLink(api.getLink(bob, bobsLink.code()));
+        HttpResponse<String> click = api.click(bobsLink.code());
+        assertAll(
+                () -> assertEquals(404, onBobsLink.statusCode(), onBobsLink.body()),
+                () -> assertEquals(Fixtures.NOT_FOUND_BODY, onBobsLink.body()),
+                () -> assertEquals(
+                        onAnUnissuedCode.statusCode(),
+                        onBobsLink.statusCode(),
+                        "another customer link answers exactly like a code never issued"),
+                () -> assertEquals(onAnUnissuedCode.body(), onBobsLink.body()),
+                () -> assertEquals(bobsLink.expiresAt(), bobsLinkAfterwards.expiresAt()),
+                () -> assertEquals(LinkStatus.ACTIVE, bobsLinkAfterwards.status()),
+                () -> assertEquals(302, click.statusCode(), "and it still works for its audience"));
     }
 
     /**
-     * Patching one's own deleted link is 409 {@code link_not_modifiable}: its
+     * Patching a deleted link of the caller own is 409 {@code link_not_modifiable}: its
      * expiry no longer means anything, and the answer is a conflict rather than a
      * 404 because the caller does own it.
      *
@@ -129,18 +303,51 @@ class LinkExpiryTest extends AbstractIntegrationTest {
      */
     @Test
     void patchingOnesOwnDeletedLinkIsRefusedAsNotModifiable() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        LinkResponse deleted = givenDeletedLink(alice);
+
+        HttpResponse<String> patched = api.updateExpiry(
+                alice,
+                deleted.code(),
+                Instant.now().plus(Duration.ofDays(30)).truncatedTo(ChronoUnit.SECONDS));
+
+        LinkResponse afterwards = ApiClient.asLink(api.getLink(alice, deleted.code()));
+        assertAll(
+                () -> assertEquals(409, patched.statusCode(), patched.body()),
+                () -> assertEquals("link_not_modifiable", ApiClient.asError(patched).error()),
+                () -> assertEquals(
+                        "This link can no longer be modified.", ApiClient.asError(patched).message()),
+                () -> assertEquals(LinkStatus.DELETED, afterwards.status(), "it stays deleted"),
+                () -> assertEquals(404, api.click(deleted.code()).statusCode()));
     }
 
     /**
-     * Patching one's own blocked link is 409 and the link stays down: an abuse
-     * takedown must not be reversible by its owner pushing the expiry out.
+     * Patching a blocked link of the caller own is 409 and the link stays down: an
+     * abuse takedown must not be reversible by its owner pushing the expiry out.
      *
      * <p>Demonstrates: AC21, AC9.
      */
     @Test
     void patchingOnesOwnBlockedLinkCannotUndoTheTakedown() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        String bob = bob();
+        LinkResponse blocked = givenBlockedLink(alice, bob);
+
+        HttpResponse<String> patched = api.updateExpiry(
+                alice,
+                blocked.code(),
+                Instant.now().plus(Duration.ofDays(365)).truncatedTo(ChronoUnit.SECONDS));
+
+        LinkResponse afterwards = ApiClient.asLink(api.getLink(alice, blocked.code()));
+        HttpResponse<String> click = api.click(blocked.code());
+        assertAll(
+                () -> assertEquals(409, patched.statusCode(), patched.body()),
+                () -> assertEquals("link_not_modifiable", ApiClient.asError(patched).error()),
+                () -> assertEquals(LinkStatus.BLOCKED, afterwards.status(), "the takedown holds"),
+                () -> assertEquals(
+                        blocked.expiresAt(), afterwards.expiresAt(), "and the expiry did not move"),
+                () -> assertEquals(404, click.statusCode()),
+                () -> assertEquals(Fixtures.NOT_FOUND_BODY, click.body()));
     }
 
     /**
@@ -151,6 +358,32 @@ class LinkExpiryTest extends AbstractIntegrationTest {
      */
     @Test
     void patchingWithoutASessionIsRefused() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        LinkResponse link = givenLink(alice);
+        Instant attempted = Instant.now().plus(Duration.ofDays(1)).truncatedTo(ChronoUnit.SECONDS);
+
+        HttpResponse<String> onARealCode = api.updateExpiry(null, link.code(), attempted);
+        HttpResponse<String> onAnUnissuedCode =
+                api.updateExpiry(null, Fixtures.UNISSUED_CODE, attempted);
+
+        LinkResponse afterwards = ApiClient.asLink(api.getLink(alice, link.code()));
+        assertAll(
+                () -> assertEquals(401, onARealCode.statusCode(), onARealCode.body()),
+                () -> assertEquals("unauthorized", ApiClient.asError(onARealCode).error()),
+                () -> assertEquals("Authentication required.", ApiClient.asError(onARealCode).message()),
+                () -> assertEquals(401, onAnUnissuedCode.statusCode(), onAnUnissuedCode.body()),
+                () -> assertEquals(
+                        onARealCode.body(),
+                        onAnUnissuedCode.body(),
+                        "an unauthenticated caller cannot learn which codes exist"),
+                () -> assertEquals(link.expiresAt(), afterwards.expiresAt(), "and nothing changed"));
+    }
+
+    // ---- helpers ----------------------------------------------------------
+
+    /** True when the error body names {@code field} in its per-field detail. */
+    private boolean namesField(HttpResponse<String> response, String field) {
+        ApiError error = ApiClient.asError(response);
+        return error.fields() != null && error.fields().containsKey(field);
     }
 }

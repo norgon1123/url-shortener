@@ -1,7 +1,20 @@
 package com.example.urlshortener.behaviour;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.example.urlshortener.api.LinkResponse;
+import com.example.urlshortener.api.SignInResponse;
+import com.example.urlshortener.auth.CurrentCustomer;
 import com.example.urlshortener.auth.JwtVerifier;
 import com.example.urlshortener.support.AbstractIntegrationTest;
+import com.example.urlshortener.support.ApiClient;
+import com.example.urlshortener.support.Fixtures;
+import java.net.http.HttpResponse;
+import java.time.Instant;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -32,7 +45,21 @@ class SignInBehaviourTest extends AbstractIntegrationTest {
      */
     @Test
     void validCredentialsIssueASession() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        Instant before = Instant.now();
+
+        HttpResponse<String> response = api.signIn(Fixtures.ALICE.email(), Fixtures.ALICE.plaintext());
+
+        assertEquals(200, response.statusCode(), response.body());
+        SignInResponse session = ApiClient.asSession(response);
+        assertAll(
+                () -> assertTrue(
+                        session.accessToken() != null && !session.accessToken().isBlank(),
+                        "a session without a credential is no session"),
+                () -> assertEquals("Bearer", session.tokenType()),
+                () -> assertEquals(Fixtures.ALICE.id(), session.customerId()),
+                () -> assertTrue(
+                        session.expiresAt().isAfter(before),
+                        "the expiry is an absolute instant in the future: " + session.expiresAt()));
     }
 
     /**
@@ -45,7 +72,20 @@ class SignInBehaviourTest extends AbstractIntegrationTest {
      */
     @Test
     void unknownAccountAndWrongPasswordAreRefusedIdentically() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        HttpResponse<String> wrongPassword =
+                api.signIn(Fixtures.ALICE.email(), Fixtures.ALICE.plaintext() + "-not");
+        HttpResponse<String> unknownAccount = api.signIn("nobody@example.com", Fixtures.ALICE.plaintext());
+
+        assertAll(
+                () -> assertEquals(401, wrongPassword.statusCode(), wrongPassword.body()),
+                () -> assertEquals(401, unknownAccount.statusCode(), unknownAccount.body()),
+                () -> assertEquals(unknownAccount.body(), wrongPassword.body(),
+                        "a difference here is an account-enumeration oracle"),
+                () -> assertEquals("invalid_credentials", ApiClient.asError(wrongPassword).error()),
+                () -> assertEquals("Invalid email or password.", ApiClient.asError(wrongPassword).message()),
+                () -> assertTrue(
+                        !wrongPassword.body().contains(Fixtures.ALICE.email()),
+                        "the message never echoes request content"));
     }
 
     /**
@@ -57,7 +97,22 @@ class SignInBehaviourTest extends AbstractIntegrationTest {
      */
     @Test
     void malformedSignInBodyIsRejectedAsAnInvalidRequest() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        HttpResponse<String> missingPassword =
+                api.signInRaw("{\"email\":\"" + Fixtures.ALICE.email() + "\"}");
+        HttpResponse<String> unknownProperty = api.signInRaw("{\"email\":\"" + Fixtures.ALICE.email()
+                + "\",\"password\":\"" + Fixtures.ALICE.plaintext() + "\",\"admin\":true}");
+        HttpResponse<String> notJsonAtAll = api.signInRaw("this is not json");
+
+        assertAll(
+                () -> assertEquals(400, missingPassword.statusCode(), missingPassword.body()),
+                () -> assertEquals("invalid_request", ApiClient.asError(missingPassword).error()),
+                () -> assertEquals(400, unknownProperty.statusCode(), unknownProperty.body()),
+                () -> assertEquals("invalid_request", ApiClient.asError(unknownProperty).error()),
+                () -> assertNotEquals(200, unknownProperty.statusCode(),
+                        "an undefined property must not be silently ignored"),
+                () -> assertEquals(400, notJsonAtAll.statusCode(), notJsonAtAll.body()),
+                () -> assertNotEquals(401, missingPassword.statusCode(),
+                        "getting the shape wrong is not the same as getting the credentials wrong"));
     }
 
     /**
@@ -69,7 +124,22 @@ class SignInBehaviourTest extends AbstractIntegrationTest {
      */
     @Test
     void oneSessionServesManyLaterRequests() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String oneSession = alice();
+
+        HttpResponse<String> created = api.createLink(oneSession, Fixtures.TARGET_URL);
+        LinkResponse link = ApiClient.asLink(created);
+        HttpResponse<String> fetched = api.getLink(oneSession, link.code());
+        HttpResponse<String> listed = api.listLinks(oneSession, 0, 5);
+        HttpResponse<String> patched =
+                api.updateExpiry(oneSession, link.code(), Instant.now().plusSeconds(3600));
+        HttpResponse<String> deleted = api.deleteLink(oneSession, link.code());
+
+        assertAll(
+                () -> assertEquals(201, created.statusCode(), created.body()),
+                () -> assertEquals(200, fetched.statusCode(), fetched.body()),
+                () -> assertEquals(200, listed.statusCode(), listed.body()),
+                () -> assertEquals(200, patched.statusCode(), patched.body()),
+                () -> assertEquals(204, deleted.statusCode(), deleted.body()));
     }
 
     /**
@@ -83,7 +153,21 @@ class SignInBehaviourTest extends AbstractIntegrationTest {
      */
     @Test
     void aSessionIsCheckedAgainstTheKeyRatherThanTheLoginSystem() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        SignInResponse session =
+                ApiClient.asSession(api.signIn(Fixtures.ALICE.email(), Fixtures.ALICE.plaintext()));
+
+        // No HTTP call, no database read: the credential is checked locally, which
+        // is what makes it usable by a service that has no login system at all.
+        Optional<CurrentCustomer> caller = jwtVerifier.verify(session.accessToken());
+
+        assertAll(
+                () -> assertTrue(caller.isPresent(), "the issued credential must verify locally"),
+                () -> assertEquals(Fixtures.ALICE.id(), caller.orElseThrow().id()),
+                () -> assertEquals(Fixtures.ALICE.email(), caller.orElseThrow().email()),
+                () -> assertTrue(
+                        jwtVerifier.verify(Fixtures.FORGED_BEARER).isEmpty(),
+                        "a credential this service did not sign verifies against nothing"),
+                () -> assertTrue(jwtVerifier.verify(Fixtures.MALFORMED_BEARER).isEmpty()));
     }
 
     /**
@@ -96,6 +180,20 @@ class SignInBehaviourTest extends AbstractIntegrationTest {
      */
     @Test
     void absentMalformedAndForgedCredentialsAreRefusedIdentically() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        LinkResponse link = givenLink(alice());
+
+        HttpResponse<String> absent = api.getLink(null, link.code());
+        HttpResponse<String> malformed = api.getLink(Fixtures.MALFORMED_BEARER, link.code());
+        HttpResponse<String> forged = api.getLink(Fixtures.FORGED_BEARER, link.code());
+
+        assertAll(
+                () -> assertEquals(401, absent.statusCode(), absent.body()),
+                () -> assertEquals(401, malformed.statusCode(), malformed.body()),
+                () -> assertEquals(401, forged.statusCode(), forged.body()),
+                () -> assertEquals(absent.body(), malformed.body(),
+                        "the reason is never disclosed, so nothing says which is nearly valid"),
+                () -> assertEquals(absent.body(), forged.body()),
+                () -> assertEquals("unauthorized", ApiClient.asError(absent).error()),
+                () -> assertEquals("Authentication required.", ApiClient.asError(absent).message()));
     }
 }

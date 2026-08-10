@@ -1,7 +1,17 @@
 package com.example.urlshortener.behaviour;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.example.urlshortener.api.LinkResponse;
 import com.example.urlshortener.support.AbstractIntegrationTest;
+import com.example.urlshortener.support.ApiClient;
 import com.example.urlshortener.support.Fixtures;
+import java.net.http.HttpResponse;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -44,7 +54,17 @@ class ClickRateLimitTest extends AbstractIntegrationTest {
      */
     @Test
     void aSweepOfUnissuedCodesIsThrottled() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        List<HttpResponse<String>> sweep = sweepUnissuedCodes(15);
+
+        long notFound = sweep.stream().filter(r -> r.statusCode() == 404).count();
+        long throttled = sweep.stream().filter(r -> r.statusCode() == 429).count();
+        assertAll(
+                () -> assertEquals(404, sweep.get(0).statusCode(), "the sweep starts by simply missing"),
+                () -> assertTrue(throttled >= 1, "a sweep past the bucket must start being refused"),
+                () -> assertTrue(
+                        notFound <= 5,
+                        "no more misses than the bucket holds were answered: " + notFound),
+                () -> assertEquals(15L, notFound + throttled, "every answer was a 404 or a 429"));
     }
 
     /**
@@ -56,7 +76,20 @@ class ClickRateLimitTest extends AbstractIntegrationTest {
      */
     @Test
     void aThrottledClickCarriesRetryAfterInWholeSeconds() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        List<HttpResponse<String>> sweep = sweepUnissuedCodes(15);
+
+        HttpResponse<String> throttled = sweep.stream()
+                .filter(r -> r.statusCode() == 429)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("the sweep was never throttled"));
+
+        String retryAfter = ApiClient.header(throttled, Fixtures.RETRY_AFTER)
+                .orElseThrow(() -> new AssertionError("a 429 must say when to come back"));
+        assertAll(
+                () -> assertTrue(retryAfter.matches("\\d+"), "whole seconds, not a date: " + retryAfter),
+                () -> assertTrue(
+                        Long.parseLong(retryAfter) >= 1,
+                        "never 0, which would tell a client to come straight back: " + retryAfter));
     }
 
     /**
@@ -68,7 +101,26 @@ class ClickRateLimitTest extends AbstractIntegrationTest {
      */
     @Test
     void aRealLinkKeepsBeingServedWhileTheEnumerationBucketIsEmpty() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        LinkResponse viral = givenLink(alice);
+
+        List<HttpResponse<String>> sweep = sweepUnissuedCodes(15);
+        List<HttpResponse<String>> realClicks = clickRepeatedly(viral.code(), 8);
+
+        assertAll(
+                () -> assertTrue(
+                        sweep.stream().anyMatch(r -> r.statusCode() == 429),
+                        "the enumeration bucket was drained by the sweep"),
+                () -> assertTrue(
+                        realClicks.stream().allMatch(r -> r.statusCode() == 302),
+                        "throttling the scraper must not throttle the audience"),
+                () -> assertTrue(
+                        realClicks.stream()
+                                .allMatch(r -> Fixtures.TARGET_URL.equals(
+                                        ApiClient.header(r, Fixtures.LOCATION).orElse(null))),
+                        "and they go where they always did"),
+                () -> assertEquals(8L, reportedClickCount(alice, viral.code()),
+                        "and they are still counted"));
     }
 
     /**
@@ -79,7 +131,20 @@ class ClickRateLimitTest extends AbstractIntegrationTest {
      */
     @Test
     void aThrottledRequestIsNotCountedAsAClick() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        LinkResponse link = givenLink(alice);
+        clickRepeatedly(link.code(), 3);
+        long before = reportedClickCount(alice, link.code());
+
+        List<HttpResponse<String>> sweep = sweepUnissuedCodes(20);
+
+        assertAll(
+                () -> assertEquals(3L, before),
+                () -> assertTrue(
+                        sweep.stream().filter(r -> r.statusCode() == 429).count() >= 1,
+                        "the sweep was refused"),
+                () -> assertEquals(3L, reportedClickCount(alice, link.code()),
+                        "a refused request is not a click on anything"));
     }
 
     /**
@@ -91,6 +156,36 @@ class ClickRateLimitTest extends AbstractIntegrationTest {
      */
     @Test
     void throttlingIsARefusalAndNeverAServerError() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        List<HttpResponse<String>> sweep = sweepUnissuedCodes(20);
+
+        HttpResponse<String> throttled = sweep.stream()
+                .filter(r -> r.statusCode() == 429)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("the sweep was never throttled"));
+
+        assertAll(
+                () -> assertTrue(
+                        sweep.stream().noneMatch(r -> r.statusCode() >= 500),
+                        "refusing a request is not the same as failing one"),
+                () -> assertEquals("rate_limited", ApiClient.asError(throttled).error()),
+                () -> assertEquals("Too many requests.", ApiClient.asError(throttled).message()),
+                () -> assertTrue(
+                        ApiClient.asError(throttled).fields() == null,
+                        "fields belongs to invalid_request and nowhere else"));
+    }
+
+    // ---- helpers ----------------------------------------------------------
+
+    /**
+     * Requests codes that were never issued, one after another, the way an
+     * enumeration sweep does. The codes are fresh each time so that nothing is
+     * answered from a negative cache entry a previous test left behind.
+     */
+    private List<HttpResponse<String>> sweepUnissuedCodes(int howMany) {
+        List<HttpResponse<String>> responses = new ArrayList<>(howMany);
+        for (int i = 0; i < howMany; i++) {
+            responses.add(api.click(UUID.randomUUID().toString().replace("-", "").substring(0, 22)));
+        }
+        return responses;
     }
 }

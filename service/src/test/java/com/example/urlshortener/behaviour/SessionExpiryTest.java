@@ -1,7 +1,17 @@
 package com.example.urlshortener.behaviour;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.example.urlshortener.api.LinkResponse;
+import com.example.urlshortener.api.SignInResponse;
 import com.example.urlshortener.support.AbstractIntegrationTest;
+import com.example.urlshortener.support.ApiClient;
 import com.example.urlshortener.support.Fixtures;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.time.Instant;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -32,7 +42,21 @@ class SessionExpiryTest extends AbstractIntegrationTest {
      */
     @Test
     void anExpiredSessionIsRefusedLikeAnAbsentOne() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String session = alice();
+        LinkResponse link = givenLink(session);
+        assertEquals(200, api.getLink(session, link.code()).statusCode(), "the session works while it lasts");
+
+        // app.session.ttl is two seconds in this context.
+        sleep(Duration.ofSeconds(3));
+        HttpResponse<String> withAnExpiredSession = api.getLink(session, link.code());
+        HttpResponse<String> withNoSession = api.getLink(null, link.code());
+
+        assertAll(
+                () -> assertEquals(401, withAnExpiredSession.statusCode(), withAnExpiredSession.body()),
+                () -> assertEquals(withNoSession.statusCode(), withAnExpiredSession.statusCode()),
+                () -> assertEquals(withNoSession.body(), withAnExpiredSession.body(),
+                        "an expired credential is just one more unverifiable one"),
+                () -> assertEquals("unauthorized", ApiClient.asError(withAnExpiredSession).error()));
     }
 
     /**
@@ -44,6 +68,19 @@ class SessionExpiryTest extends AbstractIntegrationTest {
      */
     @Test
     void theAdvertisedExpiryFollowsTheConfiguredLifetime() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        Instant before = Instant.now();
+
+        SignInResponse session =
+                ApiClient.asSession(api.signIn(Fixtures.ALICE.email(), Fixtures.ALICE.plaintext()));
+
+        Duration advertised = Duration.between(before, session.expiresAt());
+        assertAll(
+                () -> assertTrue(
+                        advertised.compareTo(Duration.ofSeconds(1)) >= 0,
+                        "the advertised expiry is in the future: " + advertised),
+                () -> assertTrue(
+                        advertised.compareTo(Duration.ofSeconds(30)) < 0,
+                        "and it follows the configured two seconds rather than a literal 24 hours: "
+                                + advertised));
     }
 }

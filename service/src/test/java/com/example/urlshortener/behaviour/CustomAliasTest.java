@@ -1,6 +1,17 @@
 package com.example.urlshortener.behaviour;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.example.urlshortener.api.ApiError;
+import com.example.urlshortener.api.LinkResponse;
 import com.example.urlshortener.support.AbstractIntegrationTest;
+import com.example.urlshortener.support.ApiClient;
+import com.example.urlshortener.support.Fixtures;
+import java.net.http.HttpResponse;
+import java.util.Locale;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -21,7 +32,16 @@ class CustomAliasTest extends AbstractIntegrationTest {
      */
     @Test
     void anAvailableAliasBecomesTheShortCodeExactly() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alias = Fixtures.uniqueAlias(Fixtures.ALIAS);
+
+        HttpResponse<String> response = api.createLink(alice(), Fixtures.TARGET_URL, alias, null);
+
+        assertEquals(201, response.statusCode(), response.body());
+        LinkResponse link = ApiClient.asLink(response);
+        assertAll(
+                () -> assertEquals(alias, link.code(), "the requested alias is the code, not a variant of it"),
+                () -> assertTrue(link.shortUrl().endsWith("/" + alias), link.shortUrl()),
+                () -> assertEquals(Fixtures.TARGET_URL, link.longUrl()));
     }
 
     /**
@@ -32,7 +52,24 @@ class CustomAliasTest extends AbstractIntegrationTest {
      */
     @Test
     void aLinkCreatedWithAnAliasRedirectsLikeAnyOther() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        LinkResponse aliased = givenLinkWithAlias(alice, Fixtures.uniqueAlias(Fixtures.ALIAS));
+        LinkResponse generated = givenLink(alice, Fixtures.TARGET_URL);
+
+        HttpResponse<String> aliasedClick = api.click(aliased.code());
+        HttpResponse<String> generatedClick = api.click(generated.code());
+
+        assertAll(
+                () -> assertEquals(302, aliasedClick.statusCode()),
+                () -> assertEquals(generatedClick.statusCode(), aliasedClick.statusCode()),
+                () -> assertEquals(
+                        Fixtures.TARGET_URL,
+                        ApiClient.header(aliasedClick, Fixtures.LOCATION).orElse(null)),
+                () -> assertEquals(
+                        ApiClient.header(generatedClick, Fixtures.CACHE_CONTROL),
+                        ApiClient.header(aliasedClick, Fixtures.CACHE_CONTROL)),
+                () -> assertEquals(1L, reportedClickCount(alice, aliased.code()),
+                        "an aliased link is counted like any other"));
     }
 
     /**
@@ -44,7 +81,25 @@ class CustomAliasTest extends AbstractIntegrationTest {
      */
     @Test
     void anAliasAlreadyInUseIsRejectedRatherThanReassigned() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        String alias = Fixtures.uniqueAlias(Fixtures.ALIAS);
+        LinkResponse existing = givenLinkWithAlias(alice, alias);
+
+        HttpResponse<String> second = api.createLink(alice, Fixtures.OTHER_TARGET_URL, alias, null);
+
+        HttpResponse<String> click = api.click(alias);
+        assertAll(
+                () -> assertEquals(409, second.statusCode(), second.body()),
+                () -> assertEquals("alias_unavailable", ApiClient.asError(second).error()),
+                () -> assertEquals(
+                        "That short code is not available.", ApiClient.asError(second).message()),
+                () -> assertEquals(302, click.statusCode()),
+                () -> assertEquals(
+                        Fixtures.TARGET_URL,
+                        ApiClient.header(click, Fixtures.LOCATION).orElse(null),
+                        "the existing link is untouched"),
+                () -> assertEquals(
+                        Fixtures.TARGET_URL, ApiClient.asLink(api.getLink(alice, existing.code())).longUrl()));
     }
 
     /**
@@ -56,7 +111,28 @@ class CustomAliasTest extends AbstractIntegrationTest {
      */
     @Test
     void aConflictDisclosesNothingAboutTheExistingLink() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        String bob = bob();
+        String alicesAlias = Fixtures.uniqueAlias(Fixtures.ALIAS);
+        String bobsAlias = Fixtures.uniqueAlias(Fixtures.ALIAS);
+        givenLinkWithAlias(alice, alicesAlias);
+        givenLinkWithAlias(bob, bobsAlias);
+
+        HttpResponse<String> againstAnotherCustomers =
+                api.createLink(bob, Fixtures.OTHER_TARGET_URL, alicesAlias, null);
+        HttpResponse<String> againstTheirOwn = api.createLink(bob, Fixtures.OTHER_TARGET_URL, bobsAlias, null);
+
+        String disclosing = againstAnotherCustomers.body();
+        assertAll(
+                () -> assertEquals(409, againstAnotherCustomers.statusCode()),
+                () -> assertEquals(409, againstTheirOwn.statusCode()),
+                () -> assertEquals(againstTheirOwn.body(), disclosing,
+                        "whose alias it is must not show through the conflict"),
+                () -> assertTrue(!disclosing.contains(Fixtures.TARGET_URL), disclosing),
+                () -> assertTrue(!disclosing.contains(Fixtures.ALICE.email()), disclosing),
+                () -> assertTrue(!disclosing.contains(Fixtures.ALICE.id().toString()), disclosing),
+                () -> assertTrue(!disclosing.contains("createdAt"), disclosing),
+                () -> assertTrue(!disclosing.contains(alicesAlias), disclosing));
     }
 
     /**
@@ -68,7 +144,23 @@ class CustomAliasTest extends AbstractIntegrationTest {
      */
     @Test
     void theCodeOfADeletedLinkIsNeverReissued() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        String bob = bob();
+        String alias = Fixtures.uniqueAlias(Fixtures.ALIAS);
+        givenLinkWithAlias(alice, alias);
+        assertEquals(204, api.deleteLink(alice, alias).statusCode());
+
+        HttpResponse<String> byTheOwner = api.createLink(alice, Fixtures.OTHER_TARGET_URL, alias, null);
+        HttpResponse<String> byAnotherCustomer = api.createLink(bob, Fixtures.OTHER_TARGET_URL, alias, null);
+
+        HttpResponse<String> click = api.click(alias);
+        assertAll(
+                () -> assertEquals(409, byTheOwner.statusCode(), byTheOwner.body()),
+                () -> assertEquals("alias_unavailable", ApiClient.asError(byTheOwner).error()),
+                () -> assertEquals(409, byAnotherCustomer.statusCode(), byAnotherCustomer.body()),
+                () -> assertEquals(404, click.statusCode(),
+                        "the code stays retired: it neither resolves nor is handed to anybody else"),
+                () -> assertEquals(Fixtures.NOT_FOUND_BODY, click.body()));
     }
 
     /**
@@ -80,7 +172,21 @@ class CustomAliasTest extends AbstractIntegrationTest {
      */
     @Test
     void aReservedAliasIsRejectedAsInvalidRatherThanAsAConflict() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+
+        HttpResponse<String> response =
+                api.createLink(alice, Fixtures.TARGET_URL, Fixtures.RESERVED_ALIAS, null);
+
+        assertAll(
+                () -> assertEquals(400, response.statusCode(), response.body()),
+                () -> assertNotEquals(409, response.statusCode(), "nobody holds a reserved word"),
+                () -> assertEquals("invalid_request", ApiClient.asError(response).error()),
+                () -> assertTrue(namesField(response, "alias"), response.body()),
+                // The route the reservation protects still answers as itself.
+                () -> assertNotEquals(
+                        302,
+                        api.click(Fixtures.RESERVED_ALIAS).statusCode(),
+                        "a reserved word must never resolve as a short code"));
     }
 
     /**
@@ -91,7 +197,20 @@ class CustomAliasTest extends AbstractIntegrationTest {
      */
     @Test
     void aReservedAliasIsRejectedWhateverItsCase() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+
+        HttpResponse<String> mixedCase =
+                api.createLink(alice, Fixtures.TARGET_URL, Fixtures.RESERVED_ALIAS_MIXED_CASE, null);
+        HttpResponse<String> upperCase = api.createLink(
+                alice, Fixtures.TARGET_URL, Fixtures.RESERVED_ALIAS.toUpperCase(Locale.ROOT), null);
+
+        assertAll(
+                () -> assertEquals(400, mixedCase.statusCode(), mixedCase.body()),
+                () -> assertEquals("invalid_request", ApiClient.asError(mixedCase).error()),
+                () -> assertEquals(400, upperCase.statusCode(), upperCase.body()),
+                () -> assertEquals("invalid_request", ApiClient.asError(upperCase).error()),
+                () -> assertEquals(404, api.click(Fixtures.RESERVED_ALIAS_MIXED_CASE).statusCode(),
+                        "a differently-cased spelling must not have been issued either"));
     }
 
     /**
@@ -102,7 +221,24 @@ class CustomAliasTest extends AbstractIntegrationTest {
      */
     @Test
     void anAliasOutsideTheAllowedShapeIsRejected() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        long before = ApiClient.asPage(api.listLinks(alice, 0, 1)).totalElements();
+
+        HttpResponse<String> tooShort =
+                api.createLink(alice, Fixtures.TARGET_URL, Fixtures.TOO_SHORT_ALIAS, null);
+        HttpResponse<String> illegalCharset =
+                api.createLink(alice, Fixtures.TARGET_URL, Fixtures.ILLEGAL_CHARSET_ALIAS, null);
+        HttpResponse<String> tooLong = api.createLink(alice, Fixtures.TARGET_URL, "a".repeat(65), null);
+
+        long after = ApiClient.asPage(api.listLinks(alice, 0, 1)).totalElements();
+        assertAll(
+                () -> assertEquals(400, tooShort.statusCode(), tooShort.body()),
+                () -> assertTrue(namesField(tooShort, "alias"), tooShort.body()),
+                () -> assertEquals(400, illegalCharset.statusCode(), illegalCharset.body()),
+                () -> assertTrue(namesField(illegalCharset, "alias"), illegalCharset.body()),
+                () -> assertEquals(400, tooLong.statusCode(), tooLong.body()),
+                () -> assertTrue(namesField(tooLong, "alias"), tooLong.body()),
+                () -> assertEquals(before, after, "none of them created a link"));
     }
 
     /**
@@ -115,6 +251,32 @@ class CustomAliasTest extends AbstractIntegrationTest {
      */
     @Test
     void codesAreCaseSensitive() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        String lower = Fixtures.uniqueAlias("case").toLowerCase(Locale.ROOT);
+        String upper = lower.toUpperCase(Locale.ROOT);
+        givenLinkWithAlias(alice, lower);
+
+        HttpResponse<String> differingOnlyInCase =
+                api.createLink(alice, Fixtures.OTHER_TARGET_URL, upper, null);
+
+        HttpResponse<String> lowerClick = api.click(lower);
+        HttpResponse<String> upperClick = api.click(upper);
+        assertAll(
+                () -> assertEquals(201, differingOnlyInCase.statusCode(), differingOnlyInCase.body()),
+                () -> assertEquals(upper, ApiClient.asLink(differingOnlyInCase).code()),
+                () -> assertEquals(
+                        Fixtures.TARGET_URL, ApiClient.header(lowerClick, Fixtures.LOCATION).orElse(null)),
+                () -> assertEquals(
+                        Fixtures.OTHER_TARGET_URL,
+                        ApiClient.header(upperClick, Fixtures.LOCATION).orElse(null),
+                        "the two codes resolve independently"));
+    }
+
+    // ---- helpers ----------------------------------------------------------
+
+    /** True when the error body names {@code field} in its per-field detail. */
+    private boolean namesField(HttpResponse<String> response, String field) {
+        ApiError error = ApiClient.asError(response);
+        return error.fields() != null && error.fields().containsKey(field);
     }
 }

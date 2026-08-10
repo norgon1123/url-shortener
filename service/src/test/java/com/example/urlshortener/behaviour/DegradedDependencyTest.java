@@ -1,8 +1,21 @@
 package com.example.urlshortener.behaviour;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.example.urlshortener.api.LinkResponse;
 import com.example.urlshortener.support.AbstractIntegrationTest;
+import com.example.urlshortener.support.ApiClient;
+import com.example.urlshortener.support.Fixtures;
 import com.example.urlshortener.support.TestInfrastructure;
+import java.net.http.HttpResponse;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -22,6 +35,10 @@ import org.junit.jupiter.api.Timeout;
  * is a click path that hangs on an unreachable dependency instead of degrading,
  * and a hang with no timeout is a suite that never finishes rather than a test
  * that fails.
+ *
+ * <p>Sessions and links are always obtained <em>before</em> the pause. Signing in
+ * and creating are the operations the design is willing to sacrifice, so using
+ * them to set a test up would confuse the precondition with the subject.
  */
 @Timeout(value = 90, unit = TimeUnit.SECONDS)
 class DegradedDependencyTest extends AbstractIntegrationTest {
@@ -45,7 +62,22 @@ class DegradedDependencyTest extends AbstractIntegrationTest {
      */
     @Test
     void clicksAreStillServedWhileTheCountingTierIsUnavailable() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        LinkResponse link = givenLink(alice(), Fixtures.OTHER_TARGET_URL);
+        AtomicReference<HttpResponse<String>> duringOutage = new AtomicReference<>();
+
+        TestInfrastructure.withCounterTierUnavailable(() -> duringOutage.set(api.click(link.code())));
+
+        HttpResponse<String> click = duringOutage.get();
+        assertAll(
+                () -> assertEquals(302, click.statusCode(),
+                        "a click is served from the durable store when the counting tier is gone"),
+                () -> assertEquals(
+                        Fixtures.OTHER_TARGET_URL,
+                        ApiClient.header(click, Fixtures.LOCATION).orElse(null),
+                        "and it is sent to the right target, not to a stale or empty one"),
+                () -> assertEquals(Fixtures.NO_STORE,
+                        ApiClient.header(click, Fixtures.CACHE_CONTROL).orElse(null),
+                        "a degraded redirect is still uncacheable"));
     }
 
     /**
@@ -57,7 +89,33 @@ class DegradedDependencyTest extends AbstractIntegrationTest {
      */
     @Test
     void theClickPathNeverAnswersWithAServerError() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        LinkResponse live = givenLink(alice());
+        List<HttpResponse<String>> onALiveCode = new ArrayList<>();
+        List<HttpResponse<String>> onAnUnknownCode = new ArrayList<>();
+
+        TestInfrastructure.withCounterTierUnavailable(() -> {
+            for (int i = 0; i < 5; i++) {
+                onALiveCode.add(api.click(live.code()));
+                onAnUnknownCode.add(api.click(Fixtures.UNISSUED_CODE));
+            }
+        });
+
+        assertAll(
+                () -> assertTrue(
+                        onALiveCode.stream().noneMatch(r -> r.statusCode() >= 500),
+                        "a live code answered " + statuses(onALiveCode) + " while the tier was down"),
+                () -> assertTrue(
+                        onALiveCode.stream().allMatch(r -> r.statusCode() == 302),
+                        "a live code must still redirect: " + statuses(onALiveCode)),
+                () -> assertTrue(
+                        onAnUnknownCode.stream().noneMatch(r -> r.statusCode() >= 500),
+                        "an unknown code answered " + statuses(onAnUnknownCode)),
+                () -> assertTrue(
+                        onAnUnknownCode.stream().allMatch(r -> r.statusCode() == 404),
+                        "an unknown code still answers the single 404: " + statuses(onAnUnknownCode)),
+                () -> assertTrue(
+                        onAnUnknownCode.stream().allMatch(r -> Fixtures.NOT_FOUND_BODY.equals(r.body())),
+                        "with the same body it has when everything is healthy"));
     }
 
     /**
@@ -70,7 +128,24 @@ class DegradedDependencyTest extends AbstractIntegrationTest {
      */
     @Test
     void throttlingFailsOpenRatherThanRefusingEveryClick() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        LinkResponse live = givenLink(alice());
+        List<HttpResponse<String>> clicks = new ArrayList<>();
+
+        TestInfrastructure.withCounterTierUnavailable(() -> {
+            for (int i = 0; i < 10; i++) {
+                clicks.add(api.click(live.code()));
+                clicks.add(api.click(Fixtures.UNISSUED_CODE));
+            }
+        });
+
+        long throttled = clicks.stream().filter(r -> r.statusCode() == 429).count();
+        assertAll(
+                () -> assertEquals(0L, throttled,
+                        "the limiter must fail open, not refuse everything it cannot count: "
+                                + statuses(clicks)),
+                () -> assertTrue(
+                        clicks.stream().noneMatch(r -> r.statusCode() >= 500),
+                        "and it must not fail loudly either: " + statuses(clicks)));
     }
 
     /**
@@ -84,7 +159,24 @@ class DegradedDependencyTest extends AbstractIntegrationTest {
      */
     @Test
     void countingResumesWhenTheTierReturnsWithoutLosingEarlierClicks() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        LinkResponse link = givenLink(alice);
+        clickRepeatedly(link.code(), 3);
+        long beforeTheOutage = reportedClickCount(alice, link.code());
+
+        TestInfrastructure.withCounterTierUnavailable(() -> clickRepeatedly(link.code(), 2));
+
+        long onRecovery = reportedClickCount(alice, link.code());
+        clickRepeatedly(link.code(), 4);
+        long afterRecovery = reportedClickCount(alice, link.code());
+        assertAll(
+                () -> assertEquals(3L, beforeTheOutage, "the three clicks before the outage were counted"),
+                () -> assertTrue(
+                        onRecovery >= beforeTheOutage,
+                        "clicks counted before the outage must survive it: " + beforeTheOutage
+                                + " became " + onRecovery),
+                () -> assertEquals(4L, afterRecovery - onRecovery,
+                        "counting resumes exactly when the tier returns"));
     }
 
     /**
@@ -96,6 +188,48 @@ class DegradedDependencyTest extends AbstractIntegrationTest {
      */
     @Test
     void degradationIsSpentOnAcceptingLinksRatherThanOnServingClicks() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        LinkResponse live = givenLink(alice);
+        AtomicReference<HttpResponse<String>> creation = new AtomicReference<>();
+        AtomicReference<HttpResponse<String>> click = new AtomicReference<>();
+        AtomicInteger clicksRefused = new AtomicInteger();
+
+        TestInfrastructure.withCounterTierUnavailable(() -> {
+            creation.set(api.createLink(alice, Fixtures.OTHER_TARGET_URL));
+            click.set(api.click(live.code()));
+            for (int i = 0; i < 5; i++) {
+                if (api.click(live.code()).statusCode() != 302) {
+                    clicksRefused.incrementAndGet();
+                }
+            }
+        });
+
+        int created = creation.get().statusCode();
+        assertAll(
+                // The click side of the preference is absolute.
+                () -> assertEquals(302, click.get().statusCode(), "a click is never what gets refused"),
+                () -> assertEquals(0, clicksRefused.get(), "and that holds for every click, not just the first"),
+                () -> assertNotEquals(503, click.get().statusCode(),
+                        "503 exists on create and on no other operation"),
+                // The create side may be refused - but only in the documented way.
+                () -> assertTrue(
+                        created == 201 || created == 503,
+                        "a create either succeeds or is refused with 503, but answered " + created
+                                + ": " + creation.get().body()),
+                () -> assertTrue(
+                        created != 503 || "service_unavailable".equals(ApiClient.asError(creation.get()).error()),
+                        "a refused create says service_unavailable: " + creation.get().body()),
+                () -> assertTrue(
+                        created != 503
+                                || "Temporarily unable to accept new links."
+                                        .equals(ApiClient.asError(creation.get()).message()),
+                        "with the message from the closed catalogue: " + creation.get().body()));
+    }
+
+    // ---- helpers ----------------------------------------------------------
+
+    /** The status codes of a run of responses, for a failure message worth reading. */
+    private String statuses(List<HttpResponse<String>> responses) {
+        return responses.stream().map(r -> String.valueOf(r.statusCode())).toList().toString();
     }
 }

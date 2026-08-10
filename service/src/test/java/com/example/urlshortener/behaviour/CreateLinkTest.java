@@ -1,6 +1,25 @@
 package com.example.urlshortener.behaviour;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.example.urlshortener.api.ApiError;
+import com.example.urlshortener.api.LinkResponse;
+import com.example.urlshortener.domain.LinkStatus;
+import com.example.urlshortener.link.ShortCodeGenerator;
 import com.example.urlshortener.support.AbstractIntegrationTest;
+import com.example.urlshortener.support.ApiClient;
+import com.example.urlshortener.support.Fixtures;
+import java.net.URI;
+import java.net.http.HttpResponse;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -22,7 +41,22 @@ class CreateLinkTest extends AbstractIntegrationTest {
      */
     @Test
     void aSignedInCustomerReceivesAShortLinkForTheirLongUrl() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        HttpResponse<String> response = api.createLink(alice(), Fixtures.TARGET_URL);
+
+        assertEquals(201, response.statusCode(), response.body());
+        LinkResponse link = ApiClient.asLink(response);
+        assertAll(
+                () -> assertNotNull(link.code()),
+                () -> assertEquals(ShortCodeGenerator.CODE_LENGTH, link.code().length()),
+                // shortUrl is the configured origin plus "/" plus the code, and
+                // nothing else: no API prefix, no query, no trailing segment.
+                () -> assertEquals("/" + link.code(), URI.create(link.shortUrl()).getPath()),
+                () -> assertTrue(link.shortUrl().startsWith("http"), link.shortUrl()),
+                () -> assertEquals(Fixtures.TARGET_URL, link.longUrl()),
+                () -> assertEquals(LinkStatus.ACTIVE, link.status()),
+                () -> assertNotNull(link.createdAt()),
+                () -> assertNotNull(link.expiresAt()),
+                () -> assertEquals(0L, link.clickCount()));
     }
 
     /**
@@ -35,7 +69,23 @@ class CreateLinkTest extends AbstractIntegrationTest {
      */
     @Test
     void createdLinkIsAddressableAtTheReturnedLocation() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+
+        HttpResponse<String> created = api.createLink(alice, Fixtures.TARGET_URL);
+
+        assertEquals(201, created.statusCode(), created.body());
+        LinkResponse link = ApiClient.asLink(created);
+        String location = ApiClient.header(created, Fixtures.LOCATION).orElse(null);
+        assertNotNull(location, "a create must say where the new resource lives");
+        assertEquals(
+                ApiClient.LINKS_PATH + "/" + link.code(),
+                URI.create(location).getPath(),
+                "Location is the API resource, not the short URL");
+
+        HttpResponse<String> fetched = api.send("GET", URI.create(location).getPath(), null, alice);
+        assertEquals(200, fetched.statusCode());
+        assertEquals(link.code(), ApiClient.asLink(fetched).code());
+        assertEquals(link.longUrl(), ApiClient.asLink(fetched).longUrl());
     }
 
     /**
@@ -47,7 +97,20 @@ class CreateLinkTest extends AbstractIntegrationTest {
      */
     @Test
     void theReturnedShortUrlIsTheOneThatRedirects() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        LinkResponse link = givenLink(alice(), Fixtures.OTHER_TARGET_URL);
+
+        URI shortUrl = URI.create(link.shortUrl());
+        // The string handed to the customer is an origin plus the code at the root
+        // of the namespace, and requesting that path is what redirects.
+        HttpResponse<String> clicked = api.rootRequest("GET", shortUrl.getPath(), null);
+
+        assertAll(
+                () -> assertTrue(shortUrl.isAbsolute(), "the short URL must be absolute: " + shortUrl),
+                () -> assertEquals("/" + link.code(), shortUrl.getPath()),
+                () -> assertEquals(302, clicked.statusCode()),
+                () -> assertEquals(
+                        Fixtures.OTHER_TARGET_URL,
+                        ApiClient.header(clicked, Fixtures.LOCATION).orElse(null)));
     }
 
     /**
@@ -60,7 +123,20 @@ class CreateLinkTest extends AbstractIntegrationTest {
      */
     @Test
     void theSameLongUrlSubmittedTwiceYieldsTwoIndependentLinks() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        String bob = bob();
+
+        LinkResponse first = givenLink(alice, Fixtures.TARGET_URL);
+        LinkResponse second = givenLink(bob, Fixtures.TARGET_URL);
+        clickRepeatedly(first.code(), 3);
+
+        assertAll(
+                () -> assertNotEquals(first.code(), second.code(), "nothing is de-duplicated"),
+                () -> assertEquals(Fixtures.TARGET_URL, first.longUrl()),
+                () -> assertEquals(Fixtures.TARGET_URL, second.longUrl()),
+                () -> assertEquals(3L, reportedClickCount(alice, first.code())),
+                () -> assertEquals(0L, reportedClickCount(bob, second.code()),
+                        "clicks on one must not appear on the other"));
     }
 
     /**
@@ -71,7 +147,17 @@ class CreateLinkTest extends AbstractIntegrationTest {
      */
     @Test
     void creatingWithoutASessionIsRefused() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        long before = ApiClient.asPage(api.listLinks(alice, 0, 1)).totalElements();
+
+        HttpResponse<String> response = api.createLink(null, Fixtures.TARGET_URL);
+
+        long after = ApiClient.asPage(api.listLinks(alice, 0, 1)).totalElements();
+        assertAll(
+                () -> assertEquals(401, response.statusCode()),
+                () -> assertEquals("unauthorized", ApiClient.asError(response).error()),
+                () -> assertEquals("Authentication required.", ApiClient.asError(response).message()),
+                () -> assertEquals(before, after, "a refused create must not create a link"));
     }
 
     /**
@@ -84,7 +170,21 @@ class CreateLinkTest extends AbstractIntegrationTest {
      */
     @Test
     void aTargetThatIsNotAnAbsoluteHttpUrlIsRejected() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+
+        HttpResponse<String> junk = api.createLink(alice, Fixtures.MALFORMED_URL);
+        HttpResponse<String> wrongScheme = api.createLink(alice, Fixtures.NON_HTTP_URL);
+        HttpResponse<String> noHost = api.createLink(alice, "https:///no/host/at/all");
+
+        assertAll(
+                () -> assertEquals(400, junk.statusCode(), junk.body()),
+                () -> assertEquals("invalid_request", ApiClient.asError(junk).error()),
+                () -> assertTrue(namesField(junk, "longUrl"), junk.body()),
+                () -> assertEquals(400, wrongScheme.statusCode(), wrongScheme.body()),
+                () -> assertEquals("invalid_request", ApiClient.asError(wrongScheme).error()),
+                () -> assertTrue(namesField(wrongScheme, "longUrl"), wrongScheme.body()),
+                () -> assertEquals(400, noHost.statusCode(), noHost.body()),
+                () -> assertEquals("invalid_request", ApiClient.asError(noHost).error()));
     }
 
     /**
@@ -95,7 +195,19 @@ class CreateLinkTest extends AbstractIntegrationTest {
      */
     @Test
     void anOverlongTargetIsRejected() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        String atTheLimit = "https://example.com/" + "a".repeat(2048 - "https://example.com/".length());
+        String overTheLimit = "https://example.com/" + "a".repeat(2049 - "https://example.com/".length());
+
+        HttpResponse<String> accepted = api.createLink(alice, atTheLimit);
+        HttpResponse<String> refused = api.createLink(alice, overTheLimit);
+
+        assertAll(
+                () -> assertEquals(2048, atTheLimit.length()),
+                () -> assertEquals(201, accepted.statusCode(), "the documented maximum is inclusive"),
+                () -> assertEquals(400, refused.statusCode(), refused.body()),
+                () -> assertEquals("invalid_request", ApiClient.asError(refused).error()),
+                () -> assertTrue(namesField(refused, "longUrl"), refused.body()));
     }
 
     /**
@@ -107,7 +219,18 @@ class CreateLinkTest extends AbstractIntegrationTest {
      */
     @Test
     void anUnknownPropertyInTheCreateBodyIsRejected() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        long before = ApiClient.asPage(api.listLinks(alice, 0, 1)).totalElements();
+
+        HttpResponse<String> response = api.createLinkRaw(
+                alice,
+                "{\"longUrl\":\"" + Fixtures.TARGET_URL + "\",\"clickCount\":99,\"owner\":\"someone-else\"}");
+
+        long after = ApiClient.asPage(api.listLinks(alice, 0, 1)).totalElements();
+        assertAll(
+                () -> assertEquals(400, response.statusCode(), response.body()),
+                () -> assertEquals("invalid_request", ApiClient.asError(response).error()),
+                () -> assertEquals(before, after, "an undefined property is refused, not ignored"));
     }
 
     /**
@@ -119,7 +242,18 @@ class CreateLinkTest extends AbstractIntegrationTest {
      */
     @Test
     void anExpiryInThePastIsRejectedAtCreation() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        long before = ApiClient.asPage(api.listLinks(alice, 0, 1)).totalElements();
+
+        HttpResponse<String> inThePast =
+                api.createLink(alice, Fixtures.TARGET_URL, null, Instant.now().minusSeconds(60));
+
+        long after = ApiClient.asPage(api.listLinks(alice, 0, 1)).totalElements();
+        assertAll(
+                () -> assertEquals(400, inThePast.statusCode(), inThePast.body()),
+                () -> assertEquals("invalid_request", ApiClient.asError(inThePast).error()),
+                () -> assertTrue(namesField(inThePast, "expiresAt"), inThePast.body()),
+                () -> assertEquals(before, after, "a link born expired is not created"));
     }
 
     /**
@@ -132,7 +266,21 @@ class CreateLinkTest extends AbstractIntegrationTest {
      */
     @Test
     void aTargetKnownForPhishingOrMalwareNeverBecomesALink() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        long before = ApiClient.asPage(api.listLinks(alice, 0, 1)).totalElements();
+
+        HttpResponse<String> malware = api.createLink(alice, Fixtures.DENYLISTED_URL);
+        HttpResponse<String> phishing = api.createLink(alice, Fixtures.PHISHING_URL);
+
+        long after = ApiClient.asPage(api.listLinks(alice, 0, 1)).totalElements();
+        assertAll(
+                () -> assertEquals(422, malware.statusCode(), malware.body()),
+                () -> assertEquals("url_rejected", ApiClient.asError(malware).error()),
+                () -> assertEquals(
+                        "The submitted URL cannot be shortened.", ApiClient.asError(malware).message()),
+                () -> assertEquals(422, phishing.statusCode(), phishing.body()),
+                () -> assertEquals("url_rejected", ApiClient.asError(phishing).error()),
+                () -> assertEquals(before, after, "no code was issued for either target"));
     }
 
     /**
@@ -144,7 +292,20 @@ class CreateLinkTest extends AbstractIntegrationTest {
      */
     @Test
     void anInternalTargetIsRefusedWithTheSameMessageAsADenylistedOne() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+
+        HttpResponse<String> denylisted = api.createLink(alice, Fixtures.DENYLISTED_URL);
+        HttpResponse<String> loopback = api.createLink(alice, Fixtures.LOOPBACK_URL);
+        HttpResponse<String> privateHost = api.createLink(alice, Fixtures.PRIVATE_HOST_URL);
+
+        assertAll(
+                () -> assertEquals(422, loopback.statusCode(), loopback.body()),
+                () -> assertEquals(422, privateHost.statusCode(), privateHost.body()),
+                () -> assertEquals(denylisted.body(), loopback.body(),
+                        "one message for all of them, or the response maps our network"),
+                () -> assertEquals(denylisted.body(), privateHost.body()),
+                () -> assertEquals(denylisted.statusCode(), loopback.statusCode()),
+                () -> assertEquals(denylisted.statusCode(), privateHost.statusCode()));
     }
 
     /**
@@ -155,7 +316,18 @@ class CreateLinkTest extends AbstractIntegrationTest {
      */
     @Test
     void aTargetPointingBackAtThisServiceIsRefused() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        LinkResponse existing = givenLink(alice);
+
+        HttpResponse<String> ownOrigin = api.createLink(alice, Fixtures.SELF_REFERENTIAL_URL);
+        HttpResponse<String> ownShortUrl = api.createLink(alice, existing.shortUrl());
+
+        assertAll(
+                () -> assertEquals(422, ownOrigin.statusCode(), ownOrigin.body()),
+                () -> assertEquals("url_rejected", ApiClient.asError(ownOrigin).error()),
+                () -> assertEquals(422, ownShortUrl.statusCode(), ownShortUrl.body()),
+                () -> assertEquals("url_rejected", ApiClient.asError(ownShortUrl).error()),
+                () -> assertEquals(ownOrigin.body(), ownShortUrl.body()));
     }
 
     /**
@@ -167,6 +339,50 @@ class CreateLinkTest extends AbstractIntegrationTest {
      */
     @Test
     void generatedCodesAreAllDifferentAndShareNoStructure() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        List<String> codes = new ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            codes.add(givenLink(alice, Fixtures.TARGET_URL + "&n=" + i).code());
+        }
+
+        Set<String> distinct = new HashSet<>(codes);
+        assertAll(
+                () -> assertEquals(codes.size(), distinct.size(), "issued codes must all differ: " + codes),
+                () -> assertTrue(
+                        codes.stream().allMatch(c -> c.length() == ShortCodeGenerator.CODE_LENGTH),
+                        "every code is the contracted length: " + codes),
+                () -> assertTrue(
+                        codes.stream()
+                                .flatMap(c -> c.chars().mapToObj(ch -> (char) ch))
+                                .allMatch(ch -> ShortCodeGenerator.ALPHABET.indexOf(ch) >= 0),
+                        "every code is drawn from the contracted alphabet: " + codes),
+                () -> assertTrue(
+                        longestSharedPrefix(codes) < 4,
+                        "codes issued together must share no derivable prefix: " + codes));
+    }
+
+    // ---- helpers ----------------------------------------------------------
+
+    /** True when the error body names {@code field} in its per-field detail. */
+    private boolean namesField(HttpResponse<String> response, String field) {
+        ApiError error = ApiClient.asError(response);
+        return error.fields() != null && error.fields().containsKey(field);
+    }
+
+    /** The longest prefix any two of the codes have in common. */
+    private int longestSharedPrefix(List<String> codes) {
+        int longest = 0;
+        for (int i = 0; i < codes.size(); i++) {
+            for (int j = i + 1; j < codes.size(); j++) {
+                int shared = 0;
+                String a = codes.get(i);
+                String b = codes.get(j);
+                while (shared < a.length() && shared < b.length() && a.charAt(shared) == b.charAt(shared)) {
+                    shared++;
+                }
+                longest = Math.max(longest, shared);
+            }
+        }
+        return longest;
     }
 }
