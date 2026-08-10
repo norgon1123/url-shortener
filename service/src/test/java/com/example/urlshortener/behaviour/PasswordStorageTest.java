@@ -1,7 +1,18 @@
 package com.example.urlshortener.behaviour;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.example.urlshortener.api.SignInResponse;
 import com.example.urlshortener.auth.PasswordHasher;
 import com.example.urlshortener.support.AbstractIntegrationTest;
+import com.example.urlshortener.support.ApiClient;
+import com.example.urlshortener.support.Fixtures;
+import java.net.http.HttpResponse;
+import java.util.Locale;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -30,7 +41,25 @@ class PasswordStorageTest extends AbstractIntegrationTest {
      */
     @Test
     void theStoredFormIsNotThePasswordAndDoesNotContainIt() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String password = "a-correct-horse-battery-staple";
+
+        String stored = passwordHasher.hash(password);
+
+        assertAll(
+                () -> assertNotEquals(password, stored),
+                () -> assertFalse(stored.contains(password), "the password itself is not in the stored form"),
+                () -> assertFalse(
+                        stored.toLowerCase(Locale.ROOT).contains(password.toLowerCase(Locale.ROOT)),
+                        "nor is it there in a different case"),
+                // A memory-hard KDF records what it did; a bare digest cannot be
+                // told from another bare digest and cannot carry a salt.
+                () -> assertTrue(stored.startsWith("$"), "the stored form names its algorithm: " + stored),
+                () -> assertTrue(
+                        stored.chars().filter(c -> c == '$').count() >= 3,
+                        "and carries its parameters and salt: " + stored),
+                () -> assertFalse(
+                        stored.matches("^[0-9a-fA-F]{32,128}$"),
+                        "a bare hex digest is not a defensible stored credential: " + stored));
     }
 
     /**
@@ -42,7 +71,17 @@ class PasswordStorageTest extends AbstractIntegrationTest {
      */
     @Test
     void theSamePasswordIsStoredDifferentlyEachTime() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String password = "two-customers-chose-the-same-one";
+
+        String first = passwordHasher.hash(password);
+        String second = passwordHasher.hash(password);
+
+        assertAll(
+                () -> assertNotEquals(first, second,
+                        "equal passwords must not be visibly equal in the database"),
+                () -> assertTrue(passwordHasher.matches(password, first)),
+                () -> assertTrue(passwordHasher.matches(password, second),
+                        "both stored forms still recognise the password they were made from"));
     }
 
     /**
@@ -53,7 +92,19 @@ class PasswordStorageTest extends AbstractIntegrationTest {
      */
     @Test
     void aStoredFormRecognisesOnlyTheOriginalPassword() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String password = "the-one-that-was-chosen";
+        String stored = passwordHasher.hash(password);
+
+        assertAll(
+                () -> assertTrue(passwordHasher.matches(password, stored)),
+                () -> assertFalse(passwordHasher.matches(password + "x", stored),
+                        "one extra character is a different password"),
+                () -> assertFalse(passwordHasher.matches("the-one-that-was-chose", stored)),
+                () -> assertFalse(passwordHasher.matches("The-One-That-Was-Chosen", stored),
+                        "case matters"),
+                () -> assertFalse(passwordHasher.matches("", stored)),
+                () -> assertFalse(passwordHasher.matches(stored, stored),
+                        "the stored form is not itself a password that opens the account"));
     }
 
     /**
@@ -66,6 +117,21 @@ class PasswordStorageTest extends AbstractIntegrationTest {
      */
     @Test
     void theSeededAccountsSignInAgainstTheirStoredForm() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        HttpResponse<String> alicesSignIn =
+                api.signIn(Fixtures.ALICE.email(), Fixtures.ALICE.plaintext());
+        HttpResponse<String> bobsSignIn = api.signIn(Fixtures.BOB.email(), Fixtures.BOB.plaintext());
+        HttpResponse<String> withTheOtherAccountsPassword =
+                api.signIn(Fixtures.ALICE.email(), Fixtures.BOB.plaintext());
+
+        assertEquals(200, alicesSignIn.statusCode(), alicesSignIn.body());
+        assertEquals(200, bobsSignIn.statusCode(), bobsSignIn.body());
+        SignInResponse alicesSession = ApiClient.asSession(alicesSignIn);
+        SignInResponse bobsSession = ApiClient.asSession(bobsSignIn);
+        assertAll(
+                () -> assertEquals(Fixtures.ALICE.id(), alicesSession.customerId(),
+                        "the migration stored the form this component produces"),
+                () -> assertEquals(Fixtures.BOB.id(), bobsSession.customerId()),
+                () -> assertEquals(401, withTheOtherAccountsPassword.statusCode(),
+                        "and the check really runs, rather than accepting anything"));
     }
 }

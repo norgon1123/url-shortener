@@ -1,6 +1,18 @@
 package com.example.urlshortener.behaviour;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.example.urlshortener.api.LinkResponse;
+import com.example.urlshortener.domain.LinkStatus;
 import com.example.urlshortener.support.AbstractIntegrationTest;
+import com.example.urlshortener.support.ApiClient;
+import com.example.urlshortener.support.Fixtures;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -19,6 +31,9 @@ import org.junit.jupiter.api.Test;
  */
 class AbuseReportTest extends AbstractIntegrationTest {
 
+    /** A reason at the documented maximum length, for the boundary case. */
+    private static final String REASON = "Phishing page imitating a bank sign-in";
+
     /**
      * A reported link stops redirecting: the click path answers the single 404 and
      * the link is blocked.
@@ -27,7 +42,23 @@ class AbuseReportTest extends AbstractIntegrationTest {
      */
     @Test
     void aReportedLinkStopsRedirecting() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        String bob = bob();
+        LinkResponse link = givenLink(alice);
+        assertEquals(302, api.click(link.code()).statusCode(), "it redirected before the report");
+
+        HttpResponse<String> reported = api.reportAbuse(bob, link.code(), REASON);
+
+        // No evictResolutionCache() here: the takedown has to invalidate, and
+        // clearing the cache ourselves would pass against one that never does.
+        HttpResponse<String> afterReport = api.click(link.code());
+        assertAll(
+                () -> assertEquals(202, reported.statusCode(), reported.body()),
+                () -> assertEquals(404, afterReport.statusCode(), "a reported link stops redirecting"),
+                () -> assertEquals(Fixtures.NOT_FOUND_BODY, afterReport.body()),
+                () -> assertTrue(
+                        ApiClient.header(afterReport, Fixtures.LOCATION).isEmpty(),
+                        "nothing may still point at the reported target"));
     }
 
     /**
@@ -39,7 +70,25 @@ class AbuseReportTest extends AbstractIntegrationTest {
      */
     @Test
     void aReportTakesEffectWithinThePublishedBound() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        String bob = bob();
+        LinkResponse link = givenLink(alice);
+        // Clicked first, so whatever cache exists is holding this link when the
+        // report arrives - the case the bound is quoted for.
+        clickRepeatedly(link.code(), 2);
+
+        assertEquals(202, api.reportAbuse(bob, link.code(), REASON).statusCode());
+        Optional<Duration> tookEffectAfter =
+                observeUntil(() -> api.click(link.code()).statusCode() == 404, Fixtures.TAKEDOWN_BOUND);
+
+        assertAll(
+                () -> assertTrue(
+                        tookEffectAfter.isPresent(),
+                        "the reported link was still redirecting after the published bound of "
+                                + Fixtures.TAKEDOWN_BOUND),
+                () -> assertTrue(
+                        tookEffectAfter.orElseThrow().compareTo(Fixtures.TAKEDOWN_BOUND) < 0,
+                        "it stopped after " + tookEffectAfter.orElse(null)));
     }
 
     /**
@@ -51,7 +100,25 @@ class AbuseReportTest extends AbstractIntegrationTest {
      */
     @Test
     void aReportAgainstAnUnissuedCodeIsAcceptedLikeAnyOther() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        String bob = bob();
+        LinkResponse realLink = givenLink(alice);
+
+        HttpResponse<String> againstARealLink = api.reportAbuse(bob, realLink.code(), REASON);
+        HttpResponse<String> againstAnUnissuedCode = api.reportAbuse(bob, Fixtures.UNISSUED_CODE, REASON);
+        HttpResponse<String> againstAMalformedCode = api.reportAbuse(bob, Fixtures.MALFORMED_CODE, REASON);
+
+        assertAll(
+                () -> assertEquals(202, againstARealLink.statusCode(), againstARealLink.body()),
+                () -> assertEquals(
+                        againstARealLink.statusCode(),
+                        againstAnUnissuedCode.statusCode(),
+                        "a 404 here would make this endpoint an existence oracle"),
+                () -> assertEquals(againstARealLink.body(), againstAnUnissuedCode.body()),
+                () -> assertEquals("", againstAnUnissuedCode.body(), "the report response carries no body"),
+                () -> assertEquals(againstARealLink.statusCode(), againstAMalformedCode.statusCode()),
+                () -> assertEquals(againstARealLink.body(), againstAMalformedCode.body()),
+                () -> assertNotEquals(404, againstAnUnissuedCode.statusCode()));
     }
 
     /**
@@ -63,7 +130,21 @@ class AbuseReportTest extends AbstractIntegrationTest {
      */
     @Test
     void aReportAgainstAnotherCustomersLinkTakesItDown() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        String bob = bob();
+        LinkResponse alicesLink = givenLink(alice);
+
+        // Bob owns nothing here and is refused everything else on this code; he
+        // may still report it, and that is enough to take it down.
+        HttpResponse<String> reportedByBob = api.reportAbuse(bob, alicesLink.code(), REASON);
+
+        HttpResponse<String> click = api.click(alicesLink.code());
+        LinkResponse asItsOwnerSeesIt = ApiClient.asLink(api.getLink(alice, alicesLink.code()));
+        assertAll(
+                () -> assertEquals(202, reportedByBob.statusCode(), reportedByBob.body()),
+                () -> assertEquals(404, click.statusCode(), "another customer's report takes the link down"),
+                () -> assertEquals(Fixtures.NOT_FOUND_BODY, click.body()),
+                () -> assertEquals(LinkStatus.BLOCKED, asItsOwnerSeesIt.status()));
     }
 
     /**
@@ -74,7 +155,19 @@ class AbuseReportTest extends AbstractIntegrationTest {
      */
     @Test
     void aReportWithNoBodyIsAccepted() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        String bob = bob();
+        LinkResponse link = givenLink(alice);
+
+        // A null reason sends no body at all, not an empty JSON object.
+        HttpResponse<String> withNoBody = api.reportAbuse(bob, link.code(), null);
+
+        assertAll(
+                () -> assertEquals(202, withNoBody.statusCode(), withNoBody.body()),
+                () -> assertEquals("", withNoBody.body()),
+                // The evidence that it was recorded rather than discarded.
+                () -> assertEquals(404, api.click(link.code()).statusCode(),
+                        "a report with no reason still takes the link down"));
     }
 
     /**
@@ -86,7 +179,31 @@ class AbuseReportTest extends AbstractIntegrationTest {
      */
     @Test
     void aMalformedReportBodyIsRejectedAndTakesNothingDown() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        String bob = bob();
+        LinkResponse link = givenLink(alice);
+        String atTheLimit = "r".repeat(500);
+        String overTheLimit = "r".repeat(501);
+
+        HttpResponse<String> unknownProperty = reportRaw(
+                bob, link.code(), "{\"reason\":\"" + REASON + "\",\"blockImmediately\":true}");
+        HttpResponse<String> overlongReason = api.reportAbuse(bob, link.code(), overTheLimit);
+        HttpResponse<String> notEvenJson = reportRaw(bob, link.code(), "{\"reason\":");
+
+        HttpResponse<String> click = api.click(link.code());
+        assertAll(
+                () -> assertEquals(400, unknownProperty.statusCode(), unknownProperty.body()),
+                () -> assertEquals("invalid_request", ApiClient.asError(unknownProperty).error()),
+                () -> assertEquals(400, overlongReason.statusCode(), overlongReason.body()),
+                () -> assertEquals("invalid_request", ApiClient.asError(overlongReason).error()),
+                () -> assertEquals(400, notEvenJson.statusCode(), notEvenJson.body()),
+                () -> assertEquals(302, click.statusCode(), "a refused report blocks nothing"),
+                () -> assertEquals(
+                        Fixtures.TARGET_URL, ApiClient.header(click, Fixtures.LOCATION).orElse(null)),
+                // The boundary itself: 500 characters is inside the documented
+                // maximum, so the difference above is the length and not the field.
+                () -> assertEquals(202, api.reportAbuse(bob, link.code(), atTheLimit).statusCode(),
+                        "the documented maximum reason length is inclusive"));
     }
 
     /**
@@ -97,7 +214,23 @@ class AbuseReportTest extends AbstractIntegrationTest {
      */
     @Test
     void reportingWithoutASessionIsRefusedAndTakesNothingDown() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        LinkResponse link = givenLink(alice);
+
+        HttpResponse<String> withNoSession = api.reportAbuse(null, link.code(), REASON);
+        HttpResponse<String> withAForgedSession = api.reportAbuse(Fixtures.FORGED_BEARER, link.code(), REASON);
+
+        HttpResponse<String> click = api.click(link.code());
+        assertAll(
+                () -> assertEquals(401, withNoSession.statusCode(), withNoSession.body()),
+                () -> assertEquals("unauthorized", ApiClient.asError(withNoSession).error()),
+                () -> assertEquals("Authentication required.", ApiClient.asError(withNoSession).message()),
+                () -> assertEquals(401, withAForgedSession.statusCode(), withAForgedSession.body()),
+                () -> assertEquals(withNoSession.body(), withAForgedSession.body()),
+                () -> assertEquals(302, click.statusCode(),
+                        "an unauthenticated caller must not be able to take a link down"),
+                () -> assertEquals(
+                        Fixtures.TARGET_URL, ApiClient.header(click, Fixtures.LOCATION).orElse(null)));
     }
 
     /**
@@ -108,6 +241,32 @@ class AbuseReportTest extends AbstractIntegrationTest {
      */
     @Test
     void theOwnerOfAReportedLinkStillSeesItAndItsCount() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        String bob = bob();
+        LinkResponse link = givenLink(alice);
+        clickRepeatedly(link.code(), 3);
+
+        assertEquals(202, api.reportAbuse(bob, link.code(), REASON).statusCode());
+
+        HttpResponse<String> asItsOwnerSeesIt = api.getLink(alice, link.code());
+        assertEquals(200, asItsOwnerSeesIt.statusCode(), "a takedown must not make the owner's link vanish");
+        LinkResponse blocked = ApiClient.asLink(asItsOwnerSeesIt);
+        assertAll(
+                () -> assertEquals(link.code(), blocked.code()),
+                () -> assertEquals(LinkStatus.BLOCKED, blocked.status(),
+                        "the owner is told why it stopped working"),
+                () -> assertEquals(Fixtures.TARGET_URL, blocked.longUrl()),
+                () -> assertEquals(3L, blocked.clickCount(), "the count it accrued is retained"));
+    }
+
+    // ---- helpers ----------------------------------------------------------
+
+    /**
+     * Posts an arbitrary report body. {@link ApiClient} has no raw form of this
+     * call, and the sub-resource path is built from the frozen collection constant
+     * rather than spelled out, so a route that moves still moves in one place.
+     */
+    private HttpResponse<String> reportRaw(String bearer, String code, String jsonBody) {
+        return api.send("POST", ApiClient.LINKS_PATH + "/" + code + "/abuse-reports", jsonBody, bearer);
     }
 }
