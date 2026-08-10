@@ -42,13 +42,15 @@ from typing import Any
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
+    ClaudeSDKClient,
     PermissionResultAllow,
     PermissionResultDeny,
     ResultMessage,
     TextBlock,
     ThinkingBlock,
+    ToolResultBlock,
     ToolUseBlock,
-    query,
+    UserMessage,
 )
 
 from . import schemas
@@ -118,16 +120,16 @@ class AgentSDKBackend:
         transcript.append({"role": "prompt", "text": prompt})
 
         try:
-            async for message in query(
-                prompt=prompt,
-                options=self._options(invocation, engine, escalations),
-            ):
-                self._record(message, transcript)
-                if isinstance(message, ResultMessage):
-                    cost = message.total_cost_usd or 0.0
-                    structured = message.structured_output
-                    if message.is_error:
-                        failure = self._error_detail(message)
+            options = self._options(invocation, engine, escalations)
+            async with ClaudeSDKClient(options=options) as client:
+                await client.query(prompt)
+                async for message in client.receive_response():
+                    self._record(message, transcript)
+                    if isinstance(message, ResultMessage):
+                        cost = message.total_cost_usd or 0.0
+                        structured = message.structured_output
+                        if message.is_error:
+                            failure = self._error_detail(message)
         except Exception as exc:  # noqa: BLE001 -- a crashed session is a node failure
             # Deliberately broad. A transport error, a rate limit, or a crashed
             # CLI is a failed attempt, not a failed run: the engine's retry and
@@ -192,7 +194,15 @@ class AgentSDKBackend:
         options = ClaudeAgentOptions(
             cwd=str(invocation.workspace),
             system_prompt=SYSTEM_PROMPT,
-            allowed_tools=list(node.tools),
+            # `tools` restricts what exists; `allowed_tools` pre-approves what
+            # may run *without consulting the permission callback*. Putting the
+            # node's tools in the second one -- the obvious reading of the name
+            # -- silently shadows `can_use_tool` and turns every check below
+            # into decoration. The SDK warns about it; the warning is easy to
+            # miss in a run that otherwise succeeds. Empty here, deliberately:
+            # every tool call falls through to the callback.
+            tools=list(node.tools),
+            allowed_tools=[],
             model=node.model or self.default_model,
             effort=node.effort or self.default_effort,  # type: ignore[arg-type]
             max_turns=self.max_turns,
@@ -369,6 +379,21 @@ class AgentSDKBackend:
                     transcript.append(
                         {"role": "tool_use", "tool": block.name, "input": block.input}
                     )
+        elif isinstance(message, UserMessage):
+            # Tool *results*, including denials. Recording the call without the
+            # outcome would leave an auditor able to see that a node tried to
+            # write outside its allowlist but not that it was stopped.
+            content = message.content
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, ToolResultBlock):
+                        transcript.append(
+                            {
+                                "role": "tool_result",
+                                "is_error": block.is_error,
+                                "content": block.content,
+                            }
+                        )
         elif isinstance(message, ResultMessage):
             transcript.append(
                 {

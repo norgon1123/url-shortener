@@ -206,7 +206,20 @@ class TestOptions:
     def test_tools_are_restricted_to_the_node_declaration(
         self, backend: AgentSDKBackend, workspace: Path
     ) -> None:
-        assert self._options(backend, invocation(workspace)).allowed_tools == list(NODE.tools)
+        assert self._options(backend, invocation(workspace)).tools == list(NODE.tools)
+
+    def test_nothing_is_pre_approved_past_the_permission_callback(
+        self, backend: AgentSDKBackend, workspace: Path
+    ) -> None:
+        """`allowed_tools` auto-approves *before* `can_use_tool` is consulted.
+
+        Listing the node's tools there is the obvious misreading of the name,
+        and it silently shadows every check in this module -- the run still
+        succeeds, which is what makes it dangerous. This assertion is the only
+        thing standing between that mistake and a governance layer that does
+        nothing.
+        """
+        assert self._options(backend, invocation(workspace)).allowed_tools == []
 
     def test_a_node_with_a_schema_constrains_generation(
         self, backend: AgentSDKBackend, workspace: Path
