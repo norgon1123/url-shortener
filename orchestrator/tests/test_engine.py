@@ -906,6 +906,7 @@ TRIAGE_NODES = [
         "type": "handler",
         "prompt": "triage.md",
         "write_paths": ["artifacts/**"],
+        "output_schema": "triage",
     },
 ]
 
@@ -968,7 +969,7 @@ class TestTriageRouting:
         h.run()
         verdicts = h.events("triage_verdict")
         assert verdicts[0].payload["verdict"] == "implementation"
-        assert verdicts[0].payload["target"] == "implement"
+        assert verdicts[0].payload["targets"] == ["implement"]
         assert verdicts[0].payload["triggered_by"] == "verify"
 
     def test_triage_costs_are_charged_to_the_run(self, tmp_path: Path) -> None:
@@ -996,18 +997,15 @@ class TestTriageEscalates:
         assert h.status("verify") is NodeStatus.PENDING_APPROVAL
         assert not h.events("repair_routed")
 
-    def test_a_mixed_verdict_goes_to_a_human(self, tmp_path: Path) -> None:
-        """A mixture cannot be sent to one branch, and picking the larger pile
-        leaves the rest unfixed."""
+    def test_a_verdict_naming_no_repairable_branch_goes_to_a_human(
+        self, tmp_path: Path
+    ) -> None:
+        """Nothing to route to is not the same as nothing wrong."""
         h = self._run(tmp_path, {
-            "verdict": "mixed",
-            "summary": "one of each",
-            "failures": [
-                {"test": "a", "classification": "implementation",
-                 "confidence": "high", "evidence": "x"},
-                {"test": "b", "classification": "test",
-                 "confidence": "high", "evidence": "y"},
-            ],
+            "verdict": "contract",
+            "summary": "the document is silent",
+            "failures": [{"test": "a", "classification": "contract",
+                          "confidence": "high", "evidence": "x"}],
         })
         assert h.status("verify") is NodeStatus.PENDING_APPROVAL
 
@@ -1021,7 +1019,7 @@ class TestTriageEscalates:
         })
         assert h.status("verify") is NodeStatus.PENDING_APPROVAL
         assert not h.events("repair_routed")
-        assert "unsure" in h.events("triage_verdict")[0].payload["reason"]
+        assert "low confidence" in h.events("triage_verdict")[0].payload["reason"]
 
 
 class TestRepairBudget:
@@ -1054,3 +1052,81 @@ class TestRepairBudget:
 
         reopened = RunStore(tmp_path / "state.db")
         assert reopened.get_node(RUN_ID, "implement").repairs == recorded
+
+
+MIXED_VERDICT = {
+    "verdict": "mixed",
+    "summary": "a precision bug in the code and a test that leaks state between classes",
+    "failures": [
+        {"test": "expiryRoundTrips", "classification": "implementation",
+         "confidence": "high", "evidence": "nanos vs micros on the same field"},
+        {"test": "abuseReportAccepted", "classification": "test",
+         "confidence": "high", "evidence": "an earlier class drained the rate limit"},
+    ],
+}
+CONTRACT_IN_THE_MIX = {
+    "verdict": "mixed",
+    "summary": "one of each, and a question the document does not answer",
+    "failures": [
+        {"test": "expiryRoundTrips", "classification": "implementation",
+         "confidence": "high", "evidence": "nanos vs micros"},
+        {"test": "errorBodiesMatch", "classification": "contract",
+         "confidence": "medium", "evidence": "the contract never promised equal bodies"},
+    ],
+}
+
+
+class TestMixedVerdicts:
+    """Choosing one branch would be wrong. Asking each to fix its own side is
+    what a team does, and the branches are already isolated by path."""
+
+    def test_a_mixture_routes_to_every_implicated_branch(self, tmp_path: Path) -> None:
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(MIXED_VERDICT))
+        h.run()
+        routed = {e.node_id for e in h.events("repair_routed")}
+        assert routed == {"implement", "author-tests"}
+
+    def test_a_contract_question_in_the_mixture_still_stops(self, tmp_path: Path) -> None:
+        """No amount of re-running settles two sides reading one document
+        differently."""
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(CONTRACT_IN_THE_MIX))
+        h.run()
+        assert h.status("verify") is NodeStatus.PENDING_APPROVAL
+        assert not h.events("repair_routed")
+
+    def test_a_human_adjudication_releases_it(self, tmp_path: Path) -> None:
+        """The approval on file *is* the contract decision."""
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(CONTRACT_IN_THE_MIX))
+        h.run()
+        h.store.record_approval(
+            RUN_ID,
+            Approval("verify", ApprovalDecision.APPROVED, "neil", note="the test over-asserts"),
+        )
+        h.run(resume=True)
+        routed = {e.node_id for e in h.events("repair_routed")}
+        assert "implement" in routed
+        assert "adjudicated by neil" in h.events("triage_verdict")[-1].payload["reason"]
+
+    def test_the_verdict_reaches_the_branch_being_repaired(self, tmp_path: Path) -> None:
+        """A repair with no account of what it is repairing is a re-roll.
+
+        Carried through the prompt rather than by copying the artifact into the
+        branch's checkout, which would dirty the tree the barrier merges and put
+        a file in the node's diff it was never permitted to write.
+        """
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(MIXED_VERDICT))
+        h.journal.append(
+            "repair_routed", node_id="implement", reason="nanos vs micros on the same field"
+        )
+        assert "nanos vs micros" in h.engine()._repair_note("implement")
+
+    def test_the_note_is_spent_once_the_branch_passes(self, tmp_path: Path) -> None:
+        """Otherwise every later attempt carries feedback about a fixed defect."""
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(MIXED_VERDICT))
+        h.journal.append("repair_routed", node_id="implement", reason="nanos vs micros")
+        h.journal.append("node_passed", node_id="implement")
+        assert h.engine()._repair_note("implement") == ""
+
+    def test_a_node_never_routed_a_repair_carries_no_note(self, tmp_path: Path) -> None:
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(MIXED_VERDICT))
+        assert h.engine()._repair_note("plan") == ""

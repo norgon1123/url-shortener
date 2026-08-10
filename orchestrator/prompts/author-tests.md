@@ -108,3 +108,15 @@ yet. The gate here is that they **compile** (`mvn test-compile`), which proves
 they were written against the frozen contract's real types rather than invented
 ones. They run for the first time after the join, against code written by
 someone who never saw them.
+
+
+## If `artifacts/triage.json` exists, read it first
+
+It means `verify` failed and an adjudicator attributed some of those failures to
+this branch. Its `failures` entries carry the test, the classification, and the
+evidence for the call.
+
+Fix the ones classified `test` and leave the rest alone -- another branch is
+repairing those in parallel, and a failure attributed elsewhere is not yours to
+chase. If you believe a failure was misattributed, say so in your response
+rather than working around it; the verdict is advisory and a human reads it.

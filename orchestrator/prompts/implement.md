@@ -55,3 +55,15 @@ whose behaviour does, which is where this kind of change usually goes wrong.
 Its `regression_surface` is the existing behaviour most likely to break; the
 tests being written in parallel are aimed at it, so it is worth reading as a
 list of things that must still work when you are done.
+
+
+## If `artifacts/triage.json` exists, read it first
+
+It means `verify` failed and an adjudicator attributed some of those failures to
+this branch. Its `failures` entries carry the test, the classification, and the
+evidence for the call.
+
+Fix the ones classified `implementation` and leave the rest alone -- another branch is
+repairing those in parallel, and a failure attributed elsewhere is not yours to
+chase. If you believe a failure was misattributed, say so in your response
+rather than working around it; the verdict is advisory and a human reads it.
