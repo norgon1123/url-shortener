@@ -632,3 +632,17 @@ class TestStaleInputs:
         gated.run()
         gated.run(resume=True)
         assert gated.events("node_stale") == []
+
+
+class TestPreflight:
+    def test_a_missing_prompt_fails_before_anything_runs(self, tmp_path: Path) -> None:
+        """The same argument as validating gate names at load time: discovering
+        a typo when the node is reached means discovering it forty minutes and
+        several dollars in, with a half-built workspace to clean up."""
+        harness = Harness(tmp_path, BASE_NODES, dict(HAPPY_SCRIPT))
+        (harness.prompts / BASE_NODES[0]["prompt"]).unlink()
+
+        with pytest.raises(FileNotFoundError, match=BASE_NODES[0]["id"]):
+            harness.run()
+
+        assert harness.events("run_started") == []

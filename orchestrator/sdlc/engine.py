@@ -129,6 +129,7 @@ class Engine:
     # -- run lifecycle ---------------------------------------------------
 
     def run(self, *, resume: bool = False) -> RunStatus:
+        self._assert_prompts_exist()
         if not resume:
             self._record(
                 "run_started",
@@ -278,6 +279,26 @@ class Engine:
             approvals=self.store.approvals(self.run_id),
             run=self.command_runner,
         )
+
+    def _assert_prompts_exist(self) -> None:
+        """Preflight every prompt file before the run starts.
+
+        The same argument as validating gate names at load time: a missing or
+        misspelled prompt is a configuration error, and discovering it when the
+        node is reached means discovering it forty minutes and several dollars
+        into a run, with a half-built workspace to clean up.
+        """
+        missing = [
+            f"{node.id} -> {self.prompts_root / node.prompt_path}"
+            for node in self.pipeline.nodes
+            if node.kind is NodeKind.AGENT
+            and node.prompt_path
+            and not (self.prompts_root / node.prompt_path).is_file()
+        ]
+        if missing:
+            raise FileNotFoundError(
+                "prompt file(s) not found:\n  " + "\n  ".join(missing)
+            )
 
     def _input_hash(self, node: NodeSpec) -> str:
         """Content-address what this node consumes.

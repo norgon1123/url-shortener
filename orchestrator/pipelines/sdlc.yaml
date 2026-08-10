@@ -73,7 +73,7 @@ policy:
 nodes:
   - id: intake
     description: Normalize a raw requirement into a structured engineering problem.
-    prompt: prompts/intake.md
+    prompt: intake.md
     tools: [Read, Write]
     write_paths: ["artifacts/**"]
     output_schema: requirement
@@ -86,7 +86,7 @@ nodes:
 
   - id: clarify
     description: Identify ambiguity. Emit assumptions even when nothing is ambiguous.
-    prompt: prompts/clarify.md
+    prompt: clarify.md
     tools: [Read, Write]
     write_paths: ["artifacts/**"]
     output_schema: clarification
@@ -104,7 +104,7 @@ nodes:
 
   - id: decompose
     description: Convert the clarified requirement into a task DAG with dependencies.
-    prompt: prompts/decompose.md
+    prompt: decompose.md
     tools: [Read, Write, Grep, Glob]
     write_paths: ["artifacts/**"]
     output_schema: plan
@@ -120,7 +120,7 @@ nodes:
       Produce the frozen contract. Everything the parallel branches need to work
       independently is fixed here: OpenAPI spec, compilable interfaces and DTOs,
       and the finalized pom.xml. Neither branch may change it afterwards.
-    prompt: prompts/design.md
+    prompt: design.md
     tools: [Read, Write, Edit, Grep, Glob, Bash]
     write_paths: ["artifacts/**", "service/src/main/java/**", "service/pom.xml"]
     output_schema: design
@@ -144,7 +144,7 @@ nodes:
 
   - id: implement
     description: Implement the contract. Cannot touch tests.
-    prompt: prompts/implement.md
+    prompt: implement.md
     tools: [Read, Write, Edit, Grep, Glob, Bash]
     write_paths: ["service/src/main/**"]
     deny_paths: ["service/src/test/**", "service/pom.xml"]
@@ -164,7 +164,7 @@ nodes:
     description: >
       Author black-box HTTP/integration tests against the OpenAPI contract only.
       Written blind: this node never sees the implementation.
-    prompt: prompts/author-tests.md
+    prompt: author-tests.md
     tools: [Read, Write, Edit, Grep, Glob, Bash]
     write_paths: ["service/src/test/**"]
     deny_paths: ["service/src/main/**", "service/pom.xml"]
@@ -201,7 +201,7 @@ nodes:
 
   - id: docs
     description: Generate user-facing documentation from the contract and code.
-    prompt: prompts/docs.md
+    prompt: docs.md
     tools: [Read, Write, Edit, Grep, Glob]
     write_paths: ["docs/**", "README.md"]
     depends_on: [verify]
@@ -215,7 +215,7 @@ nodes:
     description: >
       Adversarial review. ADVISORY ONLY -- cannot fail the run (ADR-001).
       Deterministic static analysis gates; LLM blocker findings escalate.
-    prompt: prompts/review.md
+    prompt: review.md
     tools: [Read, Grep, Glob, Bash]
     write_paths: ["artifacts/**"]
     output_schema: review
@@ -228,7 +228,7 @@ nodes:
 
   - id: release-readiness
     description: Final human sign-off before anything leaves the machine.
-    prompt: prompts/release-readiness.md
+    prompt: release-readiness.md
     tools: [Read, Grep, Glob, Bash]
     write_paths: ["artifacts/**"]
     output_schema: release
