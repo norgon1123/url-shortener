@@ -141,7 +141,41 @@ class RunStore:
         if not self._in_memory:
             conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(SCHEMA)
+        self._migrate(conn)
         conn.commit()
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        """Add columns the schema has gained since this database was created.
+
+        `CREATE TABLE IF NOT EXISTS` does nothing to a table that already
+        exists, so a store opened by an older version of this code keeps its old
+        shape and every read of a new column raises. That is how the first run
+        of the 21-node graph died: `repairs` had been added to the schema, the
+        runs directory still held a database from before it, and the very first
+        node crashed reading a column that was never there.
+
+        The irony is not lost -- this orchestrator requires the service it
+        builds to use versioned migrations and had none of its own. Additive
+        columns with defaults are the only change made so far, and ALTER TABLE
+        handles those; anything destructive would need a real migration story
+        and a version table to go with it.
+        """
+        expected = {
+            "node_state": {
+                "invocations": "INTEGER NOT NULL DEFAULT 0",
+                "repairs": "INTEGER NOT NULL DEFAULT 0",
+            },
+            "runs": {
+                "replans": "INTEGER NOT NULL DEFAULT 0",
+                "stop_requested": "INTEGER NOT NULL DEFAULT 0",
+            },
+        }
+        for table, columns in expected.items():
+            present = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+            for name, decl in columns.items():
+                if name not in present:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
 
     @property
     def _conn(self) -> sqlite3.Connection:
