@@ -1,0 +1,2 @@
+# Migrations land here as orchestrator output. The directory is a protected
+# path: schema changes force a human approval regardless of node autonomy.

@@ -1,0 +1,387 @@
+# Implementation Plan — Agentic SDLC Orchestration System
+
+This is the working plan of record. It is committed to the repository so the
+design intent, the decisions, and the things deliberately *not* built are all
+inspectable alongside the code they explain.
+
+Status markers are maintained as the build progresses:
+**DONE** / **IN PROGRESS** / **TODO**.
+
+---
+
+## 1. Context
+
+An interview assignment for a Java Architect / Technical Program Manager
+(AI Transformation) role. Two artifacts live in one repository:
+
+1. **The work product** — a URL shortener service (Java 21, Spring Boot 3.x).
+2. **The differentiator (§4.4)** — an *implemented* orchestration layer that
+   drives the SDLC to produce (1): an explicit dependency graph, entry/exit
+   gates, human checkpoints, bounded retries, fallback, rollback, safe-stop,
+   policy guardrails, audit-grade traceability, reliability metrics, and
+   dynamic re-planning.
+
+Six of the eight §6 scoring criteria score the orchestrator, not the service.
+The plan allocates effort accordingly.
+
+---
+
+## 2. Governing thesis — the gate taxonomy (ADR-001)
+
+The absolutist claim "the LLM is never the gate" is falsifiable at two nodes
+(`clarify` and `review`) and hands a reviewer an easy counterexample. The
+taxonomy is the defensible version:
+
+| Gate class | Mechanism | Examples |
+|---|---|---|
+| **Mechanical** | Fully deterministic: process exit codes and thresholds | compile, `mvn verify`, JaCoCo floor, OpenAPI/route diff, secret scan, SpotBugs severity tiers |
+| **Structured self-report** | Schema/threshold check on a field the LLM itself emitted — *always* backstopped by a downstream human checkpoint | `clarify` ambiguity count, `review` findings |
+| **Human** | Explicit approval, persisted with the approver's note | frozen-contract approval, release readiness, any high-impact action |
+
+> **The LLM never approves — it can only satisfy a checkable predicate or escalate.**
+
+Two consequences, both of which resolve real contradictions:
+
+- `clarify` must emit `assumptions[]` **even when `ambiguities == 0`**, surfaced
+  at the `design` human checkpoint. Under-reporting is caught by a human, not by
+  the predicate the LLM populated.
+- `review` is **advisory and cannot auto-fail**. Deterministic static analysis
+  gates the run; LLM findings tagged `blocker` force `PENDING_APPROVAL`.
+
+This is enforced structurally, not documented aspirationally: `graph.validate()`
+rejects any pipeline in which a `self_report` gate has no human gate downstream
+of it, and rejects any gate naming a check that is not implemented.
+
+Framing for the audience: **this is CI/CD for agent work** — change control,
+segregation of duties, four-eyes approval, audit trail.
+
+---
+
+## 3. Decisions locked
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| Service | Java 21 + Spring Boot 3.x | What the role hires for; the credibility artifact |
+| Orchestrator runtime | Python + Claude Agent SDK | Built-in file/bash/grep tools, permission callbacks, hooks, subagents, enforced sandbox egress. No Agent SDK for Java; the Tool Runner would mean a day of undifferentiated tool plumbing |
+| Deployment | Local CLI, CI-ready by construction | No daemon, no shared mutable state — SQLite + JSONL + git checkpoints — so the same entry point runs unchanged as a CI job |
+| Service scope | Lean; Redis **and** Kafka documented, not built | Six of eight criteria score orchestration |
+| **Rate limiting** | **Excluded from the base build** | It is the brownfield scenario's deliverable; shipping it in the base makes that demo incoherent |
+| Provenance | Hand-built scaffold; orchestrator produces features | Stated openly in `ENGINEERING_SUMMARY.md`; commit trailers make it auditable per commit |
+
+**The polyglot seam, defended proactively rather than when challenged:** the
+orchestrator is developer tooling, not a production service — not in the
+transaction path, no uptime SLA. Build tooling routinely differs in language
+from the product it builds. The seam is narrow by design: it shells out to
+`mvn`, `git`, and `gh`, so a Java port is mechanical.
+
+**Provenance, stated honestly:** the scaffold (build configuration, compose
+file, CI workflow) is hand-built. Orchestrator runs produce the features.
+Checkpoint commits carry `Run-Id:` / `Node-Id:` / `Attempt:` trailers, so
+`git log` is machine-verifiable provenance per commit. Ambiguity here reads as
+staging; honesty reads as judgment.
+
+---
+
+## 4. Repository layout
+
+```
+url-shortener/
+  service/                   # Java 21 + Spring Boot 3.x
+  orchestrator/
+    sdlc/
+      graph.py               # DAG load, validation, topological scheduling, join barrier
+      model.py               # node/gate/run types, statuses, approvals
+      schemas.py             # JSON Schemas: SDK output_format at runtime, re-validated at the gate
+      gates.py               # gate predicates, registered by taxonomy class
+      policy.py              # path allowlist, forbidden commands, secret scan, high-impact classifier
+      state.py               # SQLite run store — resumable across process restarts
+      audit.py               # hash-chained JSONL journal + decision lineage
+      nodes.py               # invocation record, backend protocol, prompt assembly
+      mock.py                # scripted + recording node backends
+      checkpoint.py          # git worktrees, commit-per-node, rollback, branch merge at join
+      budget.py              # max_cost_usd / max_wallclock → safe-stop on breach
+      engine.py              # the scheduler and the failure-handling state machine
+      metrics.py             # success rate, retry/rollback frequency, MTTR, latency, cost
+      cli.py                 # run | resume | approve | reject | stop | status | report | verify | replay | lineage
+    pipelines/sdlc.yaml
+    prompts/*.md
+    tests/                   # pytest over mock backends — the orchestrator's own suite
+    fixtures/runs/           # recorded journals shipped in-repo
+  docs/
+    IMPLEMENTATION_PLAN.md   # this file
+    architecture.md
+    deployment-staging.md
+    demo-script.md
+    ENGINEERING_SUMMARY.md
+    adr/001..005
+    scenarios/{greenfield,brownfield,ambiguous}.md
+```
+
+Node interiors call the Agent SDK's `query(prompt, options)` with a per-node
+tool allowlist and a JSON output schema. **The graph, gates, journal,
+checkpoints, policy, and metrics are hand-written** — no SDK supplies those,
+which is precisely why §4.4 is the differentiator.
+
+---
+
+## 5. Build order (this is what protects the budget)
+
+**Phase 0 — mock mode first. DONE.** Scripted node backends make the entire
+graph/gate/checkpoint/approval/metrics machinery testable in *seconds* rather
+than in 20–60 minute multi-dollar LLM runs. It is simultaneously the dev loop,
+the orchestrator's own pytest suite (a governance tool with no tests of itself
+is an irony the scoring criteria would punish), and the way an evaluator with
+no API key can still exercise every control.
+
+**Phase 1 — graph, gates, policy, checkpoints, journal, engine, CLI, metrics,
+all against the mock. DONE.** 275 tests, ~2.5 s, no API key required.
+
+**Phase 2 — the Java scaffold, then live Agent SDK nodes; run greenfield.
+IN PROGRESS.**
+
+**Phase 3 — brownfield, ambiguous, and fault-injection scenarios. TODO.**
+
+**Phase 4 — metrics report, ADRs, documentation. TODO.**
+
+**Cut order under pressure:** separate `security` node (fold the scans into exit
+gates) → HTML report (terminal/markdown table first) → service extras
+(idempotency key, negative caching).
+
+---
+
+## 6. The orchestration layer
+
+### 6.1 DAG
+
+```
+intake → clarify → decompose → design ─┬→ implement ────┐
+                                       └→ author-tests ─┴→ (join) → verify → docs → review → release-readiness
+```
+
+Each node declares `prompt`, `tools`, `write_paths`, `deny_paths`,
+`output_schema`, `entry_gates`, `exit_gates`, `retry`, `autonomy`, `on_failure`.
+
+**The parallel branch is the showpiece, and the thing most likely to break.**
+Naive parallelism fails its own join: tests authored against classes that do not
+exist will not compile. Three mechanisms make it work:
+
+1. `design` emits a **frozen contract** — OpenAPI spec, compilable interface and
+   DTO skeletons, and the **finalized `pom.xml`**. Dependencies are frozen here,
+   so neither branch touches the build file and the otherwise-guaranteed merge
+   conflict disappears.
+2. `author-tests` writes **black-box HTTP/integration tests against the OpenAPI
+   contract**, not unit tests against implementation classes. These genuinely
+   can be authored blind, in parallel.
+3. Branches run in **separate git worktrees**, merged at the barrier. A conflict
+   escalates to a human rather than failing the run.
+
+**Segregation of duties (ADR-003):** `implement`'s allowlist forbids
+`service/src/test/**` and `author-tests`' forbids `service/src/main/**`. The
+agent producing the code is structurally incapable of weakening the tests that
+gate it. This is the answer to the hardest question a panel can ask.
+
+**Non-linearity:** the replan edge (`verify` → `decompose`) and the ambiguity
+edge (`clarify` → human → `intake`) make the graph genuinely
+cyclic-with-bounds, not linear chaining.
+
+### 6.2 Gate table (the whole graph, not half of it)
+
+| Node | Entry gate | Exit gate | Class |
+|---|---|---|---|
+| `intake` | raw requirement present | `requirement.json` validates | mechanical |
+| `clarify` | `requirement.json` exists | `assumptions[]` non-empty ∧ blocking ambiguities escalate | self-report + human |
+| `decompose` | zero unresolved ambiguities | `plan.json` is a valid DAG, no orphan tasks | mechanical |
+| `design` | `plan.json` valid | OpenAPI lints ∧ skeletons compile ∧ **human approves the contract** | mechanical + human |
+| `implement` | frozen contract intact | compiles ∧ no writes outside the allowlist ∧ **no writes to `src/test/**`** ∧ secret scan clean | mechanical |
+| `author-tests` | frozen contract intact | tests compile ∧ writes confined to `src/test/**` | mechanical |
+| *(join)* | both branches checkpointed | merge clean; conflict → human | mechanical + human |
+| `verify` | join complete | `mvn verify` == 0 ∧ JaCoCo line ≥ 70% ∧ routes match OpenAPI | mechanical |
+| `docs` | verify green | writes confined to `docs/**` ∧ README links resolve | mechanical |
+| `review` | docs complete | SpotBugs ≤ severity tier; LLM `blocker` findings → `PENDING_APPROVAL` (**never auto-fail**) | mechanical + human |
+| `release-readiness` | all prior green | **human approval** before push/PR | human |
+
+### 6.3 Failure handling — all four §4.4 controls, named separately
+
+`on_failure: retry | fallback | rollback | replan | safe_stop`
+
+- **retry** — bounded; attempt *N+1* receives the gate-failure output appended
+  to its prompt. Retrying with an identical prompt would be superstition.
+- **fallback** — autonomy degradation: `apply` → `propose`, so the node writes a
+  scratch diff and a human applies it. Deterministic template path for `docs`.
+- **rollback** — reset to the prior node's checkpoint commit. Resume after a
+  crash reverts a dirty workspace to the last checkpoint, then re-runs.
+- **replan** — two triggers, not one:
+  - *failure-driven*: `verify` fails twice → back to `decompose` with the
+    failure context. Bounded at 2.
+  - *change-driven*: the journal records content-addressed input hashes. On
+    resume, a node whose recorded input hash no longer matches marks itself and
+    every descendant **stale** → replan. This is Make/Bazel-style invalidation,
+    and it is what "re-plan when upstream outputs change" literally asks for.
+- **safe-stop** — both graph-terminal *and* operator-initiated: `stop <run>`
+  halts at the next node boundary.
+
+**`reject` semantics:** `reject <run> <node> --note "..."` clears the recorded
+decision, re-runs the node with the reviewer's note appended to its prompt, and
+puts the revised result in front of a fresh decision. Both decisions survive in
+the journal — that is the four-eyes record. Approve-only would be theatre.
+
+**Budget guardrail:** `max_cost_usd` and `max_wallclock_seconds` per run, checked
+*before* dispatching a node. Discovering the budget is blown after paying for the
+node that blew it is an audit finding, not a control.
+
+### 6.4 Controlled autonomy and high-impact detection
+
+Per-node `autonomy`: `propose` → `apply` → `apply_and_push`.
+
+The detection mechanism: an Agent SDK **permission callback** fires on writes to
+protected paths (`pom.xml`, `db/migration/**`, `application*.yml`,
+`docker-compose.yml`), and a **post-node diff classifier** catches anything the
+callback missed — a Bash heredoc can bypass the callback; it cannot bypass the
+diff. Either forces `PENDING_APPROVAL` regardless of configured autonomy.
+Without this, "human approval for high-impact actions" is a claim with no
+mechanism behind it.
+
+### 6.5 Guardrails
+
+Per-node tool allowlists; path allowlists and forbidden-path lists; a
+secret-pattern scan on every diff that reports the pattern and line number and
+**never echoes the matched secret**; no force-push; no commits to the default
+branch; a feature branch per run.
+
+Network egress is enforced by the Agent SDK's `SandboxNetworkConfig` — Maven
+Central is reachable, nothing else is. This is genuine enforcement rather than
+the best-effort command deny-list an earlier draft of this plan assumed.
+
+### 6.6 Audit-grade observability
+
+"Audit-grade" invites "can this be tampered with?", so:
+
+- **Hash-chained JSONL journal** — every entry carries its predecessor's hash.
+- **Full agent transcripts retained** — auditors want the prompt that produced
+  the change, not just the outcome.
+- **Commit trailers** `Run-Id:` / `Node-Id:` / `Attempt:` on every checkpoint.
+- **Decision lineage** — replan entries reference the failing gate's journal
+  entry; design artifacts cite the assumption IDs `clarify` emitted.
+- **The journal is authoritative; SQLite is a materialized view.**
+  `rebuild_from_journal()` proves the asymmetry, and it verifies the chain
+  first, so a tampered log cannot launder itself into "state".
+
+### 6.7 Metrics
+
+`report <run>` → success rate, retry frequency, rollback frequency, MTTR,
+end-to-end latency, and cost per node — computed **from the journal only**, so
+the numbers cannot quietly disagree with the audit record.
+
+MTTR has no standard meaning in a pipeline (there is no "service restored"
+event), so it is defined explicitly: **first failing gate → next passing gate on
+the same node**. A clean run reports `n/a (no failures)` rather than `0.0`,
+which would read as instant recovery instead of never having broken.
+
+---
+
+## 7. The URL shortener (the work product)
+
+- `POST /api/v1/links` (custom alias, TTL, `Idempotency-Key`),
+  `GET /{code}` → **302** (301 caches away the analytics), `DELETE`,
+  `GET /api/v1/links/{code}/stats`; **410** expired vs **404** unknown.
+- **Code generation (ADR-004):** random 7-character base62 with a
+  unique-constraint retry, *not* a sequence — sequential codes are enumerable,
+  which is a real security defect for a shortener.
+- **Security:** scheme allowlist (http/https); reject private, loopback, and
+  link-local ranges (SSRF); reject self-referential hosts (redirect loops);
+  negative-cache 404s against enumeration.
+- **Data:** PostgreSQL via Testcontainers; **Caffeine only** — no Redis in the
+  build.
+- **Analytics:** transactional outbox → async consumer. Kafka is the documented
+  scale path, not a dependency.
+- Actuator/Micrometer, health probes, OpenAPI as a first-class artifact,
+  integration tests over mocks.
+
+---
+
+## 8. Deployment staging
+
+**Stage 1 — laptop.** Where the prototype demos. Fine for exploration,
+unacceptable for regulated change control.
+
+**Stage 2 — CI runner (the real answer for a team).** Self-hosted runners,
+triggered by a ticket label or PR comment. The output is a **PR, not a merge**,
+so human gates become **PR approvals** and inherit the organisation's existing
+four-eyes controls instead of inventing parallel ones. The journal uploads as a
+build artifact and ships to the SIEM.
+
+**Stage 3 — orchestration service.** Queue-backed, multi-tenant, approval UI,
+fleet-wide metrics.
+
+**The property that makes this credible:** no daemon and no shared mutable state,
+so the same entry point runs unchanged across all three stages.
+
+**Financial-services controls:** does source leave the network — point the SDK at
+Bedrock or Claude Platform on AWS inside the organisation's own account
+(ADR-005; ⚠️ *verify Agent SDK Bedrock support before asserting it*).
+Credentials in a vault rather than env files; sandbox egress policy; journal
+retention.
+
+---
+
+## 9. The three scenarios
+
+1. **Greenfield** — "Build shorten + redirect APIs." Full DAG traversal;
+   `clarify` passes *through* with zero blocking ambiguities.
+2. **Brownfield** — "Add rate limiting to link creation." Deliberately excluded
+   from the base build so this produces a real diff. Exercises codebase
+   reasoning: impact analysis identifies affected modules, APIs, and data flows;
+   the existing tests must still pass at `verify`.
+3. **Ambiguous** — "Make it reliable and add analytics." `clarify` refuses to
+   proceed, emits ambiguities plus proposed assumptions, and escalates.
+
+---
+
+## 10. Demo script
+
+The halt-on-ambiguity moment alone reads as a scripted `if`. Four things make it
+unfakeable:
+
+1. **Differential behaviour, identical machinery** — the same DAG, the same
+   prompts, zero scenario-specific branches. Greenfield passes through
+   `clarify`; ambiguous halts. The journals side by side are the proof.
+2. **Consequential approval** — run the ambiguous scenario **twice with
+   different human answers** ("reliability = rate limiting + idempotency" vs.
+   "reliability = health probes + retries") and show `decompose` producing
+   different task graphs and different code. If approval merely resumes to a
+   predetermined outcome, it is a pause button, not governance.
+3. **Show `reject`, not only `approve`** — reject at `design` → the node re-runs
+   with the note → a revised contract.
+4. **Fault injection as co-headliner** — a forced `verify` failure → bounded
+   retry → rollback → replan → safe-stop, visible in both the journal and the
+   metrics. The halt proves *policy*; fault injection proves the *machinery*.
+
+---
+
+## 11. Verification
+
+- `cd service && ./mvnw verify` — green, coverage at or above the floor.
+- `docker compose up` plus a scripted `curl` walkthrough: create → redirect →
+  stats → expire.
+- `pytest orchestrator/tests` — graph, gates, rollback, replan, budget breach,
+  all deterministic against mock backends, no API key.
+- `run --scenario greenfield` end to end; `--scenario ambiguous` halts,
+  `approve` resumes; the ambiguous scenario run twice with divergent answers
+  producing divergent artifacts.
+- `replay fixtures/runs/greenfield` — the full audit trail, inspectable with no
+  API key and no spend.
+- Fault injection: a forced `verify` failure through retry, rollback, replan,
+  and safe-stop.
+- `report <run>` → the reliability metrics, folded out of the journal.
+
+---
+
+## 12. Limitations, stated rather than discovered
+
+Single machine; no distributed scheduler; metrics are per-run rather than
+fleet-aggregated; the LLM reviewer is advisory by design and the mechanical
+gates are authoritative; parallel branches mean two concurrent SDK sessions and
+therefore a brief cost and rate-limit spike; cost scales with graph width; no
+multi-tenant isolation; `routes_match_openapi` is a regex scan of Spring
+annotations rather than an AST walk, so it handles literal-string mappings and
+would need replacing for dynamically composed paths.

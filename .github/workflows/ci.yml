@@ -1,0 +1,61 @@
+# CI for both halves of the repository.
+#
+# This is also the Stage 2 deployment argument made concrete (see
+# docs/deployment-staging.md). The orchestrator has no daemon and no shared
+# mutable state -- SQLite, a JSONL journal, and git checkpoints, all inside the
+# workspace -- so the same entry point that runs on a laptop runs here
+# unchanged. The only thing that changes is where the human gates surface: on a
+# runner they become PR approvals, which inherit whatever four-eyes controls the
+# organisation already enforces, rather than a parallel approval system nobody
+# audits.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  orchestrator:
+    name: orchestrator (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install
+        run: pip install -r orchestrator/requirements.txt
+      # The suite runs entirely against scripted backends: no API key, no spend,
+      # no network. A governance tool whose own tests cannot run in CI is not
+      # one anybody should adopt.
+      - name: Test
+        run: pytest orchestrator/tests -q
+
+  service:
+    name: service (maven)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: temurin
+          cache: maven
+      # Testcontainers needs a Docker daemon; ubuntu-latest runners have one.
+      - name: Verify
+        working-directory: service
+        run: ./mvnw -B verify
+      - name: Static analysis
+        working-directory: service
+        run: ./mvnw -B -DskipTests spotbugs:spotbugs
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: service-reports
+          path: |
+            service/target/site/jacoco/
+            service/target/spotbugsXml.xml
+          if-no-files-found: ignore

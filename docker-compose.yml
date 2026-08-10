@@ -1,0 +1,30 @@
+# Local development dependencies.
+#
+# Listed in the pipeline's protected_paths -- a node that changes the topology
+# of the environment the service runs in gets a human, whatever its autonomy
+# level. Tests do not use this file; they use Testcontainers, so a test run
+# never depends on whether someone remembered to start compose.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: shortener
+      POSTGRES_USER: shortener
+      # Local default only. Real deployments inject DB_PASSWORD from a vault;
+      # see docs/deployment-staging.md.
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-shortener}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # The service waits on readiness rather than on a sleep, so
+      # `docker compose up` is deterministic on a cold volume.
+      test: ["CMD-SHELL", "pg_isready -U shortener -d shortener"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres-data:

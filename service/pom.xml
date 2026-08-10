@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Build configuration for the URL shortener service.
+
+  This file is hand-built scaffold, not orchestrator output, and it is listed in
+  the pipeline's `protected_paths`: any node that writes to it forces the run to
+  PENDING_APPROVAL. That is deliberate. A dependency added by an agent is a
+  supply-chain change, and supply-chain changes get a human.
+
+  It is also the file that makes the parallel branch work at all. `design`
+  freezes the dependency set here, so neither `implement` nor `author-tests`
+  needs to touch it, which removes the merge conflict that would otherwise be
+  guaranteed at every join.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.5.16</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>com.example</groupId>
+  <artifactId>url-shortener</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <name>url-shortener</name>
+  <description>URL shortener service, produced by the agentic SDLC orchestrator</description>
+
+  <properties>
+    <java.version>21</java.version>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <jacoco.version>0.8.15</jacoco.version>
+    <spotbugs.version>4.10.3.0</spotbugs.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-cache</artifactId>
+    </dependency>
+
+    <!-- Caffeine only. Redis is the documented scale path (docs/architecture.md),
+         not a dependency: a second network hop in the redirect path has to earn
+         its place, and at one instance it does not. -->
+    <dependency>
+      <groupId>com.github.ben-manes.caffeine</groupId>
+      <artifactId>caffeine</artifactId>
+    </dependency>
+
+    <!-- Schema changes are versioned migrations, never ddl-auto. The migration
+         directory is a protected path for the same reason pom.xml is. -->
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-database-postgresql</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-prometheus</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
+    <!-- Tests run against a real PostgreSQL, not H2. A shortener leans on a
+         unique constraint for collision detection and on partial indexes for
+         expiry; an in-memory dialect would fake exactly the behaviour under
+         test. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-testcontainers</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+
+      <!--
+        JaCoCo reports; it does not enforce.
+
+        The 70% line floor lives in orchestrator/pipelines/sdlc.yaml, and the
+        `coverage_floor` gate parses this CSV to enforce it. Enforcing in both
+        places would mean the build failed before the gate could read the
+        number, and "mvn verify exited 1" is a far weaker audit record than
+        "line coverage 62.4% (312/500) against a 70% floor".
+      -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>${jacoco.version}</version>
+        <executions>
+          <execution>
+            <id>prepare-agent</id>
+            <goals><goal>prepare-agent</goal></goals>
+          </execution>
+          <execution>
+            <id>report</id>
+            <phase>verify</phase>
+            <goals><goal>report</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!--
+        SpotBugs is invoked by the `static_analysis` gate as a standalone goal
+        (`spotbugs:spotbugs`), which reads target/spotbugsXml.xml and tiers the
+        findings by priority. It is deliberately not bound to the build
+        lifecycle: the gate decides what severity is disqualifying, so the
+        threshold stays in the pipeline definition with every other policy.
+      -->
+      <plugin>
+        <groupId>com.github.spotbugs</groupId>
+        <artifactId>spotbugs-maven-plugin</artifactId>
+        <version>${spotbugs.version}</version>
+        <configuration>
+          <effort>Max</effort>
+          <threshold>Low</threshold>
+          <failOnError>false</failOnError>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>
