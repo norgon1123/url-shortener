@@ -21,15 +21,24 @@ Cover at least:
   demonstrates it;
 - the mechanical gate outcomes: build, tests, coverage, route/contract diff,
   static analysis;
-- the review findings and what happened to them;
+- the review findings and what happened to them. `artifacts/review.json` is the
+  synthesised view; the five lens reports behind it
+  (`artifacts/review-*.json`) are the record of who looked at what;
+- **where nobody looked.** Each lens reports a `not_examined` list. A gap that
+  shows up in several of them is a hole in the review itself, and it belongs in
+  front of the approver far more than another minor finding does;
 - what changed in the diff, summarised in a sentence per area;
 - schema or configuration changes, and whether they are backwards compatible;
 - anything a deploy would need that is not in the repository.
 
 Mark an item honestly. An item you cannot substantiate is not `pass` — it is
-`unknown`, with a note saying what would settle it. The value of this node is
-entirely in a reviewer being able to trust it, which survives exactly one
-inflated `pass`.
+`unknown`, and the `evidence` field says what would settle it. The value of this
+node is entirely in a reviewer being able to trust it, which survives exactly
+one inflated `pass`.
+
+`n/a` and `unknown` are not interchangeable. `n/a` means the item does not apply
+to this change; `unknown` means it applies and nobody established it. Collapsing
+the second into the first is the most convenient mistake available here.
 
 ## `ready` and `residual_risks`
 

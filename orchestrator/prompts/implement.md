@@ -48,3 +48,10 @@ afternoon:
 On brownfield work, follow the conventions already in the repository even where
 you would have chosen differently. A change that is stylistically foreign is
 harder to review than one that is slightly worse and consistent.
+
+`artifacts/impact.json` lists what already depends on the behaviour you are
+changing, including the `behaviour_only` entries — files that do not change but
+whose behaviour does, which is where this kind of change usually goes wrong.
+Its `regression_surface` is the existing behaviour most likely to break; the
+tests being written in parallel are aimed at it, so it is worth reading as a
+list of things that must still work when you are done.

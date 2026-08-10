@@ -204,6 +204,8 @@ def validate(pipeline: Pipeline) -> None:
 
     _assert_acyclic(pipeline)
     _assert_checks_exist(pipeline)
+    _assert_concurrent_writers_are_isolated(pipeline)
+    _assert_worktrees_are_joined(pipeline)
 
     for node in pipeline.nodes:
         if node.has_self_report_gate and not _has_downstream_human_gate(pipeline, node):
@@ -232,6 +234,68 @@ def _assert_checks_exist(pipeline: Pipeline) -> None:
                     f"node {node.id}: gate '{gate.check}' is not implemented. "
                     f"Available: {', '.join(sorted(available))}"
                 )
+
+
+def _assert_concurrent_writers_are_isolated(pipeline: Pipeline) -> None:
+    """Nodes that can run at the same time and can both write need separate trees.
+
+    The scheduler runs a whole ready set concurrently, so any two writing nodes
+    on the same level share a checkout unless they say otherwise -- and sharing
+    one breaks three things at once, none of them loudly. Their commits race on
+    a single git index; `paths_confined` diffs a tree containing the other
+    node's writes and blames the wrong node; and the checkpoint for one ends up
+    carrying the other's changes, which quietly falsifies the provenance
+    trailers the audit trail is built on.
+
+    Adding a second reviewer to a level is a one-line edit that any author would
+    expect to be safe. This makes it safe, or a load-time error -- rather than
+    an intermittent one discovered from a corrupted journal.
+    """
+    for level in schedule(pipeline):
+        writers = [
+            pipeline.node(nid)
+            for nid in level
+            if pipeline.node(nid).write_paths
+            and pipeline.node(nid).kind is not NodeKind.BARRIER
+        ]
+        if len(writers) < 2:
+            continue
+        unisolated = [n.id for n in writers if not n.worktree]
+        if unisolated:
+            raise PipelineError(
+                f"nodes {', '.join(sorted(unisolated))} may run concurrently with "
+                f"other writing nodes ({', '.join(sorted(n.id for n in writers))}) "
+                "but declare no 'worktree'. Concurrent writers must be isolated."
+            )
+        trees = [n.worktree for n in writers]
+        if len(set(trees)) != len(trees):
+            shared = sorted({t for t in trees if trees.count(t) > 1})
+            raise PipelineError(
+                f"concurrent nodes share worktree(s): {', '.join(shared)}. "
+                "A shared worktree is not isolation."
+            )
+
+
+def _assert_worktrees_are_joined(pipeline: Pipeline) -> None:
+    """Work committed on a branch nothing merges is work that never happened.
+
+    A barrier merges the branches of the nodes it directly depends on. A node
+    that runs in a worktree without such a barrier downstream passes its gates,
+    commits, and leaves its output stranded on a branch the main checkout never
+    sees -- and the failure surfaces much later as a mysteriously absent file.
+    """
+    joined: set[str] = set()
+    for node in pipeline.nodes:
+        if node.kind is NodeKind.BARRIER:
+            joined.update(node.depends_on)
+
+    stranded = [n.id for n in pipeline.nodes if n.worktree and n.id not in joined]
+    if stranded:
+        raise PipelineError(
+            f"node(s) {', '.join(sorted(stranded))} run in a worktree but are not a "
+            "direct dependency of any barrier, so their commits are never merged "
+            "back. Add a barrier node that depends on them."
+        )
 
 
 def _assert_acyclic(pipeline: Pipeline) -> None:

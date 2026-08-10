@@ -17,3 +17,6 @@ service/target/
 .idea/
 .vscode/
 .DS_Store
+
+# Local virtualenv for running the orchestrator suite
+.venv/

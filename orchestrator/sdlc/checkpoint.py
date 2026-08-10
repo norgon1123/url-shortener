@@ -22,6 +22,7 @@ did.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -166,6 +167,10 @@ class CheckpointManager:
     run_id: str
     worktree_root: Path
     _worktrees: dict[str, Git] = field(default_factory=dict)
+    # Held across worktree *creation*, not merely around the dict. See
+    # `worktree()` -- the thing being protected is git's ref store, not this
+    # process's bookkeeping.
+    _worktree_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def start_branch(self, name: str) -> str:
         """Runs never commit to the default branch. Not policy -- mechanism."""
@@ -194,14 +199,32 @@ class CheckpointManager:
         self.git.reset_hard(sha)
 
     def worktree(self, name: str, *, base: str = "HEAD") -> Git:
-        """Isolated checkout for a parallel branch. Idempotent within a run."""
+        """Isolated checkout for a parallel branch. Idempotent within a run.
+
+        Serialized, because this is the first thing every node in a fan-out
+        does and they all do it at once. Two threads asking for the same name
+        would both find it absent and both run `git worktree add`; the loser
+        gets `cannot lock ref` and a node fails for a reason that has nothing
+        to do with its work. Creation for *different* names is serialized by
+        the same lock rather than a per-name one, because the contention is in
+        git's ref store and index, which are shared across names.
+
+        The lock is held across the git call, not just the dict access. Holding
+        it only around the bookkeeping would leave exactly the race it is here
+        to close.
+        """
         if name in self._worktrees:
             return self._worktrees[name]
-        path = self.worktree_root / f"{self.run_id}-{name}"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        branch = f"{self.run_id}/{name}"
-        self._worktrees[name] = self.git.add_worktree(path, branch, base)
-        return self._worktrees[name]
+        with self._worktree_lock:
+            # Re-checked under the lock: another thread may have created it
+            # while this one was waiting.
+            if name in self._worktrees:
+                return self._worktrees[name]
+            path = self.worktree_root / f"{self.run_id}-{name}"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            branch = f"{self.run_id}/{name}"
+            self._worktrees[name] = self.git.add_worktree(path, branch, base)
+            return self._worktrees[name]
 
     def merge_worktrees(self, names: list[str]) -> tuple[list[str], list[str]]:
         """Merge each branch in turn. Returns (merged, conflicts).

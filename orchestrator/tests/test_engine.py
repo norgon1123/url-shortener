@@ -170,6 +170,22 @@ def happy(tmp_path: Path) -> Harness:
     return Harness(tmp_path, BASE_NODES, dict(HAPPY_SCRIPT))
 
 
+@pytest.fixture(autouse=True)
+def recorded_sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Retry backoff is recorded rather than served.
+
+    Two reasons, and the second is the interesting one. No test should spend
+    real wall-clock waiting out a backoff; and a delay that is only observable
+    as elapsed time is a delay no test can assert on. Recording it makes the
+    wait a fact in the journal of the test rather than a slow test.
+    """
+    import time
+
+    delays: list[float] = []
+    monkeypatch.setattr(time, "sleep", delays.append)
+    return delays
+
+
 # --------------------------------------------------------------------------
 # The happy path, and what it proves
 # --------------------------------------------------------------------------
@@ -387,6 +403,56 @@ class TestRetry:
         assert harness.run() is RunStatus.FAILED
         assert len(harness.events("node_attempt_failed")) == 2  # max_attempts, not forever
 
+    def test_a_retry_waits_out_the_declared_backoff(
+        self, tmp_path: Path, recorded_sleeps: list[float]
+    ) -> None:
+        """`backoff_seconds` is a promise the engine has to keep.
+
+        A declared-but-ignored backoff is worse than no backoff: the pipeline
+        author believes a rate limit or a flapping dependency is being given
+        time to recover, and it is not.
+        """
+        nodes = failure_nodes("retry")
+        nodes[1]["retry"] = {"max_attempts": 2, "backoff_seconds": 0.25}
+        harness = Harness(
+            tmp_path,
+            nodes,
+            {
+                **SETUP_OK,
+                "work": [
+                    ScriptedAttempt(fail="rate limited"),
+                    ScriptedAttempt(files={"src/out.txt": "done"}),
+                ],
+            },
+        )
+        assert harness.run() is RunStatus.COMPLETED
+        assert recorded_sleeps == [0.25]
+
+    def test_the_backoff_is_between_attempts_not_after_the_last_one(
+        self, tmp_path: Path, recorded_sleeps: list[float]
+    ) -> None:
+        """Sleeping after the final attempt delays a failure nobody is waiting on."""
+        nodes = failure_nodes("retry")
+        nodes[1]["retry"] = {"max_attempts": 3, "backoff_seconds": 0.5}
+        harness = Harness(
+            tmp_path,
+            nodes,
+            {**SETUP_OK, "work": [ScriptedAttempt(fail="always broken")]},
+        )
+        assert harness.run() is RunStatus.FAILED
+        assert recorded_sleeps == [0.5, 0.5]  # 3 attempts, 2 gaps
+
+    def test_a_zero_backoff_never_sleeps(
+        self, tmp_path: Path, recorded_sleeps: list[float]
+    ) -> None:
+        harness = Harness(
+            tmp_path,
+            failure_nodes("retry"),  # declares backoff_seconds: 0
+            {**SETUP_OK, "work": [ScriptedAttempt(fail="broken")]},
+        )
+        harness.run()
+        assert recorded_sleeps == []
+
     def test_the_next_attempt_is_told_why_the_last_one_failed(self, tmp_path: Path) -> None:
         """A gate failure, not a backend failure -- so there is something to report."""
         seen: list[tuple] = []
@@ -564,6 +630,143 @@ class TestSafeStop:
 # --------------------------------------------------------------------------
 # Policy enforcement inside a run
 # --------------------------------------------------------------------------
+
+
+LENSES = (
+    "review-security",
+    "review-performance",
+    "review-api-contract",
+    "review-test-adequacy",
+    "review-cleanliness",
+)
+
+
+def wide_fanout_nodes() -> list[dict]:
+    """The review fan-out's shape: six concurrent writers, one barrier, one join."""
+    lenses = [
+        {
+            "id": lens,
+            "prompt": f"{lens}.md",
+            "write_paths": ["artifacts/**"],
+            "output_schema": lens,
+            "depends_on": ["setup"],
+            "worktree": lens,
+            "exit_gates": [{"check": "paths_confined", "gate_class": "mechanical"}],
+        }
+        for lens in LENSES
+    ]
+    return [
+        {
+            "id": "setup",
+            "prompt": "setup.md",
+            "write_paths": ["artifacts/**"],
+            "exit_gates": [
+                {"check": "artifact_present", "gate_class": "mechanical", "path": "artifacts/s.txt"}
+            ],
+        },
+        {
+            "id": "docs",
+            "prompt": "docs.md",
+            "write_paths": ["docs/**"],
+            "depends_on": ["setup"],
+            "worktree": "docs",
+            "exit_gates": [{"check": "paths_confined", "gate_class": "mechanical"}],
+        },
+        *lenses,
+        {
+            "id": "review-join",
+            "type": "barrier",
+            "depends_on": ["docs", *LENSES],
+            "exit_gates": [
+                {"check": "merge_clean", "gate_class": "mechanical", "on_fail": "escalate"}
+            ],
+        },
+        {
+            "id": "review-synthesis",
+            "prompt": "review-synthesis.md",
+            "write_paths": ["artifacts/**"],
+            "depends_on": ["review-join", *LENSES],
+            "exit_gates": [{"check": "paths_confined", "gate_class": "mechanical"}],
+        },
+    ]
+
+
+def lens_output(lens: str) -> dict:
+    return {
+        "lens": lens,
+        "findings": [
+            {
+                "id": f"{lens[:3].upper()}-1",
+                "severity": "minor",
+                "confidence": "high",
+                "file": "A.java",
+                "summary": "something",
+            }
+        ],
+        "summary": "",
+        "not_examined": [],
+    }
+
+
+class TestWideFanOut:
+    """Six concurrent writers is a different problem from two.
+
+    The `implement` / `author-tests` pair proved a fan-out works. It did not
+    prove this one does: six nodes all demand a checkout in the same instant,
+    six branches have to merge at one barrier, and the node after the barrier
+    has to receive all six results as context. Each of those is somewhere the
+    two-node case never went.
+    """
+
+    @pytest.fixture
+    def harness(self, tmp_path: Path) -> Harness:
+        return Harness(
+            tmp_path,
+            wide_fanout_nodes(),
+            {
+                "setup": [ScriptedAttempt(files={"artifacts/s.txt": "ready"})],
+                "docs": [ScriptedAttempt(files={"docs/README.md": "# docs\n"})],
+                **{lens: [ScriptedAttempt(output=lens_output(lens))] for lens in LENSES},
+                "review-synthesis": [ScriptedAttempt(output={"findings": [], "summary": "ok"})],
+            },
+        )
+
+    def test_the_whole_fan_out_runs_and_rejoins(self, harness: Harness) -> None:
+        assert harness.run() is RunStatus.COMPLETED
+        assert all(harness.status(n) is NodeStatus.PASSED for n in harness.pipeline.node_ids)
+
+    def test_six_writers_run_as_one_ready_set(self, harness: Harness) -> None:
+        harness.run()
+        parallel = harness.events("parallel_started")
+        assert len(parallel) == 1
+        assert sorted(parallel[0].payload["nodes"]) == sorted(["docs", *LENSES])
+
+    def test_every_branch_reaches_the_workspace(self, harness: Harness) -> None:
+        """A branch nothing merges is work that never happened."""
+        harness.run()
+        assert (harness.git.root / "docs/README.md").exists()
+        for lens in LENSES:
+            assert (harness.git.root / "artifacts" / f"{lens}.json").exists()
+
+    def test_no_lens_can_see_another_lens_diff(self, harness: Harness) -> None:
+        """Isolation is what lets `paths_confined` blame the right node."""
+        harness.run()
+        security = harness.checkpoints.worktree("review-security")
+        assert (security.root / "artifacts/review-security.json").exists()
+        assert not (security.root / "artifacts/review-performance.json").exists()
+
+    def test_the_join_node_receives_every_lens_as_context(self, harness: Harness) -> None:
+        """Synthesis cannot preserve findings it was never handed."""
+        seen: dict[str, list[str]] = {}
+
+        class Spy(MockBackend):
+            def run(self, invocation):
+                seen[invocation.node.id] = sorted(invocation.context)
+                return super().run(invocation)
+
+        harness.backend = Spy(harness.backend.script)
+        harness.run()
+        assert seen["review-synthesis"] == sorted(LENSES)
 
 
 class TestPolicyInsideARun:

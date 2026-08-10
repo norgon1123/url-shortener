@@ -29,6 +29,7 @@ worked.
 from __future__ import annotations
 
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -381,6 +382,9 @@ class Engine:
         total = attempts + (1 if node.on_failure is FailureAction.FALLBACK else 0)
 
         for attempt in range(total):
+            if attempt:
+                self._backoff(node, attempt)
+
             if attempt == attempts and node.on_failure is FailureAction.FALLBACK:
                 autonomy = Autonomy.PROPOSE
                 self._record(
@@ -417,6 +421,32 @@ class Engine:
             )
 
         return self._fail(node, list(gate_failures), f"exhausted {total} attempt(s)")
+
+    def _backoff(self, node: NodeSpec, attempt: int) -> None:
+        """Wait before re-entering a node.
+
+        The reason to declare a backoff at all is that the failures worth
+        retrying are mostly not deterministic: a rate limit, a flapping
+        dependency, a provider hiccup. Retrying those instantly converts a
+        bounded retry policy into a burst of identical failures against a
+        service that was already asking for room.
+
+        It is journalled rather than merely slept, because the wait is charged
+        to the run's wallclock budget and shows up in E2E latency. A delay that
+        appears in the metrics but nowhere in the record is a delay nobody can
+        account for.
+        """
+        delay = node.retry.backoff_seconds
+        if delay <= 0:
+            return
+        self._record(
+            "retry_backoff",
+            node_id=node.id,
+            parent_ids=self._parents(node.id),
+            attempt=attempt,
+            seconds=delay,
+        )
+        time.sleep(delay)
 
     def _invoke(
         self,

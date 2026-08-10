@@ -26,14 +26,16 @@ For each genuine ambiguity, give an `id`, the `question` you would ask the
 requester, a `severity`, and a `proposed_answer` — your best reading if nobody
 answers.
 
-Severity is the routing decision, so choose it honestly:
+Severity has exactly two values, because it is a routing decision and there are
+only two routes. Gradations that route identically invite hedging, and a scale
+nobody acts on differently is a scale that only makes the choice feel softer.
 
 - **`blocking`** — you cannot proceed without an answer, and picking wrong means
   building the wrong thing. This halts the run and asks a human. Use it when the
   answer changes the shape of the work, not merely a detail inside it.
-- **`major`** — a significant decision, but your proposed answer is defensible
-  and reversible.
-- **`minor`** — a detail worth recording; the proposed answer stands.
+- **`advisory`** — worth recording and worth a reviewer's glance, but your
+  proposed answer is defensible and the cost of being wrong is an edit rather
+  than a rebuild. The run continues and the proposed answer stands.
 
 Two failure modes, and they are symmetric. Flagging everything as blocking makes
 the escalation meaningless and trains reviewers to approve without reading.
