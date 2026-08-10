@@ -1,0 +1,9 @@
+Build the URL shortener's core APIs.
+
+Users can submit a long URL and receive a short code. Visiting that short code
+redirects them to the original URL. A link can optionally be given a custom
+alias and an expiry. Callers can look up basic statistics for a link they
+created, and can delete a link.
+
+The service is a Java 21 / Spring Boot application backed by PostgreSQL. It runs
+behind the company's edge proxy, so it does not handle authentication itself.
