@@ -1,0 +1,132 @@
+{
+  "blast_radius": "Nothing is in production and no caller exists, so the worst plausible outcome is not a customer-facing outage but a run that consumes its $120 ceiling and produces a service that cannot start. The concrete mechanism is the scaffold's Caffeine-only, Postgres-only shape colliding with a design that assumes Redis on the click path: the dependency lives in a protected pom.xml that only the design node may write, the connection settings live in a protected application.yml that only the implement node may write, and the local topology lives in a docker-compose.yml that no node may write at all. Get the ordering wrong and the failure surfaces late, at the verify barrier, as a context-load error inheriting from AbstractIntegrationTest - which fails every test class simultaneously and reads like a broken harness rather than a missing dependency. The second, quieter mechanism is the stale service/target/classes/db/migration/V1__create_links.sql from a previous run: gitignored, invisible in review, and applied by Flyway on any build that skips clean, producing a schema mismatch nobody can find in the diff. Detection is entirely through the mechanical gates - maven_compiles at design, tests_compile at test-contract, maven_verify and coverage_floor at verify - so the practical question for a reviewer is whether the design node froze a pom, an application.yml plan and a container harness that all three downstream nodes can actually build against, since none of them can renegotiate it afterwards.",
+  "breaking_changes": [
+    {
+      "detail": "Redis, a password KDF and a JWT library must be added, reversing the documented 'Caffeine only, no Redis' decision. pom.xml is a protected path and is in deny_paths for implement and author-tests, so the run stops at PENDING_APPROVAL the moment it is touched, and the two parallel branches cannot compile against anything the design node did not freeze there.",
+      "mitigation": "Design node adds the complete dependency set in a single write before the parallel fan-out (spring-boot-starter-data-redis, spring-security-crypto or argon2-jvm, a JWT library), so exactly one approval is spent and the frozen pom is what implement and author-tests both build against. Approver checks coordinates and scopes at the existing design human gate; no second window is needed.",
+      "surface": "service/pom.xml dependency set (supply chain)"
+    },
+    {
+      "detail": "UrlShortenerApplication is annotated @EnableCaching and CacheConfig currently supplies the one and only CacheManager. Introducing a Redis cache manager gives Spring two candidates and breaks context load for every test that extends AbstractIntegrationTest, including the scaffold's own theApplicationContextLoads.",
+      "mitigation": "Replace the body of CacheConfig rather than adding a parallel configuration class: keep the bean method name cacheManager and the LINKS_CACHE constant, or mark exactly one @Primary. Keep the Caffeine near-cache as an explicitly named second bean only if some component injects it by name.",
+      "surface": "CacheManager bean contract (CacheConfig.cacheManager, LINKS_CACHE)"
+    },
+    {
+      "detail": "The shipped default is expireAfterWrite=5m. Q1 commits the business to 60 seconds p99 from delete or report. A missed invalidation therefore leaves a deleted or abuse-blocked link redirecting for up to five minutes, breaching AC9 against a number quoted to fraud teams.",
+      "mitigation": "Lower the TTL in application.yml to at or below 60s in the same change that introduces active invalidation, so the TTL is a floor under the SLA rather than the mechanism; assert the bound in a test that deletes a link and re-clicks it rather than trusting configuration.",
+      "surface": "app.cache.spec TTL vs the published takedown bound"
+    },
+    {
+      "detail": "A V1__create_links.sql from a prior run sits on the classpath with no source counterpart. An incremental build applies it, Flyway records its checksum, and the run's own V1 then collides or fails ddl-auto: validate. Because service/target/ is gitignored, nothing in the diff explains the failure.",
+      "mitigation": "Run `./mvnw clean verify` (not `verify`) for the first build of this run, or delete service/target before the design node's maven_compiles gate. Owner: whoever kicks off the run; it is a one-line precondition, not a code change.",
+      "surface": "Flyway migration history vs stale target/classes"
+    },
+    {
+      "detail": "Compose starts Postgres only. Once the service requires Redis at startup, `docker compose up` yields an application that cannot serve a click, and no pipeline node holds write access to the file to fix it.",
+      "mitigation": "A human adds a redis service to docker-compose.yml alongside approving the pom change, in the same review. Tests are unaffected either way because AbstractIntegrationTest uses Testcontainers, not compose - which is what keeps this a developer-experience break rather than a gate failure.",
+      "surface": "Local development environment (docker-compose.yml)"
+    },
+    {
+      "detail": "Not applicable in the usual sense: nothing is deployed and there are no callers, so old and new versions never coexist. The one place the question does bite is inside the build - the greenfield-2/implement branch carries a links schema (hit_count, last_accessed_at, no status column, no customer table) that is not an ancestor of HEAD.",
+      "mitigation": "Treat that branch as abandoned rather than as a baseline to migrate from: start migration numbering at V1 on this branch and do not port its SQL. If any of it is reused, it needs re-deriving against A11 soft-delete and A16 ownership, not copying.",
+      "surface": "Rolling-deploy compatibility (old vs new running together)"
+    }
+  ],
+  "impacted": [
+    {
+      "change": "modified",
+      "kind": "config",
+      "notes": "Dependency set has no Redis client, no password-hashing library and no JWT library, yet clarification A5/A6/A9/A10/A13 require all three. Comment at lines 62-64 states Redis was deliberately excluded ('Caffeine only'). It is a protected_path (sdlc.yaml:51) and is in deny_paths for both implement and author-tests, so only the design node can write it, and that write forces PENDING_APPROVAL. Maven Central is the only reachable host (sdlc.yaml:86-88), so any dependency must resolve from there.",
+      "path": "service/pom.xml",
+      "risk": "high"
+    },
+    {
+      "change": "modified",
+      "kind": "config",
+      "notes": "Holds only datasource, JPA (ddl-auto: validate), Flyway, actuator exposure and app.cache.spec. Missing every knob the clarification makes configuration: Redis connection, JWT key/24h TTL (A5/Q8), rate-limit buckets (A13), default 30-day expiry (A7), public base URL (A15/Q7). app.cache.spec default expireAfterWrite=5m exceeds the 60s takedown bound in Q1. Protected path; design's write_paths cover src/main/java only, so implement is the sole node that can edit it, at the cost of an approval halt.",
+      "path": "service/src/main/resources/application.yml",
+      "risk": "high"
+    },
+    {
+      "change": "modified",
+      "kind": "module",
+      "notes": "Defines the single @Bean CacheManager as a CaffeineCacheManager over one cache ('links'), justified in its javadoc as an explicit rejection of Redis. A10 requires a Redis-backed resolution cache with negative caching and active invalidation on delete/expiry/takedown; Caffeine is per-instance and cannot be invalidated across instances, so the 60s bound would rest on TTL alone. Replacing or supplementing this bean is unavoidable.",
+      "path": "service/src/main/java/com/example/urlshortener/config/CacheConfig.java",
+      "risk": "high"
+    },
+    {
+      "change": "behaviour_only",
+      "kind": "module",
+      "notes": "File need not change, but @EnableCaching means whatever CacheManager beans exist become the application-wide cache resolution. Adding a Redis cache manager alongside CacheConfig's produces two candidate beans and a NoUniqueBeanDefinitionException at context load, which fails every integration test at once rather than one.",
+      "path": "service/src/main/java/com/example/urlshortener/UrlShortenerApplication.java",
+      "risk": "medium"
+    },
+    {
+      "change": "modified",
+      "kind": "module",
+      "notes": "Only hand-written test file and the base class every future test extends. Starts a single PostgreSQLContainer in a static initialiser with @ServiceConnection; no Redis container, no auth helper, no per-test isolation. Redis-backed counting, caching and rate limiting are untestable until it grows a second container. Writable only by test-contract/author-tests; implement is denied src/test/**.",
+      "path": "service/src/test/java/com/example/urlshortener/support/AbstractIntegrationTest.java",
+      "risk": "high"
+    },
+    {
+      "change": "added",
+      "kind": "schema",
+      "notes": "Contains only .gitkeep on HEAD: no schema exists. Every table (links, customers, denylist, abuse reports, click totals) lands here. Protected path (sdlc.yaml:52) so each write forces PENDING_APPROVAL, and with spring.jpa.hibernate.ddl-auto: validate any drift between a migration and an entity fails context load for the whole suite.",
+      "path": "service/src/main/resources/db/migration/",
+      "risk": "high"
+    },
+    {
+      "change": "behaviour_only",
+      "kind": "schema",
+      "notes": "Untracked build output left by a previous run (mtime 10:30 today) that no longer has a counterpart in src. It is on the runtime classpath, so a `mvnw verify` without `clean` lets Flyway apply a links table nobody in this run authored (columns hit_count, last_accessed_at, unique index ux_links_code), then fail ddl-auto validation against the new entities. Whole of service/target/ is gitignored, so it is invisible in review.",
+      "path": "service/target/classes/db/migration/V1__create_links.sql",
+      "risk": "medium"
+    },
+    {
+      "change": "behaviour_only",
+      "kind": "config",
+      "notes": "Unchanged and unchangeable (forbidden_paths includes orchestrator/**), but its policy now bites differently: the four protected_paths (pom.xml, db/migration/**, application*.yml, docker-compose.yml) are exactly the files this requirement forces open, so this run will halt for approval repeatedly where the previous CRUD-sized requirement barely touched them. docker-compose.yml appears in no node's write_paths at all.",
+      "path": "orchestrator/pipelines/sdlc.yaml",
+      "risk": "high"
+    },
+    {
+      "change": "modified",
+      "kind": "config",
+      "notes": "Local dependency topology is Postgres only. The requirement names Redis as already-run infrastructure and the design depends on it, so the compose file no longer describes a runnable service. Protected, and no node has write access to it, so it can only be fixed by a human.",
+      "path": "docker-compose.yml",
+      "risk": "medium"
+    },
+    {
+      "change": "behaviour_only",
+      "kind": "config",
+      "notes": "Runs `./mvnw -B verify` on ubuntu-latest relying on the runner's Docker daemon for Testcontainers. Adding a Redis container adds a registry pull and lengthens the suite against verify's 5400s ceiling (sdlc.yaml:330); the agent sandbox's allowedDomains list only Maven hosts, so image availability differs between CI and a sandboxed local run.",
+      "path": ".github/workflows/ci.yml",
+      "risk": "medium"
+    },
+    {
+      "change": "modified",
+      "kind": "module",
+      "notes": "Section 7 (line ~338) documents a superseded design that now contradicts the frozen assumptions: 'Caffeine only - no Redis in the build', 410-for-expired vs 404-for-unknown (A4 requires one indistinguishable 404), 7-character base62 codes (A2 requires ~11 chars / 128 bits), transactional-outbox analytics (A9 is Redis counters). A reviewer treating this as current will read the new code as wrong.",
+      "path": "docs/IMPLEMENTATION_PLAN.md",
+      "risk": "medium"
+    },
+    {
+      "change": "modified",
+      "kind": "module",
+      "notes": "Raises the right questions (Redis-failure behaviour, invalidation window as a business number, session denylist) but predates the answers now fixed in clarification.json. Worth reconciling so the open questions it lists are not re-litigated downstream.",
+      "path": "docs/REQUIREMENTS_BRIEF.md",
+      "risk": "low"
+    }
+  ],
+  "regression_surface": [
+    "AbstractIntegrationTest.theApplicationContextLoads - the only existing test; fails wholesale if a second CacheManager bean appears, if a Redis connection is required but no container is started, or if a migration disagrees with an entity under ddl-auto: validate.",
+    "Flyway startup against service/src/main/resources/db/migration when a prior run's V1__create_links.sql is still present in target/classes: checksum/duplicate-version failure on an incremental build.",
+    "Actuator endpoints /actuator/health, /actuator/info, /actuator/metrics, /actuator/prometheus staying reachable once a catch-all GET /{code} redirect is mapped at the root, and staying out of the short-code namespace (A3 reserved words).",
+    "The routes_match_openapi gate's regex scan of Spring annotations (gates.py:1127-1130 states it only handles literal-string mappings): a root-level or constant-valued @GetMapping path fails the gate even when the route is correct.",
+    "The no_secrets gate pattern (password|secret|token)\\s*[:=]\\s*['\"]{8,}['\"] firing on seeded customer credentials in a migration fixture (A18) or on a JWT signing key placed in application.yml; the existing ${DB_PASSWORD:shortener} form is unquoted and passes, so any new credential must follow the same env-placeholder style.",
+    "coverage_floor at 0.70 line coverage measured over a codebase several times larger than the scaffold, with rate limiting, abuse takedown and threat-check fail-open paths being the branches least likely to be exercised by black-box HTTP tests.",
+    "maven_verify against the 5400s ceiling once a second Testcontainer (Redis) joins the singleton-container pattern - the same class of slow-not-failed regression the AbstractIntegrationTest javadoc documents having already cost this project a thirty-minute build.",
+    "Redirect cache correctness after delete: click a live code, delete it, click again, and assert 404 within the 60s bound rather than reading a stale Caffeine entry with the shipped 5m expireAfterWrite."
+  ],
+  "scenario": "greenfield"
+}
