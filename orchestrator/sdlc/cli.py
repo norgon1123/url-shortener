@@ -136,6 +136,21 @@ def cmd_run(args: argparse.Namespace) -> int:
     (directory / MANIFEST).write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     store = _store(runs_root)
+    # A raw IntegrityError here reads as a bug in the orchestrator. It is
+    # usually an operator re-using an id after a run died early, and the two
+    # useful next steps are worth naming rather than leaving to be worked out
+    # from a traceback.
+    try:
+        store.get_run(run_id)
+    except KeyError:
+        pass
+    else:
+        raise SystemExit(
+            f"run {run_id} already exists in {runs_root}/state.db.\n"
+            f"  resume it:      python -m sdlc.cli resume {run_id}\n"
+            f"  or start fresh: pass a different --run-id"
+        )
+
     store.create_run(
         run_id,
         pipeline=manifest["pipeline"],
