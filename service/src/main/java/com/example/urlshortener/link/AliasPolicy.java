@@ -1,6 +1,11 @@
 package com.example.urlshortener.link;
 
+import com.example.urlshortener.error.ApiException;
+import com.example.urlshortener.error.ErrorCode;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * What a customer-chosen alias may be (AC5/AC6/A3).
@@ -66,14 +71,16 @@ public class AliasPolicy {
             "security.txt",
             ".well-known");
 
+    private static final Pattern COMPILED_PATTERN = Pattern.compile(PATTERN);
+
     /** True if the alias matches {@link #PATTERN}. */
     public boolean isWellFormed(String alias) {
-        throw new UnsupportedOperationException("Frozen contract skeleton; implemented by the implement node.");
+        return alias != null && COMPILED_PATTERN.matcher(alias).matches();
     }
 
     /** True if the alias is reserved, compared case-insensitively. */
     public boolean isReserved(String alias) {
-        throw new UnsupportedOperationException("Frozen contract skeleton; implemented by the implement node.");
+        return alias != null && RESERVED_CODES.contains(alias.toLowerCase(Locale.ROOT));
     }
 
     /**
@@ -86,6 +93,15 @@ public class AliasPolicy {
      *         somebody's link.
      */
     public void requireAcceptable(String alias) {
-        throw new UnsupportedOperationException("Frozen contract skeleton; implemented by the implement node.");
+        if (!isWellFormed(alias)) {
+            throw ApiException.invalidRequest(
+                    ErrorCode.INVALID_REQUEST.defaultMessage(),
+                    Map.of("alias", "must be " + MIN_LENGTH + " to " + MAX_LENGTH
+                            + " characters of letters, digits, hyphen or underscore"));
+        }
+        if (isReserved(alias)) {
+            throw ApiException.invalidRequest(
+                    ErrorCode.INVALID_REQUEST.defaultMessage(), Map.of("alias", "is reserved"));
+        }
     }
 }

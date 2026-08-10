@@ -32,6 +32,24 @@ spring:
     enabled: true
     locations: classpath:db/migration
 
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      # Short on purpose. The click path talks to Redis three times and must keep
+      # answering when Redis does not; the default of one minute would turn an
+      # unreachable counter into a hung redirect, which is the failure this
+      # service is least allowed to have.
+      timeout: 1s
+      connect-timeout: 1s
+
+  jackson:
+    deserialization:
+      # An undefined property in a request body is a 400 rather than a field that
+      # is quietly dropped. This is what makes a link target immutable in
+      # practice: PATCH {"longUrl": ...} fails instead of appearing to succeed.
+      fail-on-unknown-properties: true
+
 server:
   port: ${SERVER_PORT:8080}
   error:
@@ -50,9 +68,62 @@ management:
       show-details: when-authorized
 
 app:
-  # Redirect lookups are the hot path; bound both size and lifetime.
+  # The origin short URLs are built from, and the namespace codes are unique
+  # within. Kept apart so customer-owned domains later change the host without
+  # changing the uniqueness key.
+  base-url: ${APP_BASE_URL:http://localhost:8080}
+  domain: ${APP_DOMAIN:localhost}
+
+  links:
+    default-ttl: P30D
+    max-url-length: 2048
+
+  # Redirect lookups are the hot path. This TTL is the floor under the published
+  # 60-second takedown bound, not the mechanism that delivers it: deletes, expiry
+  # changes and takedowns invalidate actively. It must never be raised above 60s
+  # -- a missed invalidation is bounded by exactly this number, and the bound is
+  # the figure quoted to fraud teams.
   cache:
-    spec: maximumSize=10000,expireAfterWrite=5m
+    ttl: PT60S
+    negative-ttl: PT60S
+    key-prefix: "link:"
+
+  session:
+    issuer: url-shortener
+    ttl: PT24H
+    # Ed25519 keys from the environment, in the same placeholder style as the
+    # database credentials above. Left blank the service generates an ephemeral
+    # pair at startup and says so in the log: fine for one instance and for
+    # tests, wrong for replicas, where a token issued by one will not verify on
+    # another.
+    private-key-pem: ${APP_SESSION_PRIVATE_KEY_PEM:}
+    public-key-pem: ${APP_SESSION_PUBLIC_KEY_PEM:}
+
+  click:
+    flush-interval: PT5S
+    flush-batch-size: 500
+    key-prefix: "clicks:"
+
+  threat:
+    enabled: true
+    # When the checker cannot answer, accept the link and log at WARN. This
+    # follows the stated preference for availability and is a reviewable choice:
+    # setting it false refuses every creation whenever the denylist is
+    # unreachable.
+    fail-open: true
+
+  # Five independent buckets. These are production defaults, set high enough that
+  # ordinary traffic from one address never trips them; the not-found bucket is an
+  # order of magnitude tighter than the click bucket because an enumeration sweep
+  # is a long run of 404s while a link that has gone viral is a long run of 302s.
+  rate-limit:
+    enabled: true
+    click-per-minute: 3000
+    not-found-per-minute: 300
+    write-per-minute: 300
+    abuse-report-per-minute: 60
+    sign-in-per-minute: 60
+    window: PT1M
 
 logging:
   level:
