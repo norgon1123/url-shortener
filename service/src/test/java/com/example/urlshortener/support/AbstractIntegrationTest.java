@@ -6,8 +6,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
  * Base class for black-box integration tests.
@@ -26,16 +24,32 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * test against a service class would need to know class names that do not exist
  * when the test is written.
  *
- * <p>The container is {@code static}, so one PostgreSQL is shared by every test
- * class in the run rather than started per class.
+ * <p>One PostgreSQL is shared by the whole JVM -- the singleton-container
+ * pattern, started in a static initialiser and deliberately <em>not</em>
+ * managed by JUnit.
+ *
+ * <p>The obvious spelling, {@code @Testcontainers} with {@code @Container} on
+ * this field, does the opposite of what it reads like here. That extension ties
+ * the container's lifetime to the test class it is declared on, so it is stopped
+ * when the first subclass finishes; every later class inherits the same dead
+ * static field while Spring's cached context still points at the old port, and
+ * each request then waits out a thirty-second connection timeout. The suite does
+ * not fail — it crawls, which is far harder to diagnose than a failure. That is
+ * what pushed this project's first full {@code verify} past a thirty-minute
+ * ceiling.
+ *
+ * <p>Started once here, the container outlives every test class, and
+ * Testcontainers' own reaper removes it when the JVM exits.
  */
-@Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 public abstract class AbstractIntegrationTest {
 
-    @Container
     @ServiceConnection
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine");
+
+    static {
+        POSTGRES.start();
+    }
 
     @Autowired
     protected TestRestTemplate http;

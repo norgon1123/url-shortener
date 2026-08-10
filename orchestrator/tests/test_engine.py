@@ -849,3 +849,202 @@ class TestPreflight:
             harness.run()
 
         assert harness.events("run_started") == []
+
+
+# --------------------------------------------------------------------------
+# Triage: repair the artifact that is wrong, not everything upstream of it
+# --------------------------------------------------------------------------
+
+
+TRIAGE_NODES = [
+    {
+        "id": "plan",
+        "prompt": "plan.md",
+        "write_paths": ["artifacts/**"],
+        "exit_gates": [
+            {"check": "artifact_present", "gate_class": "mechanical", "path": "artifacts/plan.txt"}
+        ],
+    },
+    {
+        "id": "implement",
+        "prompt": "implement.md",
+        "write_paths": ["src/main/**"],
+        "depends_on": ["plan"],
+        "worktree": "implement",
+        "repair_attempts": 2,
+    },
+    {
+        "id": "author-tests",
+        "prompt": "author-tests.md",
+        "write_paths": ["src/test/**"],
+        "depends_on": ["plan"],
+        "worktree": "tests",
+        "repair_attempts": 1,
+    },
+    {"id": "join", "type": "barrier", "depends_on": ["implement", "author-tests"]},
+    {
+        "id": "verify",
+        "type": "deterministic",
+        "depends_on": ["join"],
+        "on_failure": "triage",
+        "triage_node": "triage",
+        "replan_target": "plan",
+        "max_replans": 1,
+        "retry": {"max_attempts": 1, "backoff_seconds": 0},
+        "exit_gates": [
+            {"check": "artifact_present", "gate_class": "mechanical", "path": "artifacts/green.txt"}
+        ],
+    },
+    {
+        "id": "triage",
+        "type": "handler",
+        "prompt": "triage.md",
+        "write_paths": ["artifacts/**"],
+    },
+]
+
+
+def triage_script(verdict: dict, *, green_on: int | None = None) -> dict:
+    """`verify` fails until `green_on` invocations of the repaired node."""
+    return {
+        "plan": [ScriptedAttempt(files={"artifacts/plan.txt": "p"})],
+        "implement": [ScriptedAttempt(files={"src/main/A.java": "class A {}"})],
+        "author-tests": [ScriptedAttempt(files={"src/test/ATest.java": "class ATest {}"})],
+        "triage": [ScriptedAttempt(output=verdict, cost_usd=0.5)],
+    }
+
+
+IMPL_VERDICT = {
+    "verdict": "implementation",
+    "summary": "the code returns 301 where the contract says 302",
+    "failures": [
+        {"test": "redirectIs302", "classification": "implementation",
+         "confidence": "high", "evidence": "openapi.yaml:208 says 302"}
+    ],
+}
+TEST_VERDICT = {
+    "verdict": "test",
+    "summary": "the test boots a second context the harness does not support",
+    "failures": [
+        {"test": "linksSurviveRestart", "classification": "test",
+         "confidence": "high", "evidence": "ATest.java:44 dials localhost:5432"}
+    ],
+}
+
+
+class TestTriageRouting:
+    """The cheap path. Replanning re-derives everything to fix one artifact."""
+
+    def _harness(self, tmp_path: Path, verdict: dict) -> Harness:
+        return Harness(tmp_path, TRIAGE_NODES, triage_script(verdict))
+
+    def test_an_implementation_verdict_re_runs_only_implement(
+        self, tmp_path: Path
+    ) -> None:
+        h = self._harness(tmp_path, IMPL_VERDICT)
+        h.run()
+        routed = h.events("repair_routed")
+        assert routed and routed[0].node_id == "implement"
+        # author-tests is upstream of nothing that failed, so it is untouched.
+        assert h.status("author-tests") is NodeStatus.PASSED
+
+    def test_a_test_verdict_re_runs_only_author_tests(self, tmp_path: Path) -> None:
+        h = self._harness(tmp_path, TEST_VERDICT)
+        h.run()
+        routed = h.events("repair_routed")
+        assert routed and routed[0].node_id == "author-tests"
+        assert h.status("implement") is NodeStatus.PASSED
+
+    def test_the_verdict_is_journalled_with_its_reason(self, tmp_path: Path) -> None:
+        """A routing decision nobody can audit is a routing decision nobody can
+        overrule."""
+        h = self._harness(tmp_path, IMPL_VERDICT)
+        h.run()
+        verdicts = h.events("triage_verdict")
+        assert verdicts[0].payload["verdict"] == "implementation"
+        assert verdicts[0].payload["target"] == "implement"
+        assert verdicts[0].payload["triggered_by"] == "verify"
+
+    def test_triage_costs_are_charged_to_the_run(self, tmp_path: Path) -> None:
+        h = self._harness(tmp_path, IMPL_VERDICT)
+        h.run()
+        assert h.store.get_run(RUN_ID).cost_usd >= 0.5
+
+
+class TestTriageEscalates:
+    """Everything it cannot route cleanly goes to a person."""
+
+    def _run(self, tmp_path: Path, verdict: dict) -> Harness:
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(verdict))
+        h.run()
+        return h
+
+    def test_a_contract_verdict_goes_to_a_human(self, tmp_path: Path) -> None:
+        """Both sides read the same document differently. Not a repair."""
+        h = self._run(tmp_path, {
+            "verdict": "contract",
+            "summary": "the contract is silent on trailing slashes",
+            "failures": [{"test": "t", "classification": "contract",
+                          "confidence": "high", "evidence": "openapi has no rule"}],
+        })
+        assert h.status("verify") is NodeStatus.PENDING_APPROVAL
+        assert not h.events("repair_routed")
+
+    def test_a_mixed_verdict_goes_to_a_human(self, tmp_path: Path) -> None:
+        """A mixture cannot be sent to one branch, and picking the larger pile
+        leaves the rest unfixed."""
+        h = self._run(tmp_path, {
+            "verdict": "mixed",
+            "summary": "one of each",
+            "failures": [
+                {"test": "a", "classification": "implementation",
+                 "confidence": "high", "evidence": "x"},
+                {"test": "b", "classification": "test",
+                 "confidence": "high", "evidence": "y"},
+            ],
+        })
+        assert h.status("verify") is NodeStatus.PENDING_APPROVAL
+
+    def test_low_confidence_escalates_even_when_decisive(self, tmp_path: Path) -> None:
+        """A misrouted repair re-runs the innocent branch and leaves the defect."""
+        h = self._run(tmp_path, {
+            "verdict": "implementation",
+            "summary": "probably the code",
+            "failures": [{"test": "a", "classification": "implementation",
+                          "confidence": "low", "evidence": "stack does not reach our code"}],
+        })
+        assert h.status("verify") is NodeStatus.PENDING_APPROVAL
+        assert not h.events("repair_routed")
+        assert "unsure" in h.events("triage_verdict")[0].payload["reason"]
+
+
+class TestRepairBudget:
+    """Asymmetric on purpose, and durable across the process."""
+
+    def test_the_budget_is_exhausted_then_it_replans(self, tmp_path: Path) -> None:
+        """author-tests gets one attempt: repairing a test to satisfy an
+        implementation is the agent editing its own judge."""
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(TEST_VERDICT))
+        h.run()
+        assert len(h.events("repair_routed")) == 1
+        assert h.events("repair_budget_exhausted")
+        assert h.events("replan_triggered")
+
+    def test_implement_gets_two_attempts_before_the_fallback(
+        self, tmp_path: Path
+    ) -> None:
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(IMPL_VERDICT))
+        h.run()
+        assert len(h.events("repair_routed")) == 2
+
+    def test_the_counter_survives_a_process_restart(self, tmp_path: Path) -> None:
+        """In-memory budgets reset when the process does, and a run pauses for
+        approval in one process and resumes in another. Read back through a
+        fresh store, which is what a resume actually does."""
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(IMPL_VERDICT))
+        h.run()
+        recorded = h.store.get_node(RUN_ID, "implement").repairs
+        assert recorded > 0
+
+        reopened = RunStore(tmp_path / "state.db")
+        assert reopened.get_node(RUN_ID, "implement").repairs == recorded

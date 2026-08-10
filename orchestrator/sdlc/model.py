@@ -65,6 +65,12 @@ class FailureAction(str, enum.Enum):
     FALLBACK = "fallback"
     ROLLBACK = "rollback"
     REPLAN = "replan"
+    # Ask a handler node which artifact is actually wrong, then re-run that one.
+    # Replanning is the sledgehammer: it re-derives the plan, the contract and
+    # both branches to fix a defect that lives in one of them. TRIAGE is the
+    # cheap path, and it falls back to REPLAN when it cannot tell or when the
+    # targeted repair does not take.
+    TRIAGE = "triage"
     SAFE_STOP = "safe_stop"
 
 
@@ -78,6 +84,11 @@ class NodeKind(str, enum.Enum):
     AGENT = "agent"  # invokes a model
     DETERMINISTIC = "deterministic"  # pure code, no model call
     BARRIER = "barrier"  # join point for parallel branches
+    # Invoked by a failure handler, never by the scheduler. It has no place in
+    # the dependency graph -- it runs when something goes wrong, not when its
+    # inputs are ready -- so scheduling it by dependency would run it on every
+    # clean pass, which is precisely the opposite of what it is for.
+    HANDLER = "handler"
 
 
 class ApprovalDecision(str, enum.Enum):
@@ -146,6 +157,16 @@ class NodeSpec:
     replan_target: str | None = None
     replan_after_attempts: int = 2
     max_replans: int = 2
+    # Which handler node adjudicates this node's failures.
+    triage_node: str | None = None
+    # How many times *this* node may be re-run to repair a failure triage
+    # attributed to it. Deliberately declared on the node being repaired rather
+    # than on the node that failed: the budget belongs with the risk. Repairing
+    # an implementation to satisfy a test is bounded loosely, because the test
+    # is the specification and the implementer cannot edit it. Repairing a test
+    # to satisfy an implementation is the agent editing its own judge, and gets
+    # one attempt before a human looks.
+    repair_attempts: int = 0
 
     @property
     def has_self_report_gate(self) -> bool:

@@ -139,9 +139,34 @@ class Git:
     # -- worktrees -------------------------------------------------------
 
     def add_worktree(self, path: Path, branch: str, base: str = "HEAD") -> Git:
-        """Create an isolated checkout on a new branch, and return a Git for it."""
-        self._git("worktree", "add", "-b", branch, str(path), base)
+        """Get an isolated checkout on `branch`, creating only what is missing.
+
+        Idempotent across processes, which is not a nicety: a run that pauses
+        for approval resumes in a *different* process, and the manager's
+        in-memory registry of worktrees is empty there. Creating unconditionally
+        meant the first node to be re-gated after any human decision died on
+        "a branch named 'run/implement' already exists" -- the work intact on
+        disk, the run unable to reach it.
+
+        Three states, because all three occur: the checkout is still there from
+        the earlier process; the branch survived but its checkout was pruned or
+        moved; or neither exists yet.
+        """
+        if (path / ".git").exists():
+            return Git(root=path, run=self.run)
+        if self.branch_exists(branch):
+            # Attach the existing branch rather than re-creating it. `-b` here
+            # would fail, and re-pointing the branch at `base` would silently
+            # discard the commits the earlier process already made on it.
+            self._git("worktree", "add", str(path), branch)
+        else:
+            self._git("worktree", "add", "-b", branch, str(path), base)
         return Git(root=path, run=self.run)
+
+    def branch_exists(self, name: str) -> bool:
+        return not self._git(
+            "show-ref", "--verify", "--quiet", f"refs/heads/{name}", check=False
+        ).exit_code
 
     def remove_worktree(self, path: Path) -> None:
         self._git("worktree", "remove", "--force", str(path), check=False)

@@ -137,6 +137,8 @@ def _parse_node(raw: Any, defaults: dict[str, Any]) -> NodeSpec:
         replan_target=raw.get("replan_target"),
         replan_after_attempts=int(raw.get("replan_after_attempts", 2)),
         max_replans=int(raw.get("max_replans", 2)),
+        triage_node=raw.get("triage_node"),
+        repair_attempts=int(raw.get("repair_attempts", 0)),
     )
 
 
@@ -201,6 +203,28 @@ def validate(pipeline: Pipeline) -> None:
             raise PipelineError(
                 f"node {node.id}: on_failure=replan requires a 'replan_target'"
             )
+        if node.on_failure is FailureAction.TRIAGE:
+            if not node.triage_node:
+                raise PipelineError(
+                    f"node {node.id}: on_failure=triage requires a 'triage_node'"
+                )
+            if node.triage_node not in known:
+                raise PipelineError(
+                    f"node {node.id}: unknown triage_node '{node.triage_node}'"
+                )
+            if pipeline.node(node.triage_node).kind is not NodeKind.HANDLER:
+                raise PipelineError(
+                    f"node {node.id}: triage_node '{node.triage_node}' must be "
+                    "type: handler, or the scheduler will run it on every clean pass"
+                )
+            # Triage routes work to a node; a node with no repair budget cannot
+            # receive any, so a graph where triage can only ever escalate is a
+            # graph whose author thought they had a repair path and does not.
+            if not any(n.repair_attempts > 0 for n in pipeline.nodes):
+                raise PipelineError(
+                    f"node {node.id}: on_failure=triage, but no node declares "
+                    "'repair_attempts', so triage could only ever escalate"
+                )
 
     _assert_acyclic(pipeline)
     _assert_checks_exist(pipeline)
@@ -289,7 +313,11 @@ def _assert_worktrees_are_joined(pipeline: Pipeline) -> None:
         if node.kind is NodeKind.BARRIER:
             joined.update(node.depends_on)
 
-    stranded = [n.id for n in pipeline.nodes if n.worktree and n.id not in joined]
+    stranded = [
+        n.id
+        for n in pipeline.nodes
+        if n.worktree and n.id not in joined and n.kind is not NodeKind.HANDLER
+    ]
     if stranded:
         raise PipelineError(
             f"node(s) {', '.join(sorted(stranded))} run in a worktree but are not a "
@@ -360,7 +388,14 @@ def schedule(pipeline: Pipeline) -> list[tuple[str, ...]]:
     Ordering within a level is alphabetical purely so runs are reproducible and
     journals diff cleanly between runs.
     """
-    remaining = {n.id: set(n.depends_on) for n in pipeline.nodes}
+    # Handlers are excluded: they are invoked by a failure, not by their
+    # dependencies being ready. Leaving one in would put it at level 0 -- it
+    # declares no dependencies -- and run it at the start of every clean pass.
+    remaining = {
+        n.id: set(n.depends_on)
+        for n in pipeline.nodes
+        if n.kind is not NodeKind.HANDLER
+    }
     levels: list[tuple[str, ...]] = []
     satisfied: set[str] = set()
 

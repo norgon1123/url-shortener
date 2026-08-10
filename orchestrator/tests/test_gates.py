@@ -792,7 +792,10 @@ class TestContractFrozen:
         self._design(tmp_path, hash_inputs([contract], root=tmp_path))
         contract.write_text("record Link(String code, long clicks) {}")
         result = run("contract_frozen", make_ctx(tmp_path, policy))
-        assert result.outcome is FAIL and "has changed since design froze it" in result.detail
+        assert result.outcome is FAIL
+        # Names the artifact that drifted: the freeze spans design.json and
+        # test-contract.json, and "the contract changed" would not say which.
+        assert "design.json has changed since it was frozen" in result.detail
 
     def test_missing_contract_file_fails(self, tmp_path: Path, policy: Policy) -> None:
         self._design(tmp_path, None)
@@ -1122,3 +1125,355 @@ class TestMavenInvocation:
         ctx.maven("compile")
         assert Path(seen[0][0]).is_absolute()
         assert seen[0][0] == str(wrapper)
+
+
+class TestProtectedPathsAndApproval:
+    """Escalating is only half a control; a human has to be able to clear it."""
+
+    def _wrote_pom(self, tmp_path: Path, policy: Policy, approvals=None):
+        (tmp_path / "service").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "service/pom.xml").write_text("<project/>")
+        return run(
+            "paths_confined",
+            make_ctx(
+                tmp_path,
+                policy,
+                node_id="implement",
+                files_written=("service/pom.xml",),
+                approvals=approvals,
+            ),
+        )
+
+    def test_a_protected_write_escalates_when_nobody_has_approved(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        result = self._wrote_pom(tmp_path, policy)
+        assert result.outcome is ESCALATE
+        assert result.evidence["protected"] == ["service/pom.xml"]
+
+    def test_an_approval_clears_it_so_the_resume_can_proceed(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        """Resuming re-gates the same result. Without this the gate re-escalates
+        on exactly the paths a human just approved, forever."""
+        approval = Approval("implement", ApprovalDecision.APPROVED, "neil")
+        result = self._wrote_pom(tmp_path, policy, {"implement": approval})
+        assert result.outcome is PASS
+        assert "approved by neil" in result.detail
+
+    def test_a_rejection_does_not_clear_it(self, tmp_path: Path, policy: Policy) -> None:
+        approval = Approval("implement", ApprovalDecision.REJECTED, "neil", note="no")
+        assert self._wrote_pom(tmp_path, policy, {"implement": approval}).outcome is ESCALATE
+
+    def test_another_nodes_approval_does_not_clear_it(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        approval = Approval("design", ApprovalDecision.APPROVED, "neil")
+        assert self._wrote_pom(tmp_path, policy, {"design": approval}).outcome is ESCALATE
+
+    def test_a_forbidden_write_still_fails_however_approved(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        """Approval covers protected paths. It does not licence forbidden ones."""
+        (tmp_path / "orchestrator").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "orchestrator/gates.py").write_text("x")
+        result = run(
+            "paths_confined",
+            make_ctx(
+                tmp_path,
+                policy,
+                node_id="implement",
+                files_written=("orchestrator/gates.py",),
+                approvals={"implement": Approval("implement", ApprovalDecision.APPROVED, "neil")},
+            ),
+        )
+        assert result.outcome is FAIL
+
+
+class TestEscalationsAreClearable:
+    """The taxonomy rule, applied in one place rather than per predicate.
+
+    Two gates shipped without a way for a human to get past them and each one
+    stopped a live run: the blocking-ambiguity gate, then paths_confined on an
+    approved schema migration. The third would have been whichever escalating
+    gate someone wrote next, so the rule lives in `evaluate` and no check has
+    to remember it.
+    """
+
+    def _blockers(self, tmp_path: Path):
+        write_artifact(
+            tmp_path,
+            "review.json",
+            {
+                "summary": "s",
+                "findings": [
+                    {"id": "F1", "severity": "blocker", "file": "A.java", "summary": "npe"}
+                ],
+            },
+        )
+        return GateSpec(
+            check="blocker_findings_escalate",
+            gate_class=GateClass.SELF_REPORT,
+            on_fail=GateOutcome.ESCALATE,
+        )
+
+    def test_an_unanswered_escalation_still_pauses(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        spec = self._blockers(tmp_path)
+        ctx = make_ctx(tmp_path, policy, node_id="review-synthesis")
+        assert gates.evaluate(spec, ctx).outcome is ESCALATE
+
+    def test_an_approval_clears_any_escalating_gate(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        spec = self._blockers(tmp_path)
+        ctx = make_ctx(
+            tmp_path,
+            policy,
+            node_id="review-synthesis",
+            approvals={
+                "review-synthesis": Approval(
+                    "review-synthesis", ApprovalDecision.APPROVED, "neil"
+                )
+            },
+        )
+        result = gates.evaluate(spec, ctx)
+        assert result.outcome is PASS
+        assert "cleared by neil" in result.detail
+
+    def test_approval_never_converts_a_mechanical_failure(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        """The dangerous version of this rule. A failing build is not negotiable."""
+        ctx = make_ctx(
+            tmp_path,
+            policy,
+            node_id="verify",
+            approvals={"verify": Approval("verify", ApprovalDecision.APPROVED, "neil")},
+        )
+        assert run("artifact_present", ctx, path="absent.txt").outcome is FAIL
+
+    def test_a_rejection_does_not_clear_an_escalation(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        spec = self._blockers(tmp_path)
+        ctx = make_ctx(
+            tmp_path,
+            policy,
+            node_id="review-synthesis",
+            approvals={
+                "review-synthesis": Approval(
+                    "review-synthesis", ApprovalDecision.REJECTED, "neil", note="no"
+                )
+            },
+        )
+        assert gates.evaluate(spec, ctx).outcome is ESCALATE
+
+
+class TestMavenTimeout:
+    """A clock is not a broken build, and the report has to say which."""
+
+    def _ctx(self, tmp_path: Path, policy: Policy, exit_code: int):
+        seen: list[float | None] = []
+
+        def runner(cmd, cwd, timeout=1800.0):
+            seen.append(timeout)
+            return CommandResult(exit_code=exit_code, stderr="timed out" if exit_code == 124 else "boom")
+
+        return make_ctx(tmp_path, policy, runner=runner), seen
+
+    def test_the_ceiling_comes_from_the_pipeline(self, tmp_path: Path, policy: Policy) -> None:
+        ctx, seen = self._ctx(tmp_path, policy, 0)
+        run("maven_verify", ctx, timeout_seconds=5400)
+        assert seen == [5400.0]
+
+    def test_without_one_the_runner_default_stands(self, tmp_path: Path, policy: Policy) -> None:
+        ctx, seen = self._ctx(tmp_path, policy, 0)
+        run("maven_verify", ctx)
+        assert seen == [1800.0]
+
+    def test_a_timeout_is_reported_as_a_timeout(self, tmp_path: Path, policy: Policy) -> None:
+        """Exit 124 with no coverage report reads like a broken build. It is a clock,
+        and only one of those two is worth spending a retry on."""
+        ctx, _ = self._ctx(tmp_path, policy, 124)
+        result = run("maven_verify", ctx, timeout_seconds=60)
+        assert result.outcome is FAIL
+        assert result.evidence["timed_out"] is True
+        assert "not a test failure" in result.detail
+
+    def test_a_real_failure_is_not_labelled_a_timeout(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        ctx, _ = self._ctx(tmp_path, policy, 1)
+        result = run("maven_verify", ctx)
+        assert result.outcome is FAIL and "timed_out" not in result.evidence
+
+
+class TestContractFrozenSpansArtifacts:
+    """`design` freezes the HTTP surface; `test-contract` freezes the proof.
+
+    Verifying only the first leaves half the contract unguarded -- and it is the
+    half both branches were most recently told to agree on.
+    """
+
+    def _seed(self, tmp_path: Path):
+        from sdlc.audit import hash_inputs
+
+        prod = tmp_path / "service/src/main/java/Link.java"
+        prod.parent.mkdir(parents=True)
+        prod.write_text("record Link(String code) {}")
+        test = tmp_path / "service/src/test/java/LinkTest.java"
+        test.parent.mkdir(parents=True)
+        test.write_text("class LinkTest {}")
+
+        write_artifact(
+            tmp_path,
+            "design.json",
+            {
+                "openapi_path": "artifacts/openapi.yaml",
+                "contract_files": ["service/src/main/java/Link.java"],
+                "endpoints": [],
+                "rationale": "r",
+                "contract_hash": hash_inputs([prod], root=tmp_path),
+            },
+        )
+        write_artifact(
+            tmp_path,
+            "test-contract.json",
+            {
+                "contract_files": ["service/src/test/java/LinkTest.java"],
+                "behaviours": [],
+                "harness": [],
+                "rationale": "r",
+                "contract_hash": hash_inputs([test], root=tmp_path),
+            },
+        )
+        return prod, test
+
+    def _run(self, tmp_path: Path, policy: Policy):
+        return run(
+            "contract_frozen",
+            make_ctx(tmp_path, policy),
+            artifacts=["design.json", "test-contract.json"],
+        )
+
+    def test_both_intact_passes(self, tmp_path: Path, policy: Policy) -> None:
+        self._seed(tmp_path)
+        result = self._run(tmp_path, policy)
+        assert result.outcome is PASS
+        assert "2 contract file(s) across 2 artifact(s)" in result.detail
+
+    def test_a_drifted_test_skeleton_is_caught_and_named(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        _, test = self._seed(tmp_path)
+        test.write_text("class LinkTest { void extra() {} }")
+        result = self._run(tmp_path, policy)
+        assert result.outcome is FAIL
+        assert "test-contract.json has changed" in result.detail
+
+    def test_a_drifted_production_skeleton_is_still_caught(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        prod, _ = self._seed(tmp_path)
+        prod.write_text("record Link(String code, long clicks) {}")
+        result = self._run(tmp_path, policy)
+        assert result.outcome is FAIL and "design.json has changed" in result.detail
+
+
+class TestSkeletonHasNoAssertions:
+    """The line that stops two authors collapsing into one."""
+
+    def _write(self, tmp_path: Path, rel: str, body: str) -> None:
+        f = tmp_path / "service/src/test" / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(body)
+
+    def test_a_structural_skeleton_passes(self, tmp_path: Path, policy: Policy) -> None:
+        self._write(
+            tmp_path,
+            "java/RedirectTest.java",
+            "class RedirectTest {\n @Test void expiredLinkReturns410() {\n"
+            "  fail(\"not implemented\");\n }\n}",
+        )
+        assert run("no_assertions", make_ctx(tmp_path, policy)).outcome is PASS
+
+    def test_an_assertion_in_the_skeleton_fails(self, tmp_path: Path, policy: Policy) -> None:
+        """Deciding what counts as proof is author-tests' job, not this node's."""
+        self._write(
+            tmp_path,
+            "java/RedirectTest.java",
+            "class RedirectTest {\n @Test void expiredLinkReturns410() {\n"
+            "  assertEquals(410, response.getStatusCode());\n }\n}",
+        )
+        result = run("no_assertions", make_ctx(tmp_path, policy))
+        assert result.outcome is FAIL and "author-tests" in result.detail
+
+    def test_the_hand_written_harness_is_exempt(self, tmp_path: Path, policy: Policy) -> None:
+        self._write(
+            tmp_path,
+            "java/support/AbstractIntegrationTest.java",
+            "class AbstractIntegrationTest {\n assertTrue(POSTGRES.isRunning());\n}",
+        )
+        assert run("no_assertions", make_ctx(tmp_path, policy)).outcome is PASS
+
+    def test_a_commented_assertion_is_not_one(self, tmp_path: Path, policy: Policy) -> None:
+        self._write(
+            tmp_path,
+            "java/RedirectTest.java",
+            "class RedirectTest {\n // assertEquals(410, x);\n @Test void a() { fail(); }\n}",
+        )
+        assert run("no_assertions", make_ctx(tmp_path, policy)).outcome is PASS
+
+
+class TestTestsNotWeakened:
+    """The repair that lets an agent edit the thing judging it."""
+
+    def _suite(self, tmp_path: Path, tests: int, asserts: int, disabled: int = 0) -> None:
+        root = tmp_path / "service/src/test/java"
+        root.mkdir(parents=True, exist_ok=True)
+        body = ["class Suite {"]
+        for i in range(tests):
+            body.append(f"@Test void t{i}() {{")
+            if i < disabled:
+                body[-1] = f"@Disabled @Test void t{i}() {{"
+            body.append("}")
+        body += [f"assertEquals({i}, x);" for i in range(asserts)]
+        body.append("}")
+        (root / "Suite.java").write_text("\n".join(body))
+
+    def test_the_first_pass_records_a_baseline(self, tmp_path: Path, policy: Policy) -> None:
+        """Written by the gate, not by a node: a number the audited party
+        supplies is not a baseline."""
+        self._suite(tmp_path, tests=10, asserts=20)
+        result = run("tests_not_weakened", make_ctx(tmp_path, policy))
+        assert result.outcome is PASS and "baseline recorded" in result.detail
+        assert (tmp_path / "artifacts/test-baseline.json").is_file()
+
+    def test_growth_is_allowed(self, tmp_path: Path, policy: Policy) -> None:
+        self._suite(tmp_path, tests=10, asserts=20)
+        run("tests_not_weakened", make_ctx(tmp_path, policy))
+        self._suite(tmp_path, tests=12, asserts=25)
+        assert run("tests_not_weakened", make_ctx(tmp_path, policy)).outcome is PASS
+
+    def test_deleting_the_failing_test_is_caught(self, tmp_path: Path, policy: Policy) -> None:
+        self._suite(tmp_path, tests=10, asserts=20)
+        run("tests_not_weakened", make_ctx(tmp_path, policy))
+        self._suite(tmp_path, tests=9, asserts=18)
+        result = run("tests_not_weakened", make_ctx(tmp_path, policy))
+        assert result.outcome is FAIL and "weaker than the one it replaced" in result.detail
+
+    def test_gutting_the_assertions_is_caught(self, tmp_path: Path, policy: Policy) -> None:
+        """Same test count, nothing asserted. The subtler way to go green."""
+        self._suite(tmp_path, tests=10, asserts=20)
+        run("tests_not_weakened", make_ctx(tmp_path, policy))
+        self._suite(tmp_path, tests=10, asserts=3)
+        assert run("tests_not_weakened", make_ctx(tmp_path, policy)).outcome is FAIL
+
+    def test_disabling_the_failing_test_is_caught(self, tmp_path: Path, policy: Policy) -> None:
+        self._suite(tmp_path, tests=10, asserts=20)
+        run("tests_not_weakened", make_ctx(tmp_path, policy))
+        self._suite(tmp_path, tests=10, asserts=20, disabled=2)
+        result = run("tests_not_weakened", make_ctx(tmp_path, policy))
+        assert result.outcome is FAIL and "disabled" in result.detail

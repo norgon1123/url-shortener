@@ -99,6 +99,38 @@ recovery.
 For scale: the 11-node graph with one rejected contract cost about $17 and
 roughly an hour of wall clock.
 
+### Where inference runs, and who pays
+
+**These dollar figures are estimates, and nobody is billed them.** Read that
+before quoting any number in this repository.
+
+No API key is involved. `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` and the
+Bedrock/Vertex switches are all unset; the only credential is
+`~/.claude/.credentials.json`, an OAuth token with `subscriptionType: max`. The
+Agent SDK spawns the bundled `claude` CLI, which authenticates exactly as an
+interactive session does, so **every node draws on the operator's Claude Max
+subscription quota.**
+
+The per-node cost comes from `ResultMessage.total_cost_usd`, which the CLI
+derives from token counts priced at API list rates. It is a good proxy for how
+much model work a node did, and a sound basis for comparing nodes against each
+other. It is not an invoice.
+
+Two consequences follow, and both matter more than the numbers do:
+
+- **The budget guard is denominated in a currency nobody is spending.**
+  `max_cost_usd` is a real ceiling on how much model work a run may do, and it
+  is sized from measured runs — but it is not protecting a bill. The binding
+  constraint is the subscription's rate limits and quota, which the orchestrator
+  neither reads nor respects. A long run can exhaust the allowance while the
+  guard sits at half its ceiling reporting plenty of headroom.
+- **This is a prototype-stage answer, and a regulated buyer will ask.** The
+  deployment story points inference at Bedrock or Claude Platform on AWS inside
+  the organisation's own account (ADR-005), where the spend is a metered line
+  item against a cost centre and this estimate becomes an actual invoice. Until
+  that is verified rather than assumed, the honest statement is the one above:
+  a personal subscription, and an estimate.
+
 ---
 
 ## Known constraints

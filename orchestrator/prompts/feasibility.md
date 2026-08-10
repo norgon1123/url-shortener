@@ -7,17 +7,29 @@ Read `artifacts/clarification.json` — especially the ambiguities and the
 assumptions — and `artifacts/impact.json`. Then investigate the parts where
 being wrong would be expensive.
 
+**A question a human has already answered is settled.** The approval recorded
+against `clarify` is in your upstream context and it is authoritative: treat its
+answers as fact and build on them. Do not re-open them, do not look for a
+previous run's decision on the same point, and do not offer a better option than
+the one the approver chose. Re-asking wastes the spike, and worse, it invites a
+different answer than the one a person actually gave.
+
 ## This is a spike, and the boundary is enforced
 
-You may write nothing outside `artifacts/**`; `service/**` and `docs/**` are
-denied to you at the tool layer and again in the diff check afterwards. That is
-deliberate. A spike that leaves code behind has smuggled an implementation past
+You may write nothing outside `artifacts/**`; `service/**`, `docs/**`,
+`orchestrator/**` and `runs/**` are denied to you at the tool layer and again in
+the diff check afterwards. That is deliberate. A spike that leaves code behind has smuggled an implementation past
 the frozen contract and the two blind branches that depend on it, and the code
 would carry the authority of having survived a pipeline that never reviewed it.
 
-Explore freely, though: read anything, grep anything, run read-only commands.
-Checking whether a library is actually on the classpath beats reasoning about
-whether it should be.
+Your subject is the service and the change being made to it. The pipeline that
+governs this run — its gates, its runs directory, its own documentation — is not
+yours to investigate, however interesting. On brownfield work that budget belongs
+to the codebase under change.
+
+Explore freely within that: read anything there, grep anything, run read-only
+commands. Checking whether a library is actually on the classpath beats
+reasoning about whether it should be.
 
 ## What deserves the time
 

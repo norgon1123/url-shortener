@@ -1,0 +1,29 @@
+{
+  "run_id": "greenfield-2",
+  "status": "pending_approval",
+  "node_success_rate": 0.9,
+  "gate_pass_rate": 0.9512,
+  "retry_frequency": 0.0,
+  "rollback_frequency": 0.0,
+  "replans": 0,
+  "rollbacks": 0,
+  "safe_stops": 0,
+  "human_decisions": 3,
+  "parallel_groups": 1,
+  "mttr_seconds": null,
+  "e2e_latency_seconds": 38943.93,
+  "total_cost_usd": 24.879,
+  "rework_cost_usd": 0.0,
+  "node_cost_usd": {
+    "author-tests": 4.0136,
+    "clarify": 0.4642,
+    "decompose": 1.2362,
+    "design": 6.2093,
+    "feasibility": 4.0512,
+    "impact-analysis": 1.2198,
+    "implement": 7.4885,
+    "intake": 0.1964,
+    "join": 0.0,
+    "verify": 0.0
+  }
+}

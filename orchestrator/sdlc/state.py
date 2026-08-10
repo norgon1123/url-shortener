@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS node_state (
     -- re-enters the node. This is the durable "how many times has this node
     -- actually been invoked" counter, and it survives process restarts.
     invocations        INTEGER NOT NULL DEFAULT 0,
+    repairs            INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (run_id, node_id)
 );
 
@@ -115,6 +116,9 @@ class NodeState:
     cost_usd: float = 0.0
     error: str | None = None
     invocations: int = 0
+    # Times triage has routed a repair to this node. Never reset, so a node
+    # cannot be sent back indefinitely by alternating verdicts.
+    repairs: int = 0
 
 
 @dataclass
@@ -354,7 +358,25 @@ class RunStore:
             cost_usd=row["cost_usd"],
             error=row["error"],
             invocations=row["invocations"],
+            repairs=row["repairs"],
         )
+
+    def record_repair(self, run_id: str, node_id: str) -> int:
+        """Count a triage-routed repair against this node, and return the total.
+
+        Kept here rather than in the engine's memory for the same reason the
+        invocation counter is: a run that pauses for approval resumes in another
+        process, and a budget that resets when the process does is not a budget.
+        """
+        with self._conn:
+            self._conn.execute(
+                "INSERT INTO node_state (run_id, node_id, status, repairs) "
+                "VALUES (?, ?, ?, 1) "
+                "ON CONFLICT(run_id, node_id) DO UPDATE SET "
+                "repairs = node_state.repairs + 1",
+                (run_id, node_id, NodeStatus.PENDING.value),
+            )
+        return self.get_node(run_id, node_id).repairs
 
     def next_invocation(self, run_id: str, node_id: str) -> int:
         """Reserve the next invocation number for a node.

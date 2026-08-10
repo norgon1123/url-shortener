@@ -316,3 +316,50 @@ class TestBudget:
         guard.record(3.5)
         summary = guard.summary()
         assert summary["spent_usd"] == 3.5 and summary["cost_limit_usd"] == 25.0
+
+
+class TestWorktreesAcrossProcesses:
+    """A run that pauses for approval resumes in a different process.
+
+    The manager's registry of worktrees is in memory, so in that new process it
+    is empty and every lookup is a first access. Creating unconditionally killed
+    the first live run to get past a human checkpoint: the branch and the work
+    were both intact on disk, and the run could not reach them.
+    """
+
+    def _fresh(self, repo: Git, tmp_path: Path) -> CheckpointManager:
+        return CheckpointManager(
+            git=repo, run_id="run-1", worktree_root=tmp_path / "worktrees"
+        )
+
+    def test_a_second_process_adopts_the_existing_checkout(
+        self, repo: Git, tmp_path: Path
+    ) -> None:
+        first = self._fresh(repo, tmp_path)
+        impl = first.worktree("implement")
+        write(impl, "service/src/main/java/A.java", "class A {}")
+        impl.commit("implement", run_id="run-1", node_id="implement")
+
+        second = self._fresh(repo, tmp_path)  # the resume
+        adopted = second.worktree("implement")
+
+        assert adopted.root == impl.root
+        assert (adopted.root / "service/src/main/java/A.java").exists()
+
+    def test_a_surviving_branch_is_attached_not_recreated(
+        self, repo: Git, tmp_path: Path
+    ) -> None:
+        """Re-creating would point the branch at base and discard the node's commits."""
+        first = self._fresh(repo, tmp_path)
+        impl = first.worktree("implement")
+        write(impl, "service/src/main/java/A.java", "class A {}")
+        sha = impl.commit("implement", run_id="run-1", node_id="implement")
+        first.cleanup()  # checkout pruned, branch survives
+
+        adopted = self._fresh(repo, tmp_path).worktree("implement")
+        assert adopted.head() == sha
+        assert (adopted.root / "service/src/main/java/A.java").exists()
+
+    def test_a_brand_new_name_is_still_created(self, repo: Git, tmp_path: Path) -> None:
+        tree = self._fresh(repo, tmp_path).worktree("docs")
+        assert (tree.root / "README.md").exists()

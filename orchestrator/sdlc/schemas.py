@@ -305,6 +305,91 @@ def _lens_schema(lens: str, prefix: str) -> dict[str, Any]:
     }
 
 
+TEST_CONTRACT: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    # The executable half of the frozen contract. `design` fixes the types and
+    # the HTTP surface; this fixes what will be asserted about them and how the
+    # harness reaches them, so the two branches agree on the shape of the proof
+    # before either starts. Both are approved together by a human.
+    "required": ["contract_files", "behaviours", "harness", "rationale"],
+    "properties": {
+        # Hashed at each branch's entry gate alongside the design contract, so
+        # a skeleton that drifts between the freeze and the fan-out is caught
+        # before the branches can diverge on it.
+        "contract_files": _array_of(_STR, minItems=1),
+        "behaviours": _array_of(
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["id", "test_class", "method", "statement", "criteria_ids"],
+                "properties": {
+                    "id": _STR,
+                    "test_class": _STR,
+                    # Named for the behaviour, not the method under test:
+                    # `expiredLinkReturns410`, never `testRedirect`.
+                    "method": _STR,
+                    "statement": _STR,
+                    # Which acceptance criteria this behaviour demonstrates.
+                    # The thread from requirement to proof, kept unbroken.
+                    "criteria_ids": _array_of(_STR),
+                },
+            },
+            minItems=1,
+        ),
+        # How a test reaches the service: base class, fixtures, and the
+        # mechanisms that are easy to get wrong alone. A run has already been
+        # lost to a test inventing its own way to restart the application.
+        "harness": _array_of(
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["concern", "mechanism"],
+                "properties": {"concern": _STR, "mechanism": _STR},
+            }
+        ),
+        "rationale": _STR,
+        "contract_hash": _STR,
+    },
+}
+
+
+TRIAGE_CLASSIFICATIONS = ("implementation", "test", "contract")
+
+
+TRIAGE: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    # Advisory, like `review`: it decides where to spend the next attempt, never
+    # whether the run passes. `verify` still has to go green mechanically
+    # afterwards, so a wrong verdict costs one re-run rather than a bad merge.
+    "required": ["failures", "verdict", "summary"],
+    "properties": {
+        "failures": _array_of(
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["test", "classification", "confidence", "evidence"],
+                "properties": {
+                    "test": _STR,
+                    "classification": {"enum": list(TRIAGE_CLASSIFICATIONS)},
+                    "confidence": {"enum": ["high", "medium", "low"]},
+                    # Why. A verdict without one is a guess wearing a label, and
+                    # this is the field a human reads when overruling it.
+                    "evidence": _STR,
+                },
+            },
+            minItems=1,
+        ),
+        # The routing decision. `contract` and `mixed` both mean a human looks:
+        # a contract both sides read differently is not something to repair
+        # automatically, and a mixture cannot be sent to one branch.
+        "verdict": {"enum": [*TRIAGE_CLASSIFICATIONS, "mixed"]},
+        "summary": _STR,
+    },
+}
+
+
 REVIEW: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -374,6 +459,8 @@ REGISTRY: dict[str, dict[str, Any]] = {
     "feasibility": FEASIBILITY,
     "plan": PLAN,
     "design": DESIGN,
+    "test-contract": TEST_CONTRACT,
+    "triage": TRIAGE,
     "review": REVIEW,
     "release": RELEASE,
     **{lens: _lens_schema(lens, prefix) for lens, prefix in LENSES.items()},

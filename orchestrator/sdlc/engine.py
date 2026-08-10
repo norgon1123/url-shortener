@@ -217,6 +217,12 @@ class Engine:
 
         ready = []
         for node in self.pipeline.nodes:
+            # A handler runs when something fails, not when its inputs are
+            # ready. It declares no dependencies, so a dependency-driven
+            # scheduler considers it ready immediately -- which put `triage` on
+            # level 0 racing the first node for the git index.
+            if node.kind is NodeKind.HANDLER:
+                continue
             if status(node.id) in (NodeStatus.PASSED, NodeStatus.SKIPPED):
                 continue
             if status(node.id) in (NodeStatus.FAILED, NodeStatus.REJECTED):
@@ -642,6 +648,12 @@ class Engine:
                 self.store.set_run_status(self.run_id, RunStatus.FAILED)
                 return RunStatus.FAILED
 
+            if action is FailureAction.TRIAGE:
+                status = self._triage(node, execution)
+                if status is not None:
+                    return status
+                continue
+
             if action is FailureAction.REPLAN:
                 status = self._replan(node, execution)
                 if status is not None:
@@ -671,6 +683,110 @@ class Engine:
             to_commit=sha,
             reason=execution.detail,
         )
+
+    def _triage(self, node: NodeSpec, execution: NodeExecution) -> RunStatus | None:
+        """Ask which artifact is actually wrong, then re-run only that one.
+
+        The alternative already existed and is a sledgehammer: replanning
+        re-derives the plan, the contract and both branches to fix a defect
+        living in one of them. A run has already been lost that way, to two
+        tests that invented a mechanism the harness does not support while the
+        implementation was correct throughout.
+
+        Triage is advisory in exactly the sense `review` is. It chooses where to
+        spend the next attempt; it never decides the run passes, because the
+        failing gate still has to go green afterwards on its own terms. A wrong
+        verdict therefore costs one re-run, not a bad merge.
+        """
+        handler = self.pipeline.node(node.triage_node)
+        verdict = self._invoke(handler, attempt=0, gate_failures=(), rejection_note="",
+                               autonomy=handler.autonomy)
+        self.budget.record(verdict.cost_usd)
+        self.store.add_cost(self.run_id, verdict.cost_usd)
+
+        if not verdict.ok:
+            return self._pause_for_approval(
+                self._pending_approval(
+                    node, execution.gate_results,
+                    f"triage could not run ({verdict.error}); {execution.detail}",
+                )
+            )
+
+        target, reason = self._triage_target(verdict.output)
+        self._record(
+            "triage_verdict",
+            node_id=handler.id,
+            parent_ids=self._parents(node.id),
+            triggered_by=node.id,
+            verdict=(verdict.output or {}).get("verdict"),
+            target=target,
+            reason=reason,
+            cost_usd=verdict.cost_usd,
+        )
+
+        if target is None:
+            # Contract-implicated, mixed, or low confidence. None of those can be
+            # sent to one branch, and a contract both sides read differently is
+            # the case a person should see rather than the case to guess at.
+            return self._pause_for_approval(
+                self._pending_approval(node, execution.gate_results, reason)
+            )
+
+        spec = self.pipeline.node(target)
+        used = self.store.record_repair(self.run_id, target)
+        if used > spec.repair_attempts:
+            self._record(
+                "repair_budget_exhausted",
+                node_id=target,
+                parent_ids=self._parents(node.id),
+                used=used,
+                allowed=spec.repair_attempts,
+            )
+            return self._replan(node, execution)
+
+        affected = {target} | descendants(self.pipeline, target)
+        for nid in sorted(affected):
+            self.store.set_node(self.run_id, nid, NodeStatus.PENDING, attempt=0)
+        self._record(
+            "repair_routed",
+            node_id=target,
+            parent_ids=self._parents(node.id),
+            triggered_by=node.id,
+            attempt=used,
+            allowed=spec.repair_attempts,
+            reason=reason,
+            reset_nodes=sorted(affected),
+        )
+        return None
+
+    @staticmethod
+    def _triage_target(output: dict[str, Any] | None) -> tuple[str | None, str]:
+        """Map a triage verdict onto a node, or onto a human.
+
+        Low confidence escalates even when the classification is decisive. A
+        misrouted repair re-runs the innocent branch and leaves the defect in
+        place, which is worse than pausing: it burns an attempt *and* costs the
+        reviewer their trust in the verdict.
+        """
+        output = output or {}
+        verdict = output.get("verdict")
+        failures = output.get("failures") or []
+        summary = output.get("summary", "")
+
+        if verdict == "implementation":
+            target = "implement"
+        elif verdict == "test":
+            target = "author-tests"
+        else:
+            return None, f"triage verdict '{verdict}' requires a human: {summary}"
+
+        unsure = [f.get("test") for f in failures if f.get("confidence") == "low"]
+        if unsure:
+            return None, (
+                f"triage says '{verdict}' but is unsure about "
+                f"{', '.join(str(t) for t in unsure[:3])}; escalating rather than guessing"
+            )
+        return target, summary
 
     def _replan(self, node: NodeSpec, execution: NodeExecution) -> RunStatus | None:
         """Send work back upstream with the failure attached.

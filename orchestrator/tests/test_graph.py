@@ -10,6 +10,7 @@ import textwrap
 from pathlib import Path
 
 import pytest
+import yaml
 
 from sdlc.graph import PipelineError, load_pipeline, parallel_groups, schedule
 from sdlc.model import Autonomy, FailureAction, GateClass, NodeKind
@@ -41,7 +42,7 @@ class TestRealPipeline:
     def test_loads(self) -> None:
         p = load_pipeline(REAL_PIPELINE)
         assert p.version == 1
-        assert len(p.nodes) == 19
+        assert len(p.nodes) == 21
 
     def test_both_fan_outs_fall_out_of_the_graph(self) -> None:
         # The §4.4 parallel-path requirement. This must fall out of the graph,
@@ -81,10 +82,15 @@ class TestRealPipeline:
         assert p.node("implement").worktree != p.node("author-tests").worktree
         assert p.node("implement").worktree is not None
 
-    def test_verify_is_deterministic_and_replans(self) -> None:
+    def test_verify_is_deterministic_and_triages(self) -> None:
         v = load_pipeline(REAL_PIPELINE).node("verify")
         assert v.kind is NodeKind.DETERMINISTIC  # no model call in the gate
-        assert v.on_failure is FailureAction.REPLAN
+        # Triage first -- ask which artifact is wrong before re-deriving the
+        # plan, the contract and both branches to fix a defect in one of them.
+        assert v.on_failure is FailureAction.TRIAGE
+        assert v.triage_node == "triage"
+        # The sledgehammer survives as the fallback when triage cannot tell.
+        assert v.replan_target == "decompose"
         assert v.replan_target == "decompose"
         assert v.max_replans == 2
 
@@ -351,3 +357,57 @@ class TestValidation:
             """,
         )
         assert len(load_pipeline(path).nodes) == 2
+
+
+class TestTriageConfiguration:
+    """A repair path that can only ever escalate is a repair path in name only."""
+
+    def _pipeline(self, tmp_path: Path, **overrides) -> Path:
+        nodes = [
+            {"id": "build", "prompt": "b.md", "repair_attempts": overrides.pop("budget", 1)},
+            {
+                "id": "verify",
+                "type": "deterministic",
+                "depends_on": ["build"],
+                "on_failure": "triage",
+                **overrides,
+            },
+            {"id": "triage", "type": overrides.pop("handler_type", "handler"), "prompt": "t.md"},
+        ]
+        path = tmp_path / "p.yaml"
+        path.write_text(yaml.safe_dump({"version": 1, "nodes": nodes}))
+        return path
+
+    def test_triage_without_a_handler_is_rejected(self, tmp_path: Path) -> None:
+        with pytest.raises(PipelineError, match="requires a 'triage_node'"):
+            load_pipeline(self._pipeline(tmp_path))
+
+    def test_an_unknown_handler_is_rejected(self, tmp_path: Path) -> None:
+        with pytest.raises(PipelineError, match="unknown triage_node"):
+            load_pipeline(self._pipeline(tmp_path, triage_node="nope"))
+
+    def test_a_handler_that_is_not_a_handler_is_rejected(self, tmp_path: Path) -> None:
+        """A scheduled handler declares no dependencies, so it lands on level 0
+        and runs on every clean pass -- the opposite of what it is for."""
+        nodes = [
+            {"id": "build", "prompt": "b.md", "repair_attempts": 1},
+            {"id": "verify", "type": "deterministic", "depends_on": ["build"],
+             "on_failure": "triage", "triage_node": "triage"},
+            {"id": "triage", "prompt": "t.md"},  # agent, not handler
+        ]
+        path = tmp_path / "p.yaml"
+        path.write_text(yaml.safe_dump({"version": 1, "nodes": nodes}))
+        with pytest.raises(PipelineError, match=r"must be\s+type: handler"):
+            load_pipeline(path)
+
+    def test_triage_with_nowhere_to_route_is_rejected(self, tmp_path: Path) -> None:
+        with pytest.raises(PipelineError, match="could only ever escalate"):
+            load_pipeline(self._pipeline(tmp_path, triage_node="triage", budget=0))
+
+    def test_a_valid_configuration_loads(self, tmp_path: Path) -> None:
+        p = load_pipeline(self._pipeline(tmp_path, triage_node="triage"))
+        assert p.node("triage").kind is NodeKind.HANDLER
+
+    def test_a_handler_is_not_scheduled(self, tmp_path: Path) -> None:
+        p = load_pipeline(self._pipeline(tmp_path, triage_node="triage"))
+        assert "triage" not in {nid for level in schedule(p) for nid in level}

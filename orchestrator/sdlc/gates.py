@@ -178,7 +178,7 @@ class GateContext:
         except Exception:  # noqa: BLE001 -- not a repository, or git is absent
             return []
 
-    def maven(self, *goals: str) -> CommandResult:
+    def maven(self, *goals: str, timeout: float | None = None) -> CommandResult:
         """Prefer the wrapper so the build uses the pinned Maven version.
 
         Resolved to an absolute path, because the command runs *in* the service
@@ -190,7 +190,10 @@ class GateContext:
         """
         wrapper = (self.service_dir / "mvnw").resolve()
         exe = str(wrapper) if wrapper.exists() else (shutil.which("mvn") or "mvn")
-        return self.run([exe, "-B", "-q", *goals], self.service_dir)
+        argv = [exe, "-B", "-q", *goals]
+        if timeout is None:
+            return self.run(argv, self.service_dir)
+        return self.run(argv, self.service_dir, timeout)
 
 
 # --------------------------------------------------------------------------
@@ -253,6 +256,25 @@ def evaluate(spec: GateSpec, ctx: GateContext) -> GateResult:
     if result.outcome is GateOutcome.FAIL and spec.on_fail is GateOutcome.ESCALATE:
         result.outcome = GateOutcome.ESCALATE
         result.detail = f"{result.detail} (escalated to human, not failed)".strip()
+
+    # An escalation a human has answered is spent. Resuming re-gates the same
+    # artifacts, so without this every escalating gate re-raises the condition
+    # the approver just cleared and the run bounces at that node forever -- a
+    # stop rather than a checkpoint.
+    #
+    # Here rather than inside each check, because the rule belongs to the
+    # taxonomy and not to any one predicate. Two gates shipped without it and
+    # each stopped a live run; the third would have been whichever escalating
+    # gate someone wrote next. Nothing else in this file has to remember.
+    #
+    # It does not soften anything. FAIL is untouched, so a mechanical failure
+    # stays a failure whatever anyone approved; only an escalation, which by
+    # construction is a request for a human, can be answered by one.
+    if result.outcome is GateOutcome.ESCALATE:
+        approval = ctx.approvals.get(ctx.node.id)
+        if approval and approval.approved:
+            result.outcome = GateOutcome.PASS
+            result.detail = f"{result.detail} — cleared by {approval.approver}".strip()
     return result
 
 
@@ -345,6 +367,23 @@ def _paths_confined(ctx: GateContext, params: dict[str, Any]) -> GateResult:
             files_checked=len(written),
         )
     if protected:
+        # An approval on file clears it. Resuming re-gates the same result, so
+        # without this the gate re-escalates on exactly the paths a human just
+        # approved and the run bounces at this node forever. Same deadlock the
+        # blocking-ambiguity gate had: every gate that can escalate needs a way
+        # for a human to get past it, or it is a stop rather than a checkpoint.
+        approval = ctx.approvals.get(ctx.node.id)
+        if approval and approval.approved:
+            return _result(
+                ctx,
+                "paths_confined",
+                _MECH,
+                _PASS,
+                f"{len(protected)} protected path(s) approved by {approval.approver}: "
+                f"{', '.join(protected)}",
+                protected=protected,
+                approved_by=approval.approver,
+            )
         return _result(
             ctx,
             "paths_confined",
@@ -708,22 +747,35 @@ def _openapi_lints(ctx: GateContext, params: dict[str, Any]) -> GateResult:
 def _contract_frozen(ctx: GateContext, params: dict[str, Any]) -> GateResult:
     """Entry gate on both parallel branches.
 
-    Blind parallel authoring only works if both branches see byte-identical
-    inputs, so `design` records a hash of the contract file set and each branch
-    re-derives it before starting. A drifted contract is caught here rather than
-    at the merge, where the symptom would be an unexplained pile of conflicts.
+    Parallel authoring only works if both branches see byte-identical inputs,
+    so the freeze records a hash of its file set and each branch re-derives it
+    before starting. Drift is caught here rather than at the merge, where the
+    symptom would be an unexplained pile of conflicts.
+
+    The freeze spans more than one artifact: `design` fixes the HTTP surface and
+    the production types, `test-contract` fixes what will be asserted about them
+    and how the harness reaches them. Verifying only the first would leave half
+    the contract unguarded, and it is the half both branches were most recently
+    told to agree on.
     """
     from .audit import hash_inputs
 
-    name = params.get("artifact", "design.json")
-    try:
-        design = ctx.read_json(name)
-    except (OSError, json.JSONDecodeError) as exc:
-        return _result(ctx, "contract_frozen", _MECH, _FAIL, str(exc))
-
-    files = design.get("contract_files") or []
-    if not files:
-        return _result(ctx, "contract_frozen", _MECH, _FAIL, "design declares no contract files")
+    names = params.get("artifacts") or [params.get("artifact", "design.json")]
+    files: list[str] = []
+    recorded: dict[str, str] = {}
+    for name in names:
+        try:
+            doc = ctx.read_json(name)
+        except (OSError, json.JSONDecodeError) as exc:
+            return _result(ctx, "contract_frozen", _MECH, _FAIL, f"{name}: {exc}")
+        declared = doc.get("contract_files") or []
+        if not declared:
+            return _result(
+                ctx, "contract_frozen", _MECH, _FAIL, f"{name} declares no contract files"
+            )
+        files.extend(declared)
+        if doc.get("contract_hash"):
+            recorded[name] = doc["contract_hash"]
 
     missing = [f for f in files if not ctx.path(f).is_file()]
     if missing:
@@ -736,27 +788,171 @@ def _contract_frozen(ctx: GateContext, params: dict[str, Any]) -> GateResult:
             missing=missing,
         )
 
+    # Each artifact's hash covers its own files, so a drifted test skeleton is
+    # named as such rather than reported as "the contract changed".
+    for name in names:
+        if name not in recorded:
+            continue
+        own = ctx.read_json(name).get("contract_files") or []
+        actual_own = hash_inputs([ctx.path(f) for f in own], root=ctx.workspace)
+        if actual_own != recorded[name]:
+            return _result(
+                ctx,
+                "contract_frozen",
+                _MECH,
+                _FAIL,
+                f"{name} has changed since it was frozen "
+                f"(recorded {recorded[name][:12]}..., found {actual_own[:12]}...)",
+                artifact=name,
+                recorded=recorded[name],
+                actual=actual_own,
+            )
+
     actual = hash_inputs([ctx.path(f) for f in files], root=ctx.workspace)
-    recorded = design.get("contract_hash")
-    if recorded and recorded != actual:
-        return _result(
-            ctx,
-            "contract_frozen",
-            _MECH,
-            _FAIL,
-            f"contract has changed since design froze it "
-            f"(recorded {recorded[:12]}..., found {actual[:12]}...)",
-            recorded=recorded,
-            actual=actual,
-        )
     return _result(
         ctx,
         "contract_frozen",
         _MECH,
         _PASS,
-        f"{len(files)} contract file(s) intact at {actual[:12]}...",
+        f"{len(files)} contract file(s) across {len(names)} artifact(s) "
+        f"intact at {actual[:12]}...",
         contract_hash=actual,
+        artifacts=list(names),
     )
+
+
+_ASSERTION = re.compile(
+    r"\b(assert\w*|verify|expectThat|shouldBe|assertThat|then\()", re.IGNORECASE
+)
+
+
+@check("no_assertions")
+def _no_assertions(ctx: GateContext, params: dict[str, Any]) -> GateResult:
+    """`test-contract` writes structure. It must not write the assertions.
+
+    This is the line that keeps two authors from collapsing into one. The
+    skeleton exists so both branches agree on *what* will be proven and how the
+    harness reaches it; deciding what counts as proof is `author-tests`' job,
+    and a skeleton that arrives with assertions already in it has quietly done
+    that job too. `implement` would then be reading finished tests, and the
+    segregation the parallel branches exist to provide would be gone.
+
+    Bodies are expected to fail by default -- a thrown error or a deliberate
+    failure call is how a skeleton says "not implemented", and neither asserts
+    anything about the service.
+    """
+    root = ctx.path(params.get("root", "service/src/test"))
+    if not root.is_dir():
+        return _result(ctx, "no_assertions", _MECH, _FAIL, f"no test sources at {root}")
+
+    offenders: list[str] = []
+    scanned = 0
+    for path in sorted(root.rglob("*.java")):
+        # The hand-written harness is scaffold, not skeleton, and it legitimately
+        # asserts on its own wiring.
+        if any(part in params.get("exclude", ["support"]) for part in path.parts):
+            continue
+        scanned += 1
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            stripped = line.strip()
+            if stripped.startswith(("*", "//", "/*")):
+                continue
+            if "fail(" in stripped or "UnsupportedOperation" in stripped:
+                continue  # "not implemented yet" is not an assertion
+            if _ASSERTION.search(stripped):
+                offenders.append(f"{path.relative_to(ctx.workspace)}:{lineno}")
+
+    if offenders:
+        return _result(
+            ctx,
+            "no_assertions",
+            _MECH,
+            _FAIL,
+            f"{len(offenders)} assertion(s) in the test skeleton -- these belong to "
+            f"author-tests: {', '.join(offenders[:5])}",
+            offenders=offenders,
+        )
+    return _result(
+        ctx, "no_assertions", _MECH, _PASS, f"{scanned} skeleton file(s), no assertions"
+    )
+
+
+@check("tests_not_weakened")
+def _tests_not_weakened(ctx: GateContext, params: dict[str, Any]) -> GateResult:
+    """A repaired test suite may not be a smaller one.
+
+    Triage can send a failure back to `author-tests` when the test is wrong
+    rather than the code. That is the one repair that lets an agent edit the
+    thing judging it, and the obvious way to make a failing test pass is to
+    delete it, weaken it, or disable it. Counting is crude and it is not
+    fooled by any of those.
+
+    Growth is fine. This asks only that the suite never shrinks across a repair,
+    which is a floor rather than a measure of quality -- the coverage floor and
+    the test-adequacy review lens carry that.
+    """
+    baseline = ctx.path(params.get("baseline", "artifacts/test-baseline.json"))
+    root = ctx.path(params.get("root", "service/src/test"))
+    if not root.is_dir():
+        return _result(ctx, "tests_not_weakened", _MECH, _FAIL, f"no test sources at {root}")
+
+    counts = _count_tests(root)
+    if not baseline.is_file():
+        # First pass: nothing to compare against, so record and allow. The
+        # baseline is written by the gate rather than by a node, because a
+        # number the audited party supplies is not a baseline.
+        baseline.parent.mkdir(parents=True, exist_ok=True)
+        baseline.write_text(json.dumps(counts, indent=2, sort_keys=True), encoding="utf-8")
+        return _result(
+            ctx,
+            "tests_not_weakened",
+            _MECH,
+            _PASS,
+            f"baseline recorded: {counts['tests']} test(s), {counts['asserts']} assertion(s)",
+            **counts,
+        )
+
+    before = json.loads(baseline.read_text(encoding="utf-8"))
+    shrank = [
+        f"{k}: {before[k]} -> {counts[k]}"
+        for k in ("tests", "asserts")
+        if counts[k] < before[k]
+    ]
+    if shrank or counts["disabled"] > before.get("disabled", 0):
+        if counts["disabled"] > before.get("disabled", 0):
+            shrank.append(
+                f"disabled: {before.get('disabled', 0)} -> {counts['disabled']}"
+            )
+        return _result(
+            ctx,
+            "tests_not_weakened",
+            _MECH,
+            _FAIL,
+            "the repaired suite is weaker than the one it replaced: "
+            + "; ".join(shrank),
+            **counts,
+        )
+    return _result(
+        ctx,
+        "tests_not_weakened",
+        _MECH,
+        _PASS,
+        f"{counts['tests']} test(s), {counts['asserts']} assertion(s); not weakened",
+        **counts,
+    )
+
+
+def _count_tests(root: Path) -> dict[str, int]:
+    tests = asserts = disabled = 0
+    for path in sorted(root.rglob("*.java")):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        body = "\n".join(
+            line for line in text.splitlines() if not line.strip().startswith(("*", "//"))
+        )
+        tests += len(re.findall(r"@Test\b", body))
+        disabled += len(re.findall(r"@Disabled\b", body))
+        asserts += len(_ASSERTION.findall(body))
+    return {"tests": tests, "asserts": asserts, "disabled": disabled}
 
 
 # --------------------------------------------------------------------------
@@ -764,10 +960,40 @@ def _contract_frozen(ctx: GateContext, params: dict[str, Any]) -> GateResult:
 # --------------------------------------------------------------------------
 
 
-def _maven_gate(ctx: GateContext, name: str, goals: list[str], label: str) -> GateResult:
-    res = ctx.maven(*goals)
+def _maven_gate(
+    ctx: GateContext,
+    name: str,
+    goals: list[str],
+    label: str,
+    params: dict[str, Any] | None = None,
+) -> GateResult:
+    """Run a Maven goal as a gate.
+
+    The timeout is a gate parameter rather than a constant, because it is a
+    policy decision and it can end a run: an integration suite that outgrows the
+    ceiling reports `exited 124` and a coverage report that was never written,
+    which reads like a broken build rather than a clock. Whoever tunes the
+    coverage floor in the pipeline should be able to see and change this in the
+    same place.
+    """
+    timeout = float((params or {}).get("timeout_seconds") or 0) or None
+    res = ctx.maven(*goals, timeout=timeout)
     if res.ok:
         return _result(ctx, name, _MECH, _PASS, label, exit_code=0)
+    if res.exit_code == 124:
+        # Named apart from a failing build. "The tests did not pass" and "the
+        # tests did not finish" call for completely different responses, and a
+        # retry is only worth spending on the second.
+        return _result(
+            ctx,
+            name,
+            _MECH,
+            _FAIL,
+            f"`mvn {' '.join(goals)}` did not finish within "
+            f"{timeout or 1800.0:.0f}s -- this is a timeout, not a test failure",
+            exit_code=124,
+            timed_out=True,
+        )
     return _result(
         ctx,
         name,
@@ -780,7 +1006,9 @@ def _maven_gate(ctx: GateContext, name: str, goals: list[str], label: str) -> Ga
 
 @check("maven_compiles")
 def _maven_compiles(ctx: GateContext, params: dict[str, Any]) -> GateResult:
-    return _maven_gate(ctx, "maven_compiles", ["-DskipTests", "compile"], "main sources compile")
+    return _maven_gate(
+        ctx, "maven_compiles", ["-DskipTests", "compile"], "main sources compile", params
+    )
 
 
 @check("tests_compile")
@@ -792,12 +1020,14 @@ def _tests_compile(ctx: GateContext, params: dict[str, Any]) -> GateResult:
     at that point, and it is a real one: it proves the tests were written
     against the frozen contract's types rather than invented ones.
     """
-    return _maven_gate(ctx, "tests_compile", ["test-compile"], "test sources compile")
+    return _maven_gate(ctx, "tests_compile", ["test-compile"], "test sources compile", params)
 
 
 @check("maven_verify")
 def _maven_verify(ctx: GateContext, params: dict[str, Any]) -> GateResult:
-    return _maven_gate(ctx, "maven_verify", ["verify"], "full build and test suite green")
+    return _maven_gate(
+        ctx, "maven_verify", ["verify"], "full build and test suite green", params
+    )
 
 
 @check("coverage_floor")

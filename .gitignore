@@ -4,9 +4,10 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 
-# Orchestrator run state — journals are exported to fixtures/ deliberately,
-# not committed live from runs/
-runs/
+# Orchestrator run state. Anchored to the repository root on purpose: a bare
+# `runs/` also matches orchestrator/fixtures/runs/, which silently ignored the
+# exported journals this very comment says are committed deliberately.
+/runs/
 *.db
 
 # Java
@@ -20,3 +21,19 @@ service/target/
 
 # Local virtualenv for running the orchestrator suite
 .venv/
+
+# Sandbox debris.
+#
+# The Agent SDK's bwrap sandbox mounts a fake HOME at the workspace root, so
+# every node that runs a Bash tool call leaves shell profiles, editor
+# directories, and tooling config behind: .bashrc, .profile, .zprofile,
+# .gitconfig, .vscode, .mcp.json, and more arriving one at a time. None of it
+# is a node's work product, and unignored it would be swept into whichever node
+# checkpoints next, wearing that node's trailers.
+#
+# Named patterns lost to whack-a-mole, so this is stated as a rule instead:
+# nothing hidden at the repository root belongs to this project unless it is
+# listed below.
+/.*
+!/.gitignore
+!/.github/

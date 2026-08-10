@@ -21,13 +21,25 @@ defaults:
   on_failure: retry
 
 budget:
-  # Sized from a measured run rather than guessed: the 11-node graph cost about
-  # $17 with one rejected contract. This graph adds two analysis nodes and turns
-  # one reviewer into six, and the review fan-out is the expensive half. A
-  # ceiling set below what a healthy run costs does not protect anything -- it
-  # just safe-stops every run at the same place and trains whoever is watching
-  # to raise it without looking.
-  max_cost_usd: 60.0
+  # Sized from measured runs rather than guessed. The 11-node graph cost about
+  # $17; the 19-node graph reached `verify` at $25 before the review fan-out,
+  # which is the expensive half and has never been measured. The requirement has
+  # since roughly doubled in scope -- accounts, password storage, sessions,
+  # rate limiting, abuse handling and a cache tier on top of the original CRUD --
+  # so the ceiling moves with it.
+  #
+  # A ceiling below what a healthy run costs does not protect anything: it
+  # safe-stops every run at the same place and trains whoever is watching to
+  # raise it without looking. A breach is recoverable -- raise it and resume --
+  # so the cost of setting it too high is real spend, and the cost of setting it
+  # too low is an hour of wall clock and a run stopped mid-branch.
+  #
+  # Denominated in estimated dollars, which is not money anyone is billed: runs
+  # authenticate with a Claude Max subscription, and the figure is derived from
+  # token counts at API list rates. It is a real ceiling on how much model work
+  # a run may do, and it is not protecting an invoice. The binding constraint is
+  # the subscription's quota, which nothing here reads. See docs/OPERATIONS.md.
+  max_cost_usd: 120.0
   max_wallclock_seconds: 10800
 
 policy:
@@ -144,7 +156,14 @@ nodes:
     write_paths: ["artifacts/**"]
     # A spike that leaves code behind is not a spike, it is an unreviewed
     # implementation that skipped the contract. Enforced, not requested.
-    deny_paths: ["service/**", "docs/**"]
+    #
+    # The orchestrator, its runs and its documentation are out of scope for the
+    # same reason: on the first live run this node spent part of its budget
+    # asking whether the `verify` gate's process would have Docker group
+    # membership, and whether the implementation plan was still current. Neither
+    # is a question about the service under change, and on brownfield work that
+    # budget belongs to the codebase.
+    deny_paths: ["service/**", "docs/**", "orchestrator/**", "runs/**"]
     output_schema: feasibility
     depends_on: [clarify, impact-analysis]
     effort: high
@@ -189,7 +208,40 @@ nodes:
       - {check: schema_valid, gate_class: mechanical, artifact: design.json}
       - {check: openapi_lints, gate_class: mechanical, artifact: openapi.yaml}
       - {check: maven_compiles, gate_class: mechanical}
-      - {check: human_approval, gate_class: human, reason: "Frozen contract review (four-eyes)"}
+
+  - id: test-contract
+    description: >
+      The executable half of the freeze. Test classes, behaviour-named method
+      signatures, and the shared harness -- structure only, no assertions. Both
+      branches build against it, so they agree on what will be proven and how a
+      test reaches the service before either starts.
+    prompt: test-contract.md
+    tools: [Read, Write, Edit, Grep, Glob, Bash]
+    write_paths: ["artifacts/**", "service/src/test/**"]
+    deny_paths: ["service/src/main/**", "service/pom.xml"]
+    output_schema: test-contract
+    depends_on: [design]
+    effort: high
+    entry_gates:
+      - {check: artifact_present, gate_class: mechanical, path: "artifacts/design.json"}
+    exit_gates:
+      - {check: schema_valid, gate_class: mechanical, artifact: test-contract.json}
+      - {check: tests_compile, gate_class: mechanical}
+      # The line that keeps two authors from collapsing into one. A skeleton
+      # arriving with assertions has already done author-tests' job, and
+      # `implement` would then be reading finished tests.
+      - {check: no_assertions, gate_class: mechanical}
+      # Records the starting size of the suite, so a later repair cannot shrink
+      # it. Written by the gate: a baseline the audited party supplies is not
+      # a baseline.
+      - {check: tests_not_weakened, gate_class: mechanical}
+      - {check: paths_confined, gate_class: mechanical}
+      # The single approval covers both halves: the API, and the plan for
+      # proving it works. Reviewing them together is the highest-leverage
+      # checkpoint in the graph -- it is where a wrong shared premise is
+      # cheapest to catch, before either branch has written a line against it.
+      - {check: human_approval, gate_class: human,
+         reason: "Frozen contract review: the API and the proof (four-eyes)"}
 
   # ---- parallel branch -------------------------------------------------
   # implement and author-tests fan out from the frozen contract into separate
@@ -197,7 +249,9 @@ nodes:
   #
   # The allowlists are the segregation-of-duties control (ADR-003):
   # `implement` cannot write to src/test, so the agent producing the code is
-  # structurally incapable of weakening the tests that gate it.
+  # structurally incapable of weakening the tests that gate it. That control is
+  # untouched by the shared skeleton: both branches read the same specification,
+  # and only one of them may edit the tests.
 
   - id: implement
     description: Implement the contract. Cannot touch tests.
@@ -205,13 +259,17 @@ nodes:
     tools: [Read, Write, Edit, Grep, Glob, Bash]
     write_paths: ["service/src/main/**"]
     deny_paths: ["service/src/test/**", "service/pom.xml"]
-    depends_on: [design]
+    depends_on: [test-contract]
     worktree: implement
     effort: xhigh
     retry: {max_attempts: 3, backoff_seconds: 10}
     on_failure: retry
+    # Repairing an implementation to satisfy a test is the safe direction: the
+    # test is the specification, and this node cannot edit it.
+    repair_attempts: 2
     entry_gates:
-      - {check: contract_frozen, gate_class: mechanical}
+      - {check: contract_frozen, gate_class: mechanical,
+         artifacts: [design.json, test-contract.json]}
     exit_gates:
       - {check: maven_compiles, gate_class: mechanical}
       - {check: paths_confined, gate_class: mechanical}
@@ -219,19 +277,28 @@ nodes:
 
   - id: author-tests
     description: >
-      Author black-box HTTP/integration tests against the OpenAPI contract only.
-      Written blind: this node never sees the implementation.
+      Fill the frozen test skeleton with real assertions. Never sees the
+      implementation, and cannot write to it: a shared specification, with
+      separated authorship.
     prompt: author-tests.md
     tools: [Read, Write, Edit, Grep, Glob, Bash]
     write_paths: ["service/src/test/**"]
     deny_paths: ["service/src/main/**", "service/pom.xml"]
-    depends_on: [design]
+    depends_on: [test-contract]
     worktree: tests
     effort: high
+    # One attempt, against implement's two. Repairing a test to satisfy an
+    # implementation is the agent editing the thing that judges it, so it gets
+    # a single try and then a human looks.
+    repair_attempts: 1
     entry_gates:
-      - {check: contract_frozen, gate_class: mechanical}
+      - {check: contract_frozen, gate_class: mechanical,
+         artifacts: [design.json, test-contract.json]}
     exit_gates:
       - {check: tests_compile, gate_class: mechanical}
+      # The suite may grow across a repair; it may never shrink. Deleting,
+      # gutting, or disabling the failing test is the obvious way to go green.
+      - {check: tests_not_weakened, gate_class: mechanical}
       - {check: paths_confined, gate_class: mechanical}
 
   - id: join
@@ -247,14 +314,37 @@ nodes:
     description: The authoritative mechanical gate.
     type: deterministic          # no LLM call at all
     depends_on: [join]
-    on_failure: replan
+    # Ask which artifact is wrong before re-deriving everything. Replanning is
+    # still the fallback -- `triage` hands back to it when it cannot tell, or
+    # when the targeted repair does not take.
+    on_failure: triage
+    triage_node: triage
     replan_target: decompose
     replan_after_attempts: 2
     max_replans: 2
     exit_gates:
-      - {check: maven_verify, gate_class: mechanical}
+      # The integration suite starts real containers, so the ceiling is stated
+      # here with the rest of the policy rather than left to a default buried
+      # in the runner. A timeout reports as `exited 124` with no coverage
+      # report, which reads like a broken build; it is a clock.
+      - {check: maven_verify, gate_class: mechanical, timeout_seconds: 5400}
       - {check: coverage_floor, gate_class: mechanical, min_line_coverage: 0.70}
       - {check: routes_match_openapi, gate_class: mechanical}
+
+  - id: triage
+    description: >
+      Which artifact is actually wrong -- the implementation, the tests, or the
+      contract? Runs only when `verify` fails. Read-only, advisory, and it
+      decides where to spend the next attempt, never whether the run passes.
+    type: handler                # invoked by a failure, never by the scheduler
+    prompt: triage.md
+    tools: [Read, Grep, Glob, Bash]
+    write_paths: ["artifacts/**"]
+    output_schema: triage
+    effort: high
+    exit_gates:
+      - {check: schema_valid, gate_class: mechanical, artifact: triage.json}
+      - {check: paths_confined, gate_class: mechanical}
 
   # ---- documentation and review, in parallel ---------------------------
   #
