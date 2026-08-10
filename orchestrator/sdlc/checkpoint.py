@@ -101,15 +101,26 @@ class Git:
         node_id: str,
         attempt: int = 0,
         body: str = "",
+        exclude: tuple[str, ...] = (),
     ) -> str | None:
-        """Commit everything in the tree. Returns the sha, or None if nothing changed.
+        """Commit the node's work. Returns the sha, or None if nothing changed.
 
         The trailers are the point. They make the repository itself the
         provenance record: `git log --grep="Run-Id: run-42"` reconstructs
         exactly what that run touched, and it keeps working after the
         orchestrator's database is gone.
+
+        Which is exactly why `exclude` exists. Staging the whole tree attributes
+        everything sitting in it to the node -- including an operator's own
+        edits, made in a different terminal while the run was in flight. That
+        produced a commit here carrying `Node-Id: clarify` and a diff containing
+        changes to the orchestrator itself, which is precisely the claim the
+        trailer is supposed to make impossible. The run's forbidden paths are
+        passed in, so a node's checkpoint cannot contain anything the node was
+        never permitted to write.
         """
-        self._git("add", "--all")
+        pathspec = [f":(exclude,glob){pattern}" for pattern in exclude]
+        self._git("add", "--all", "--", ".", *pathspec)
         if not self._git("diff", "--cached", "--quiet", check=False).exit_code:
             return None  # nothing staged: the node changed nothing
 
@@ -166,6 +177,10 @@ class CheckpointManager:
     git: Git
     run_id: str
     worktree_root: Path
+    # Never staged into a node's checkpoint. Defaults to empty so a caller that
+    # does not care still gets the old behaviour; the engine passes the run's
+    # forbidden paths, which is where this matters.
+    exclude_paths: tuple[str, ...] = ()
     _worktrees: dict[str, Git] = field(default_factory=dict)
     # Held across worktree *creation*, not merely around the dict. See
     # `worktree()` -- the thing being protected is git's ref store, not this
@@ -193,7 +208,13 @@ class CheckpointManager:
         """
         subject = f"{node_id}: {summary}" if summary else f"checkpoint after {node_id}"
         git = self.worktree(worktree) if worktree else self.git
-        return git.commit(subject, run_id=self.run_id, node_id=node_id, attempt=attempt)
+        return git.commit(
+            subject,
+            run_id=self.run_id,
+            node_id=node_id,
+            attempt=attempt,
+            exclude=self.exclude_paths,
+        )
 
     def rollback(self, sha: str) -> None:
         self.git.reset_hard(sha)

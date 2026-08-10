@@ -100,6 +100,11 @@ def _engine(runs_root: Path, run_id: str, manifest: dict) -> Engine:
             git=Git(root=workspace),
             run_id=run_id,
             worktree_root=run_dir(runs_root, run_id) / "worktrees",
+            # A node's commit may not contain paths the node was forbidden to
+            # write. Without this, an operator editing the repository while a
+            # run is in flight has their work attributed to whichever node
+            # checkpoints next, under that node's trailers.
+            exclude_paths=pipeline.policy.forbidden_paths,
         ),
         workspace=workspace,
         prompts_root=Path(manifest["prompts"]),

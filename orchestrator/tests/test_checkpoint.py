@@ -88,6 +88,44 @@ class TestCheckpoints:
         found = repo._git("log", "--grep=Run-Id: run-1", "--format=%H").stdout.strip()
         assert found == repo.head()
 
+    def test_forbidden_paths_never_enter_a_nodes_commit(
+        self, repo: Git, tmp_path: Path
+    ) -> None:
+        """An operator editing the repo mid-run must not have their work
+        attributed to whichever node checkpoints next.
+
+        This is not hypothetical: it happened during the first live run, and
+        produced a commit trailed `Node-Id: clarify` whose diff touched the
+        orchestrator itself -- exactly the claim the trailer exists to make
+        impossible."""
+        manager = CheckpointManager(
+            git=repo,
+            run_id="run-1",
+            worktree_root=tmp_path / "worktrees",
+            exclude_paths=("orchestrator/**", ".git/**"),
+        )
+        write(repo, "service/src/main/java/A.java", "class A {}")
+        write(repo, "orchestrator/sdlc/gates.py", "# an operator's own edit")
+
+        manager.checkpoint("implement")
+        committed = repo._git("show", "--name-only", "--format=", "HEAD").stdout.split()
+        assert committed == ["service/src/main/java/A.java"]
+        assert repo.changed_paths() == ["orchestrator/sdlc/gates.py"]
+
+    def test_a_node_whose_only_change_was_excluded_creates_no_commit(
+        self, repo: Git, tmp_path: Path
+    ) -> None:
+        manager = CheckpointManager(
+            git=repo,
+            run_id="run-1",
+            worktree_root=tmp_path / "worktrees",
+            exclude_paths=("orchestrator/**",),
+        )
+        write(repo, "orchestrator/sdlc/gates.py", "# not the node's work")
+        before = repo.head()
+        assert manager.checkpoint("implement") is None
+        assert repo.head() == before
+
 
 class TestRollback:
     def test_rollback_discards_modifications(self, manager: CheckpointManager, repo: Git) -> None:
