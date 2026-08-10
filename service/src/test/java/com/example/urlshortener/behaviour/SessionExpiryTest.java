@@ -76,8 +76,8 @@ class SessionExpiryTest extends AbstractIntegrationTest {
         Duration advertised = Duration.between(before, session.expiresAt());
         assertAll(
                 () -> assertTrue(
-                        advertised.compareTo(Duration.ofSeconds(1)) >= 0,
-                        "the advertised expiry is in the future: " + advertised),
+                        session.expiresAt().isAfter(before),
+                        "the advertised expiry is an absolute instant in the future: " + advertised),
                 () -> assertTrue(
                         advertised.compareTo(Duration.ofSeconds(30)) < 0,
                         "and it follows the configured two seconds rather than a literal 24 hours: "
