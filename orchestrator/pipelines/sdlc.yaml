@@ -102,18 +102,69 @@ nodes:
       - {check: no_blocking_ambiguities, gate_class: self_report, artifact: clarification.json,
          on_fail: escalate}
 
+  # ---- understanding the ground before planning on it ------------------
+  #
+  # Both of these sit between `clarify` and `decompose`, and both run on every
+  # scenario rather than being switched on for the one they were added for.
+  # A node that decides "nothing is impacted" or "nothing is unknown" leaves an
+  # artifact a human can disagree with; a node that was configured not to run
+  # leaves nothing, and the absence is indistinguishable from a clean result.
+
+  - id: impact-analysis
+    description: >
+      Identify what existing behaviour this change touches: modules, services,
+      APIs, data flows, and what breaks if it is wrong. On greenfield work the
+      honest output is a near-empty impact set, explicitly stated.
+    prompt: impact-analysis.md
+    tools: [Read, Grep, Glob, Bash]
+    write_paths: ["artifacts/**"]
+    output_schema: impact
+    depends_on: [clarify]
+    effort: high
+    entry_gates:
+      - {check: artifact_present, gate_class: mechanical, path: "artifacts/clarification.json"}
+    exit_gates:
+      - {check: schema_valid, gate_class: mechanical, artifact: impact.json}
+      - {check: paths_confined, gate_class: mechanical}
+
+  - id: feasibility
+    description: >
+      Bounded exploration of what is still unknown. Produces questions,
+      evidence, and options -- never code. This is the node that serves the
+      ambiguous scenario, where the cheapest way to resolve a question is to go
+      and look rather than to guess in a design document.
+    prompt: feasibility.md
+    tools: [Read, Grep, Glob, Bash]
+    write_paths: ["artifacts/**"]
+    # A spike that leaves code behind is not a spike, it is an unreviewed
+    # implementation that skipped the contract. Enforced, not requested.
+    deny_paths: ["service/**", "docs/**"]
+    output_schema: feasibility
+    depends_on: [clarify, impact-analysis]
+    effort: high
+    exit_gates:
+      - {check: schema_valid, gate_class: mechanical, artifact: feasibility.json}
+      - {check: paths_confined, gate_class: mechanical}
+
   - id: decompose
     description: Convert the clarified requirement into a task DAG with dependencies.
     prompt: decompose.md
     tools: [Read, Write, Grep, Glob]
     write_paths: ["artifacts/**"]
     output_schema: plan
-    depends_on: [clarify]
+    # `clarify` is already an ancestor via both analysis nodes. The edge is
+    # declared anyway because the engine passes an upstream artifact as context
+    # only along a direct edge, and the plan is derived from all three.
+    depends_on: [clarify, impact-analysis, feasibility]
     entry_gates:
       - {check: no_unresolved_ambiguities, gate_class: mechanical}
     exit_gates:
       - {check: schema_valid, gate_class: mechanical, artifact: plan.json}
       - {check: plan_is_dag, gate_class: mechanical, artifact: plan.json}
+      # Nothing downstream measures the work against the requirement -- every
+      # later check measures it against this plan. A criterion dropped here is
+      # dropped silently and permanently.
+      - {check: criteria_covered, gate_class: mechanical, artifact: plan.json}
 
   - id: design
     description: >
@@ -199,32 +250,151 @@ nodes:
       - {check: coverage_floor, gate_class: mechanical, min_line_coverage: 0.70}
       - {check: routes_match_openapi, gate_class: mechanical}
 
+  # ---- documentation and review, in parallel ---------------------------
+  #
+  # Everything below depends only on `verify`, so it all runs at once. Two
+  # different kinds of parallelism are in play here and they are worth telling
+  # apart, because only one of them is a governance argument:
+  #
+  #   * `docs` alongside the reviewers buys **wall-clock**. Review does not read
+  #     the documentation, so the old edge from `docs` to `review` was ordering
+  #     without a reason, and paid for on every run.
+  #
+  #   * The five review lenses buy **independence**. One reviewer asked for
+  #     everything produces one reviewer's blind spot; five reviewers with
+  #     narrow, disjoint briefs cannot agree to overlook the same thing,
+  #     because none of them is looking at the same thing. Diversity of
+  #     perspective is the control. That it is also faster is incidental.
+  #
+  # Each writing node gets its own worktree -- required by the loader for
+  # concurrent writers, and the reason a lens cannot see (or be blamed for)
+  # another lens's diff.
+
   - id: docs
     description: Generate user-facing documentation from the contract and code.
     prompt: docs.md
     tools: [Read, Write, Edit, Grep, Glob]
     write_paths: ["docs/**", "README.md"]
     depends_on: [verify]
+    worktree: docs
     effort: medium
     on_failure: fallback          # degrade to `propose`; a human applies the diff
     exit_gates:
       - {check: paths_confined, gate_class: mechanical}
       - {check: links_resolve, gate_class: mechanical}
 
-  - id: review
+  # The five lenses. Identical shape, disjoint briefs, no shared state. Each is
+  # read-only over the code: the artifact is written by the orchestrator from
+  # the node's structured output, so none of them needs a Write tool.
+
+  - id: review-security
+    description: Security review. Advisory; findings are preserved and adjudicated downstream.
+    prompt: review-security.md
+    tools: [Read, Grep, Glob, Bash]
+    write_paths: ["artifacts/**"]
+    output_schema: review-security
+    depends_on: [verify]
+    worktree: review-security
+    effort: xhigh
+    exit_gates:
+      - {check: schema_valid, gate_class: mechanical, artifact: review-security.json}
+      - {check: paths_confined, gate_class: mechanical}
+
+  - id: review-performance
+    description: Performance, resource, and scalability review.
+    prompt: review-performance.md
+    tools: [Read, Grep, Glob, Bash]
+    write_paths: ["artifacts/**"]
+    output_schema: review-performance
+    depends_on: [verify]
+    worktree: review-performance
+    effort: high
+    exit_gates:
+      - {check: schema_valid, gate_class: mechanical, artifact: review-performance.json}
+      - {check: paths_confined, gate_class: mechanical}
+
+  - id: review-api-contract
+    description: Conformance of the implementation to the frozen OpenAPI contract.
+    prompt: review-api-contract.md
+    tools: [Read, Grep, Glob, Bash]
+    write_paths: ["artifacts/**"]
+    output_schema: review-api-contract
+    depends_on: [verify]
+    worktree: review-api-contract
+    effort: high
+    exit_gates:
+      - {check: schema_valid, gate_class: mechanical, artifact: review-api-contract.json}
+      - {check: paths_confined, gate_class: mechanical}
+
+  - id: review-test-adequacy
     description: >
-      Adversarial review. ADVISORY ONLY -- cannot fail the run (ADR-001).
-      Deterministic static analysis gates; LLM blocker findings escalate.
-    prompt: review.md
+      Do the tests actually pin the new behaviour? Coverage percentage cannot
+      answer this; reading the assertions can.
+    prompt: review-test-adequacy.md
+    tools: [Read, Grep, Glob, Bash]
+    write_paths: ["artifacts/**"]
+    output_schema: review-test-adequacy
+    depends_on: [verify]
+    worktree: review-test-adequacy
+    effort: xhigh
+    exit_gates:
+      - {check: schema_valid, gate_class: mechanical, artifact: review-test-adequacy.json}
+      - {check: paths_confined, gate_class: mechanical}
+
+  - id: review-cleanliness
+    description: Readability, structure, and consistency with the surrounding code.
+    prompt: review-cleanliness.md
+    tools: [Read, Grep, Glob, Bash]
+    write_paths: ["artifacts/**"]
+    output_schema: review-cleanliness
+    depends_on: [verify]
+    worktree: review-cleanliness
+    effort: medium
+    exit_gates:
+      - {check: schema_valid, gate_class: mechanical, artifact: review-cleanliness.json}
+      - {check: paths_confined, gate_class: mechanical}
+
+  - id: review-join
+    description: Merge the documentation and review branches back into the workspace.
+    type: barrier
+    depends_on:
+      - docs
+      - review-security
+      - review-performance
+      - review-api-contract
+      - review-test-adequacy
+      - review-cleanliness
+    exit_gates:
+      - {check: merge_clean, gate_class: mechanical, on_fail: escalate}
+
+  - id: review-synthesis
+    description: >
+      Fold five independent reviews into one decision brief. ADVISORY ONLY --
+      cannot fail the run (ADR-001). May cluster and rank; may not drop or
+      soften, which is checked mechanically rather than trusted.
+    prompt: review-synthesis.md
     tools: [Read, Grep, Glob, Bash]
     write_paths: ["artifacts/**"]
     output_schema: review
-    depends_on: [docs]
+    # The barrier supplies the merged tree; the direct edges to each lens
+    # supply their artifacts as explicit upstream context.
+    depends_on:
+      - review-join
+      - review-security
+      - review-performance
+      - review-api-contract
+      - review-test-adequacy
+      - review-cleanliness
     effort: xhigh
     exit_gates:
+      - {check: schema_valid, gate_class: mechanical, artifact: review.json}
+      # The control that makes the fan-out mean something: a join that can
+      # silently drop a lens's blocker is a join that undoes the fan-out.
+      - {check: lens_findings_preserved, gate_class: mechanical, artifact: review.json}
       - {check: static_analysis, gate_class: mechanical, max_severity: high}
       - {check: blocker_findings_escalate, gate_class: self_report, artifact: review.json,
          on_fail: escalate}
+      - {check: paths_confined, gate_class: mechanical}
 
   - id: release-readiness
     description: Final human sign-off before anything leaves the machine.
@@ -232,7 +402,7 @@ nodes:
     tools: [Read, Grep, Glob, Bash]
     write_paths: ["artifacts/**"]
     output_schema: release
-    depends_on: [review]
+    depends_on: [review-synthesis]
     autonomy: propose
     effort: medium
     exit_gates:

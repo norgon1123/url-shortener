@@ -150,6 +150,161 @@ DESIGN: dict[str, Any] = {
 }
 
 
+IMPACT: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    # `impacted` is not required to be non-empty: on greenfield work the honest
+    # answer is that nothing existing is touched, and a node forced to invent an
+    # impact would be worse than one allowed to say so. `scenario` is required
+    # precisely so that "nothing impacted" is a claim someone made rather than
+    # an empty section nobody noticed.
+    "required": ["scenario", "impacted", "blast_radius"],
+    "properties": {
+        "scenario": {"enum": ["greenfield", "brownfield"]},
+        "impacted": _array_of(
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["path", "kind", "change", "risk"],
+                "properties": {
+                    "path": _STR,
+                    "kind": {
+                        "enum": ["module", "service", "api", "data_flow", "schema", "config"]
+                    },
+                    "change": {"enum": ["added", "modified", "removed", "behaviour_only"]},
+                    "risk": {"enum": ["high", "medium", "low"]},
+                    "notes": _STR,
+                },
+            }
+        ),
+        # The compatibility question a brownfield change lives or dies on, and
+        # the one a greenfield-shaped pipeline never thinks to ask.
+        "breaking_changes": _array_of(
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["surface", "detail", "mitigation"],
+                "properties": {"surface": _STR, "detail": _STR, "mitigation": _STR},
+            }
+        ),
+        "blast_radius": _STR,
+        "regression_surface": _array_of(_STR),
+    },
+}
+
+
+FEASIBILITY: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    # The output of a spike is questions and evidence, never code. `verdict` is
+    # the only place it is allowed to be decisive, and even that routes to a
+    # human via the design gate downstream.
+    "required": ["verdict", "unknowns", "evidence"],
+    "properties": {
+        "verdict": {"enum": ["feasible", "feasible_with_risk", "blocked"]},
+        "unknowns": _array_of(
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["id", "question", "why_it_matters", "how_to_settle"],
+                "properties": {
+                    "id": _STR,
+                    "question": _STR,
+                    "why_it_matters": _STR,
+                    "how_to_settle": _STR,
+                    "current_best_answer": _STR,
+                },
+            }
+        ),
+        "evidence": _array_of(
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["claim", "source"],
+                "properties": {
+                    "claim": _STR,
+                    # A file, a command and its output, a spec section. A claim
+                    # with no source is an opinion, and this node exists to
+                    # replace opinions with checked facts.
+                    "source": _STR,
+                },
+            },
+            minItems=1,
+        ),
+        "options": _array_of(
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["summary", "cost", "risk"],
+                "properties": {
+                    "summary": _STR,
+                    "cost": {"enum": ["low", "medium", "high"]},
+                    "risk": {"enum": ["low", "medium", "high"]},
+                    "recommended": {"type": "boolean"},
+                },
+            }
+        ),
+    },
+}
+
+
+# --------------------------------------------------------------------------
+# Review lenses
+# --------------------------------------------------------------------------
+#
+# Five independent reviewers, one shape. Each gets its own schema instance so
+# the `lens` field is a constant the gate can rely on and a misfiled artifact
+# is a schema error rather than a silent mix-up.
+#
+# Finding ids are namespaced per lens by pattern. That is not cosmetic: the
+# synthesis node downstream is checked mechanically for having preserved every
+# lens finding, and a check keyed on ids cannot work if two lenses can both
+# emit "F1".
+
+LENSES: dict[str, str] = {
+    "review-security": "SEC",
+    "review-performance": "PERF",
+    "review-api-contract": "API",
+    "review-test-adequacy": "TEST",
+    "review-cleanliness": "CLEAN",
+}
+
+
+def _lens_schema(lens: str, prefix: str) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["lens", "findings", "summary", "not_examined"],
+        "properties": {
+            "lens": {"const": lens},
+            "findings": _array_of(
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["id", "severity", "confidence", "file", "summary"],
+                    "properties": {
+                        "id": {"type": "string", "pattern": rf"^{prefix}-[0-9]+$"},
+                        "severity": {"enum": list(SEVERITIES)},
+                        # Severity and confidence are separate axes on purpose.
+                        # Collapsing them is how a reviewer ends up suppressing
+                        # a serious finding it is merely unsure about.
+                        "confidence": {"enum": ["high", "medium", "low"]},
+                        "file": _STR,
+                        "line": {"type": "integer"},
+                        "summary": _STR,
+                        "suggestion": _STR,
+                    },
+                }
+            ),
+            "summary": _STR,
+            # What this lens did *not* look at. Recall is impossible to assess
+            # from a list of hits alone, and the human at the release gate is
+            # entitled to know where nobody looked.
+            "not_examined": _array_of(_STR),
+        },
+    }
+
+
 REVIEW: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -159,18 +314,26 @@ REVIEW: dict[str, Any] = {
             {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["id", "severity", "file", "summary"],
+                "required": ["id", "lens", "severity", "file", "summary"],
                 "properties": {
                     "id": _STR,
+                    "lens": {"enum": sorted(LENSES)},
                     "severity": {"enum": list(SEVERITIES)},
+                    "confidence": {"enum": ["high", "medium", "low"]},
                     "file": _STR,
                     "line": {"type": "integer"},
                     "summary": _STR,
                     "suggestion": _STR,
+                    # Two lenses reaching the same defect from different angles
+                    # is a signal, not noise. Merging is allowed; dropping is
+                    # not, and `lens_findings_preserved` reads this field to
+                    # tell the two apart.
+                    "merged_ids": _array_of(_STR),
                 },
             }
         ),
         "summary": _STR,
+        "top_risks": _array_of(_STR),
     },
 }
 
@@ -188,7 +351,12 @@ RELEASE: dict[str, Any] = {
                 "required": ["item", "status"],
                 "properties": {
                     "item": _STR,
-                    "status": {"enum": ["pass", "fail", "n/a"]},
+                    # `unknown` exists so that an item nobody could substantiate
+                    # has somewhere to go other than `pass`. Without it the
+                    # schema quietly forces a claim, and the one place this
+                    # document has to be trustworthy is the place a reviewer
+                    # stops reading it.
+                    "status": {"enum": ["pass", "fail", "n/a", "unknown"]},
                     "evidence": _STR,
                 },
             },
@@ -202,10 +370,13 @@ RELEASE: dict[str, Any] = {
 REGISTRY: dict[str, dict[str, Any]] = {
     "requirement": REQUIREMENT,
     "clarification": CLARIFICATION,
+    "impact": IMPACT,
+    "feasibility": FEASIBILITY,
     "plan": PLAN,
     "design": DESIGN,
     "review": REVIEW,
     "release": RELEASE,
+    **{lens: _lens_schema(lens, prefix) for lens, prefix in LENSES.items()},
 }
 
 

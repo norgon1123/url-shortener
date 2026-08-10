@@ -9,12 +9,15 @@ discard exactly the property being claimed.
 from __future__ import annotations
 
 import itertools
+import threading
+import time
 from pathlib import Path
 
 import pytest
 
 from sdlc.budget import BreachKind, BudgetGuard
 from sdlc.checkpoint import CheckpointManager, Git, GitError
+from sdlc.gates import subprocess_runner
 from sdlc.model import Budget
 
 
@@ -153,6 +156,43 @@ class TestWorktreeIsolation:
         assert merged == ["implement"]
         assert conflicts == ["shared.txt"]
         assert repo.is_clean()  # merge aborted, nothing half-applied
+
+    def test_concurrent_first_access_creates_the_worktree_once(
+        self, repo: Git, tmp_path: Path
+    ) -> None:
+        """Worktree creation is what the fan-out hits first, from every thread at once.
+
+        The engine's ready-set runs a whole level concurrently, and the first
+        thing each node does is ask for its checkout. Two threads that both find
+        the name absent both run `git worktree add`; the loser gets a GitError
+        for a branch that now exists, and a node dies for no reason anyone can
+        see in the journal.
+        """
+        seen: list[list[str]] = []
+
+        def slow_runner(argv: list[str], cwd: Path, timeout: float = 1800.0):
+            if argv[:3] == ["git", "worktree", "add"]:
+                seen.append(argv)
+                time.sleep(0.05)  # hold the door open for the other thread
+            return subprocess_runner(argv, cwd, timeout)
+
+        manager = CheckpointManager(
+            git=Git(root=repo.root, run=slow_runner),
+            run_id="run-1",
+            worktree_root=tmp_path / "worktrees",
+        )
+        roots: list[Path] = []
+        threads = [
+            threading.Thread(target=lambda: roots.append(manager.worktree("shared").root))
+            for _ in range(4)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert len(seen) == 1, f"raced: {len(seen)} concurrent `git worktree add` calls"
+        assert len(roots) == 4 and len(set(roots)) == 1
 
     def test_cleanup_removes_the_worktrees(self, manager: CheckpointManager) -> None:
         path = manager.worktree("implement").root

@@ -145,7 +145,38 @@ class GateContext:
         return json.loads(self.resolve_artifact(name).read_text(encoding="utf-8"))
 
     def files_written(self) -> tuple[str, ...]:
-        return self.result.files_written if self.result else ()
+        """What the node changed -- from the worktree first, its own account second.
+
+        The two sources are unioned rather than one chosen, because they fail in
+        opposite directions. The backend's `files_written` is a self-report: a
+        node that wrote through a `Bash` heredoc, a session that crashed before
+        it could account for itself, or simply a backend with a bug, all under-
+        report. Git does not care what the node says it did. Conversely git has
+        nothing to say when the workspace is not a repository, or when an
+        earlier attempt already committed the file, and there the self-report is
+        the only witness left.
+
+        Weaker evidence is still evidence. Taking the union means a path has to
+        be invisible to *both* to escape the check.
+        """
+        reported = self.result.files_written if self.result else ()
+        # dict.fromkeys rather than a set: the order is what a failing gate
+        # reports back to the agent, and a stable one diffs cleanly in the
+        # journal.
+        return tuple(dict.fromkeys([*self._diffed_paths(), *reported]))
+
+    def _diffed_paths(self) -> list[str]:
+        """The worktree diff, or nothing if this workspace cannot supply one.
+
+        Imported inside the function because `checkpoint` imports the command
+        runner from this module; at module scope the two would be a cycle.
+        """
+        from .checkpoint import Git
+
+        try:
+            return Git(root=self.workspace, run=self.run).changed_paths()
+        except Exception:  # noqa: BLE001 -- not a repository, or git is absent
+            return []
 
     def maven(self, *goals: str) -> CommandResult:
         """Prefer the wrapper so the build uses the pinned Maven version."""
@@ -289,7 +320,9 @@ def _paths_confined(ctx: GateContext, params: dict[str, Any]) -> GateResult:
     The Agent SDK permission callback already refuses these writes live, so in
     the normal case this passes trivially. It exists because the callback only
     sees tool calls: a `Bash` heredoc writes files without ever invoking Write.
-    This layer sees the diff, so it cannot be sidestepped that way.
+    This layer diffs the worktree itself (`GateContext.files_written`), so it
+    cannot be sidestepped that way -- and, importantly, it does not depend on
+    the node or its backend reporting the write honestly.
     """
     written = ctx.files_written()
     violations, protected = ctx.policy.classify_diff(list(written))
@@ -504,6 +537,64 @@ def _plan_is_dag(ctx: GateContext, params: dict[str, Any]) -> GateResult:
         return _result(ctx, "plan_is_dag", _MECH, _FAIL, "; ".join(problems[:5]))
     return _result(
         ctx, "plan_is_dag", _MECH, _PASS, f"{len(tasks)} task(s) form a valid DAG"
+    )
+
+
+@check("criteria_covered")
+def _criteria_covered(ctx: GateContext, params: dict[str, Any]) -> GateResult:
+    """Every acceptance criterion must be claimed by at least one task.
+
+    An uncovered criterion is the quietest failure in the whole pipeline. The
+    plan is a valid DAG, the tasks all complete, the build is green, the tests
+    pass -- and a thing the requirement asked for was simply never built. There
+    is nothing downstream to catch it, because every downstream check measures
+    the work against the plan rather than against the requirement.
+
+    Cheap to check here and expensive to notice later, which is the argument
+    for every mechanical gate in this file.
+    """
+    plan_name = params.get("artifact", "plan.json")
+    req_name = params.get("requirement", "requirement.json")
+    try:
+        plan = ctx.read_json(plan_name)
+        requirement = ctx.read_json(req_name)
+    except (OSError, json.JSONDecodeError) as exc:
+        return _result(ctx, "criteria_covered", _MECH, _FAIL, str(exc))
+
+    required = [
+        c.get("id") for c in (requirement.get("acceptance_criteria") or []) if c.get("id")
+    ]
+    claimed: set[str] = set()
+    for task in plan.get("tasks") or []:
+        claimed.update(task.get("acceptance_criteria_ids") or [])
+
+    uncovered = [cid for cid in required if cid not in claimed]
+    # A reference to a criterion that does not exist is usually a typo, and a
+    # typo here silently uncovers the criterion it meant to claim.
+    unknown = sorted(claimed - set(required))
+
+    if uncovered or unknown:
+        detail = []
+        if uncovered:
+            detail.append(f"{len(uncovered)} uncovered criterion/a: {', '.join(uncovered)}")
+        if unknown:
+            detail.append(f"plan references unknown criterion/a: {', '.join(unknown)}")
+        return _result(
+            ctx,
+            "criteria_covered",
+            _MECH,
+            _FAIL,
+            "; ".join(detail),
+            uncovered=uncovered,
+            unknown=unknown,
+        )
+    return _result(
+        ctx,
+        "criteria_covered",
+        _MECH,
+        _PASS,
+        f"all {len(required)} acceptance criterion/a covered by the plan",
+        criteria=len(required),
     )
 
 
@@ -1016,6 +1107,99 @@ def _blocker_findings_escalate(ctx: GateContext, params: dict[str, Any]) -> Gate
         _PASS,
         f"{len(findings)} advisory finding(s), no blockers",
         total_findings=len(findings),
+    )
+
+
+_FINDING_RANK = {name: rank for rank, name in enumerate(reversed(schemas.SEVERITIES))}
+
+
+@check("lens_findings_preserved")
+def _lens_findings_preserved(ctx: GateContext, params: dict[str, Any]) -> GateResult:
+    """Fanning review out is only worth it if the join cannot undo it.
+
+    Five independent lenses exist so that no single reviewer's blind spot
+    decides what ships. Funnelling them back through one model to be summarised
+    hands that power straight back: a synthesis node that drops an
+    inconvenient finding has silently restored the single point of control the
+    fan-out was built to remove, and it would look exactly like a tidy summary.
+
+    So the synthesis node is allowed to cluster, rank, and de-duplicate -- all
+    of which are judgement, and all of which are why it is a model and not a
+    `list(chain(*lenses))`. It is not allowed to lose anything or to soften it.
+    A finding may be folded into another by naming it in `merged_ids`, and the
+    finding that absorbs it must carry at least the severity of everything it
+    absorbed.
+
+    Mechanical, despite reading two model-written documents: the lens artifacts
+    are fixed and already gated by the time this runs, so the predicate is a
+    diff between two records rather than a model's opinion of its own work.
+    """
+    target = params.get("artifact", "review.json")
+    lens_names = list(params.get("lenses") or sorted(schemas.LENSES))
+    try:
+        review = ctx.read_json(target)
+    except (OSError, json.JSONDecodeError) as exc:
+        return _result(ctx, "lens_findings_preserved", _MECH, _FAIL, f"{target}: {exc}")
+
+    # id -> the strongest severity the synthesis carries it at.
+    carried: dict[str, str] = {}
+    for finding in review.get("findings") or []:
+        severity = str(finding.get("severity", "nit"))
+        for fid in (finding.get("id"), *(finding.get("merged_ids") or ())):
+            if not fid:
+                continue
+            if fid not in carried or _FINDING_RANK.get(
+                severity, 0
+            ) > _FINDING_RANK.get(carried[fid], 0):
+                carried[fid] = severity
+
+    missing: list[str] = []
+    downgraded: list[str] = []
+    total = 0
+    for lens in lens_names:
+        try:
+            data = ctx.read_json(f"{lens}.json")
+        except (OSError, json.JSONDecodeError) as exc:
+            return _result(
+                ctx,
+                "lens_findings_preserved",
+                _MECH,
+                _FAIL,
+                f"cannot verify the join: lens artifact {lens}.json unreadable: {exc}",
+            )
+        for finding in data.get("findings") or []:
+            total += 1
+            fid, severity = finding.get("id"), str(finding.get("severity", "nit"))
+            if fid not in carried:
+                missing.append(f"{fid} ({lens}, {severity})")
+            elif _FINDING_RANK.get(carried[fid], 0) < _FINDING_RANK.get(severity, 0):
+                downgraded.append(f"{fid}: {severity} -> {carried[fid]}")
+
+    if missing or downgraded:
+        detail = []
+        if missing:
+            detail.append(f"{len(missing)} finding(s) dropped: " + ", ".join(missing[:5]))
+        if downgraded:
+            detail.append(
+                f"{len(downgraded)} finding(s) downgraded: " + ", ".join(downgraded[:5])
+            )
+        return _result(
+            ctx,
+            "lens_findings_preserved",
+            _MECH,
+            _FAIL,
+            "; ".join(detail),
+            missing=missing,
+            downgraded=downgraded,
+            lens_findings=total,
+        )
+    return _result(
+        ctx,
+        "lens_findings_preserved",
+        _MECH,
+        _PASS,
+        f"all {total} lens finding(s) preserved across {len(lens_names)} lens(es)",
+        lens_findings=total,
     )
 
 

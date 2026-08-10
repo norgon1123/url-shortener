@@ -6,6 +6,15 @@ pipeline and the only one whose output a human approves before any code exists.
 Read `artifacts/plan.json`, `artifacts/requirement.json`, and
 `artifacts/clarification.json`, plus the existing service.
 
+Read `artifacts/impact.json` and `artifacts/feasibility.json` as well. They are
+the difference between designing for an empty repository and designing for the
+one that exists: the first lists what already depends on the behaviour you are
+about to change and what constitutes a breaking change; the second lists what
+was actually checked, with sources, and what is still unknown. Prefer its
+evidence to your own recollection of how this codebase works, and do not design
+past an unknown it marked `blocked` without saying in `rationale` which reading
+you took and why.
+
 ## Why "frozen"
 
 Immediately after you finish, two nodes run **in parallel and in isolation**:

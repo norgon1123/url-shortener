@@ -41,13 +41,25 @@ class TestRealPipeline:
     def test_loads(self) -> None:
         p = load_pipeline(REAL_PIPELINE)
         assert p.version == 1
-        assert len(p.nodes) == 11
+        assert len(p.nodes) == 19
 
-    def test_implement_and_tests_run_concurrently(self) -> None:
+    def test_both_fan_outs_fall_out_of_the_graph(self) -> None:
         # The §4.4 parallel-path requirement. This must fall out of the graph,
-        # not out of a hardcoded branch in the scheduler.
+        # not out of a hardcoded branch in the scheduler -- which is why adding
+        # the review fan-out needed no engine change at all.
+        #
+        # The two buy different things: the first buys segregation of duties,
+        # the second buys independence of judgement. Neither is about speed.
         assert parallel_groups(load_pipeline(REAL_PIPELINE)) == [
-            ("author-tests", "implement")
+            ("author-tests", "implement"),
+            (
+                "docs",
+                "review-api-contract",
+                "review-cleanliness",
+                "review-performance",
+                "review-security",
+                "review-test-adequacy",
+            ),
         ]
 
     def test_segregation_of_duties(self) -> None:
@@ -80,7 +92,7 @@ class TestRealPipeline:
         """ADR-001: review is advisory; its model-driven gate escalates."""
         from sdlc.model import GateOutcome
 
-        review = load_pipeline(REAL_PIPELINE).node("review")
+        review = load_pipeline(REAL_PIPELINE).node("review-synthesis")
         self_report = [
             g for g in review.exit_gates if g.gate_class is GateClass.SELF_REPORT
         ]
@@ -96,8 +108,49 @@ class TestRealPipeline:
         p = load_pipeline(REAL_PIPELINE)
         assert {n.id for n in p.nodes if n.has_self_report_gate} == {
             "clarify",
-            "review",
+            "review-synthesis",
         }
+
+    def test_review_is_fanned_out_into_independent_lenses(self) -> None:
+        """Five briefs, no shared state: none of them can see another's findings."""
+        p = load_pipeline(REAL_PIPELINE)
+        lenses = [n for n in p.nodes if n.id.startswith("review-") and n.output_schema]
+        lenses = [n for n in lenses if n.id != "review-synthesis"]
+        assert {n.id for n in lenses} == {
+            "review-security",
+            "review-performance",
+            "review-api-contract",
+            "review-test-adequacy",
+            "review-cleanliness",
+        }
+        # Each depends only on verify -- not on each other, and not on docs.
+        assert all(n.depends_on == ("verify",) for n in lenses)
+        # Distinct worktrees: a lens cannot see, or be blamed for, another's diff.
+        assert len({n.worktree for n in lenses}) == len(lenses)
+
+    def test_docs_and_review_are_no_longer_serialised(self) -> None:
+        """The old docs -> review edge was ordering with no stated reason."""
+        p = load_pipeline(REAL_PIPELINE)
+        assert p.node("docs").depends_on == ("verify",)
+        level = next(lvl for lvl in schedule(p) if "docs" in lvl)
+        assert "review-security" in level  # same ready set, genuinely concurrent
+
+    def test_the_join_cannot_silently_drop_a_lens_finding(self) -> None:
+        """Without this gate the synthesis node undoes the fan-out."""
+        checks = {g.check for g in load_pipeline(REAL_PIPELINE).node("review-synthesis").exit_gates}
+        assert "lens_findings_preserved" in checks
+
+    def test_analysis_nodes_precede_planning(self) -> None:
+        """§4.3 codebase reasoning has to happen before the plan, not after it."""
+        p = load_pipeline(REAL_PIPELINE)
+        assert p.node("impact-analysis").depends_on == ("clarify",)
+        assert "impact-analysis" in p.node("feasibility").depends_on
+        assert {"impact-analysis", "feasibility"} <= set(p.node("decompose").depends_on)
+
+    def test_the_spike_cannot_leave_code_behind(self) -> None:
+        feasibility = load_pipeline(REAL_PIPELINE).node("feasibility")
+        assert any("service" in d for d in feasibility.deny_paths)
+        assert feasibility.write_paths == ("artifacts/**",)
 
     def test_sandbox_egress_is_restricted(self) -> None:
         """Not a best-effort deny-list -- a real allowlist handed to the SDK."""
@@ -144,6 +197,67 @@ class TestValidation:
             """,
         )
         with pytest.raises(PipelineError, match="cycle"):
+            load_pipeline(path)
+
+    def test_rejects_concurrent_writers_sharing_a_checkout(self, tmp_path: Path) -> None:
+        """Adding a second reviewer to a level is a one-line edit. Make it safe.
+
+        Two writing nodes on one level share a git index, so their commits race,
+        each one's diff check sees the other's files, and the checkpoint
+        trailers stop being true. All three failures are silent.
+        """
+        path = write_pipeline(
+            tmp_path,
+            """
+            version: 1
+            nodes:
+              - {id: a, prompt: p.md, write_paths: ["artifacts/**"]}
+              - {id: b, prompt: p.md, write_paths: ["docs/**"]}
+            """,
+        )
+        with pytest.raises(PipelineError, match="declare no 'worktree'"):
+            load_pipeline(path)
+
+    def test_rejects_concurrent_writers_sharing_a_worktree_name(
+        self, tmp_path: Path
+    ) -> None:
+        path = write_pipeline(
+            tmp_path,
+            """
+            version: 1
+            nodes:
+              - {id: a, prompt: p.md, write_paths: ["artifacts/**"], worktree: shared}
+              - {id: b, prompt: p.md, write_paths: ["docs/**"], worktree: shared}
+              - {id: j, type: barrier, depends_on: [a, b]}
+            """,
+        )
+        with pytest.raises(PipelineError, match="share worktree"):
+            load_pipeline(path)
+
+    def test_a_read_only_node_may_share_a_level(self, tmp_path: Path) -> None:
+        """The rule is about writers. A node that changes nothing cannot collide."""
+        path = write_pipeline(
+            tmp_path,
+            """
+            version: 1
+            nodes:
+              - {id: a, prompt: p.md, write_paths: ["artifacts/**"]}
+              - {id: b, prompt: p.md}
+            """,
+        )
+        load_pipeline(path)  # no raise
+
+    def test_rejects_a_worktree_no_barrier_ever_merges(self, tmp_path: Path) -> None:
+        """Work committed to a branch nothing merges is work that never happened."""
+        path = write_pipeline(
+            tmp_path,
+            """
+            version: 1
+            nodes:
+              - {id: a, prompt: p.md, write_paths: ["artifacts/**"], worktree: solo}
+            """,
+        )
+        with pytest.raises(PipelineError, match="not a direct dependency of any barrier"):
             load_pipeline(path)
 
     def test_rejects_unknown_dependency(self, tmp_path: Path) -> None:

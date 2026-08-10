@@ -29,13 +29,13 @@ The plan allocates effort accordingly.
 ## 2. Governing thesis — the gate taxonomy (ADR-001)
 
 The absolutist claim "the LLM is never the gate" is falsifiable at two nodes
-(`clarify` and `review`) and hands a reviewer an easy counterexample. The
+(`clarify` and `review-synthesis`) and hands a reviewer an easy counterexample. The
 taxonomy is the defensible version:
 
 | Gate class | Mechanism | Examples |
 |---|---|---|
 | **Mechanical** | Fully deterministic: process exit codes and thresholds | compile, `mvn verify`, JaCoCo floor, OpenAPI/route diff, secret scan, SpotBugs severity tiers |
-| **Structured self-report** | Schema/threshold check on a field the LLM itself emitted — *always* backstopped by a downstream human checkpoint | `clarify` ambiguity count, `review` findings |
+| **Structured self-report** | Schema/threshold check on a field the LLM itself emitted — *always* backstopped by a downstream human checkpoint | `clarify` ambiguity count, `review-synthesis` findings |
 | **Human** | Explicit approval, persisted with the approver's note | frozen-contract approval, release readiness, any high-impact action |
 
 > **The LLM never approves — it can only satisfy a checkable predicate or escalate.**
@@ -47,6 +47,12 @@ Two consequences, both of which resolve real contradictions:
   the predicate the LLM populated.
 - `review` is **advisory and cannot auto-fail**. Deterministic static analysis
   gates the run; LLM findings tagged `blocker` force `PENDING_APPROVAL`.
+- Review is **fanned out into five independent lenses** (security, performance,
+  API contract, test adequacy, cleanliness), each with its own prompt, worktree,
+  and artifact, rejoined at a barrier. The synthesis node that folds them
+  together may cluster and rank but is checked mechanically
+  (`lens_findings_preserved`) for having dropped or softened nothing — otherwise
+  the join quietly restores the single point of control the fan-out removed.
 
 This is enforced structurally, not documented aspirationally: `graph.validate()`
 rejects any pipeline in which a `self_report` gate has no human gate downstream
@@ -154,9 +160,17 @@ gates) → HTML report (terminal/markdown table first) → service extras
 ### 6.1 DAG
 
 ```
-intake → clarify → decompose → design ─┬→ implement ────┐
-                                       └→ author-tests ─┴→ (join) → verify → docs → review → release-readiness
+intake → clarify → impact-analysis → feasibility → decompose → design ─┬→ implement ────┐
+                                                                     └→ author-tests ─┴→ (join) → verify ─┬→ docs ───────────────┐
+                                                                                                          ├→ review-security ────┤
+                                                                                                          ├→ review-performance ─┤
+                                                                                                          ├→ review-api-contract ┼→ (review-join) → review-synthesis → release-readiness
+                                                                                                          ├→ review-test-adequacy┤
+                                                                                                          └→ review-cleanliness ─┘
 ```
+
+19 nodes: 16 agent, 2 barrier (`join`, `review-join`), 1 deterministic
+(`verify`, no LLM call at all).
 
 Each node declares `prompt`, `tools`, `write_paths`, `deny_paths`,
 `output_schema`, `entry_gates`, `exit_gates`, `retry`, `autonomy`, `on_failure`.
@@ -196,8 +210,13 @@ cyclic-with-bounds, not linear chaining.
 | `author-tests` | frozen contract intact | tests compile ∧ writes confined to `src/test/**` | mechanical |
 | *(join)* | both branches checkpointed | merge clean; conflict → human | mechanical + human |
 | `verify` | join complete | `mvn verify` == 0 ∧ JaCoCo line ≥ 70% ∧ routes match OpenAPI | mechanical |
+| `impact-analysis` | `clarification.json` exists | `impact.json` validates ∧ writes confined | mechanical |
+| `feasibility` | — | `feasibility.json` validates ∧ **no writes to `service/**`** | mechanical |
+| `decompose` (cont.) | — | every acceptance criterion claimed by a task | mechanical |
 | `docs` | verify green | writes confined to `docs/**` ∧ README links resolve | mechanical |
-| `review` | docs complete | SpotBugs ≤ severity tier; LLM `blocker` findings → `PENDING_APPROVAL` (**never auto-fail**) | mechanical + human |
+| `review-{security,performance,api-contract,test-adequacy,cleanliness}` | verify green | lens artifact validates ∧ writes confined | mechanical |
+| *(review-join)* | all five lenses + docs checkpointed | merge clean; conflict → human | mechanical + human |
+| `review-synthesis` | review-join complete | **every lens finding preserved and not downgraded** ∧ SpotBugs ≤ severity tier; LLM `blocker` findings → `PENDING_APPROVAL` (**never auto-fail**) | mechanical + human |
 | `release-readiness` | all prior green | **human approval** before push/PR | human |
 
 ### 6.3 Failure handling — all four §4.4 controls, named separately

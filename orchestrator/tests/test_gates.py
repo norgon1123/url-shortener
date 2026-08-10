@@ -18,7 +18,8 @@ import pytest
 import yaml
 
 from sdlc import gates
-from sdlc.gates import CommandResult, GateContext, GateError
+from sdlc.checkpoint import Git
+from sdlc.gates import CommandResult, GateContext, GateError, subprocess_runner
 from sdlc.graph import PipelineError, load_pipeline
 from sdlc.model import (
     Approval,
@@ -236,6 +237,288 @@ class TestPathsConfined:
             files_written=("service/src/test/java/AppTest.java",),
         )
         assert run("paths_confined", ctx).outcome is FAIL
+
+
+class TestPathsConfinedDiffsTheWorktree:
+    """The layer that does not take the backend's word for it.
+
+    Everything above reaches the gate as `NodeResult.files_written`, which is
+    the backend's account of its own behaviour. For the live backend that
+    account is already derived from git -- but a control that depends on the
+    audited party assembling its own evidence correctly is a control with a
+    hole in it. These run against a real repository: the gate goes and looks.
+    """
+
+    @staticmethod
+    def _repo(tmp_path: Path) -> Path:
+        root = tmp_path / "workspace"
+        root.mkdir()
+        git = Git(root=root)
+        git._git("init", "-b", "main")
+        git._git("config", "user.email", "o@example.com")
+        git._git("config", "user.name", "SDLC")
+        (root / "README.md").write_text("# workspace\n")
+        git._git("add", "-A")
+        git._git("commit", "-m", "initial")
+        return root
+
+    @staticmethod
+    def _ctx(root: Path, policy: Policy, **kw) -> GateContext:
+        ctx = make_ctx(root, policy, **kw)
+        ctx.run = subprocess_runner  # a real repository, really diffed
+        return ctx
+
+    def test_an_unreported_forbidden_write_is_still_caught(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        """The heredoc case, with a backend that reports nothing at all.
+
+        `files_written=()` is what a crashed session, a buggy backend, or a
+        node that wrote through a shell leaves behind. If that is enough to
+        pass the gate, the diff layer is decorative.
+        """
+        root = self._repo(tmp_path)
+        (root / "orchestrator").mkdir()
+        (root / "orchestrator" / "gates.py").write_text("# smuggled past the callback\n")
+
+        result = run("paths_confined", self._ctx(root, policy, files_written=()))
+        assert result.outcome is FAIL
+        assert result.evidence["violations"] == ["orchestrator/gates.py"]
+
+    def test_an_unreported_protected_write_still_escalates(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        root = self._repo(tmp_path)
+        (root / "service").mkdir()
+        (root / "service" / "pom.xml").write_text("<project/>\n")
+
+        result = run("paths_confined", self._ctx(root, policy, files_written=()))
+        assert result.outcome is ESCALATE
+        assert result.evidence["protected"] == ["service/pom.xml"]
+
+    def test_a_clean_tree_passes(self, tmp_path: Path, policy: Policy) -> None:
+        root = self._repo(tmp_path)
+        assert run("paths_confined", self._ctx(root, policy)).outcome is PASS
+
+    def test_secrets_are_scanned_in_files_the_node_never_admitted_to(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        root = self._repo(tmp_path)
+        target = root / "service/src/main/java/Cfg.java"
+        target.parent.mkdir(parents=True)
+        target.write_text('String k = "AKIAIOSFODNN7EXAMPLE";')
+
+        result = run("no_secrets", self._ctx(root, policy, files_written=()))
+        assert result.outcome is FAIL
+        assert "AKIAIOSFODNN7EXAMPLE" not in result.detail
+
+    def test_the_self_report_is_still_honoured_where_git_cannot_see(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        """Union, not replacement.
+
+        A workspace that is not a repository (or a file already committed by an
+        earlier attempt) leaves git with nothing to say. The backend's account
+        is weaker evidence, not worthless evidence, so it is added to the diff
+        rather than replaced by it.
+        """
+        ctx = make_ctx(tmp_path, policy, files_written=("orchestrator/sdlc/gates.py",))
+        assert run("paths_confined", ctx).outcome is FAIL
+
+
+class TestCriteriaCovered:
+    """The quietest failure in the pipeline: a criterion nobody planned for.
+
+    Everything downstream measures the work against the plan. If the plan drops
+    a criterion, the build is green, the tests pass, and the thing the requester
+    asked for was never built.
+    """
+
+    def _setup(self, tmp_path: Path, criteria: list[str], claimed: list[list[str]]) -> None:
+        write_artifact(
+            tmp_path,
+            "requirement.json",
+            {"acceptance_criteria": [{"id": c, "statement": c} for c in criteria]},
+        )
+        write_artifact(
+            tmp_path,
+            "plan.json",
+            {
+                "tasks": [
+                    {"id": f"T{i}", "title": "t", "depends_on": [],
+                     "deliverables": [], "acceptance_criteria_ids": ids}
+                    for i, ids in enumerate(claimed)
+                ]
+            },
+        )
+
+    def test_full_coverage_passes(self, tmp_path: Path, policy: Policy) -> None:
+        self._setup(tmp_path, ["AC1", "AC2"], [["AC1"], ["AC2"]])
+        result = run("criteria_covered", make_ctx(tmp_path, policy))
+        assert result.outcome is PASS
+        assert result.evidence["criteria"] == 2
+
+    def test_an_uncovered_criterion_fails(self, tmp_path: Path, policy: Policy) -> None:
+        self._setup(tmp_path, ["AC1", "AC2", "AC3"], [["AC1"], ["AC3"]])
+        result = run("criteria_covered", make_ctx(tmp_path, policy))
+        assert result.outcome is FAIL
+        assert result.evidence["uncovered"] == ["AC2"]
+
+    def test_a_reference_to_a_nonexistent_criterion_fails(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        """A typo here silently uncovers the criterion it meant to claim."""
+        self._setup(tmp_path, ["AC1"], [["AC1"], ["AC7"]])
+        result = run("criteria_covered", make_ctx(tmp_path, policy))
+        assert result.outcome is FAIL
+        assert result.evidence["unknown"] == ["AC7"]
+
+    def test_one_task_may_cover_several_criteria(self, tmp_path: Path, policy: Policy) -> None:
+        self._setup(tmp_path, ["AC1", "AC2"], [["AC1", "AC2"]])
+        assert run("criteria_covered", make_ctx(tmp_path, policy)).outcome is PASS
+
+
+class TestLensFindingsPreserved:
+    """The gate that makes fanning review out worth doing.
+
+    Five independent lenses stop one reviewer's blind spot deciding what ships.
+    Funnelling them back through a single summarising model hands that power
+    straight back unless something checks the join -- and a dropped finding
+    looks exactly like a tidy summary.
+    """
+
+    LENSES = ("review-security", "review-test-adequacy")
+
+    def _lens(self, tmp_path: Path, name: str, findings: list[dict]) -> None:
+        write_artifact(
+            tmp_path,
+            f"{name}.json",
+            {"lens": name, "findings": findings, "summary": "", "not_examined": []},
+        )
+
+    def _setup(self, tmp_path: Path, review: dict, **lenses: list[dict]) -> None:
+        for name in self.LENSES:
+            self._lens(tmp_path, name, lenses.get(name.replace("-", "_"), []))
+        write_artifact(tmp_path, "review.json", review)
+
+    def test_a_faithful_join_passes(self, tmp_path: Path, policy: Policy) -> None:
+        self._setup(
+            tmp_path,
+            {
+                "findings": [
+                    {"id": "SEC-1", "lens": "review-security", "severity": "major",
+                     "file": "A.java", "summary": "open redirect"},
+                    {"id": "TEST-1", "lens": "review-test-adequacy", "severity": "minor",
+                     "file": "AT.java", "summary": "no expiry test"},
+                ],
+                "summary": "one real issue",
+            },
+            review_security=[{"id": "SEC-1", "severity": "major", "confidence": "high",
+                              "file": "A.java", "summary": "open redirect"}],
+            review_test_adequacy=[{"id": "TEST-1", "severity": "minor", "confidence": "high",
+                                   "file": "AT.java", "summary": "no expiry test"}],
+        )
+        result = run(
+            "lens_findings_preserved", make_ctx(tmp_path, policy), lenses=list(self.LENSES)
+        )
+        assert result.outcome is PASS
+        assert result.evidence["lens_findings"] == 2
+
+    def test_a_dropped_finding_fails(self, tmp_path: Path, policy: Policy) -> None:
+        self._setup(
+            tmp_path,
+            {"findings": [], "summary": "looks clean to me"},
+            review_security=[{"id": "SEC-1", "severity": "blocker", "confidence": "medium",
+                              "file": "A.java", "summary": "credentials in config"}],
+        )
+        result = run(
+            "lens_findings_preserved", make_ctx(tmp_path, policy), lenses=list(self.LENSES)
+        )
+        assert result.outcome is FAIL
+        assert result.evidence["missing"] == ["SEC-1 (review-security, blocker)"]
+
+    def test_a_downgraded_finding_fails(self, tmp_path: Path, policy: Policy) -> None:
+        """Softening is dropping with extra steps."""
+        self._setup(
+            tmp_path,
+            {
+                "findings": [
+                    {"id": "SEC-1", "lens": "review-security", "severity": "nit",
+                     "file": "A.java", "summary": "credentials in config"}
+                ],
+                "summary": "minor tidy-ups only",
+            },
+            review_security=[{"id": "SEC-1", "severity": "blocker", "confidence": "high",
+                              "file": "A.java", "summary": "credentials in config"}],
+        )
+        result = run(
+            "lens_findings_preserved", make_ctx(tmp_path, policy), lenses=list(self.LENSES)
+        )
+        assert result.outcome is FAIL
+        assert result.evidence["downgraded"] == ["SEC-1: blocker -> nit"]
+
+    def test_merging_two_lenses_onto_one_finding_is_allowed(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        """Convergence is a signal. Clustering it is judgement, not loss."""
+        self._setup(
+            tmp_path,
+            {
+                "findings": [
+                    {
+                        "id": "SEC-1",
+                        "lens": "review-security",
+                        "severity": "blocker",
+                        "file": "A.java",
+                        "summary": "two lenses converged on the unvalidated target",
+                        "merged_ids": ["TEST-1"],
+                    }
+                ],
+                "summary": "one issue, found twice",
+            },
+            review_security=[{"id": "SEC-1", "severity": "blocker", "confidence": "high",
+                              "file": "A.java", "summary": "unvalidated redirect target"}],
+            review_test_adequacy=[{"id": "TEST-1", "severity": "major", "confidence": "high",
+                                   "file": "A.java", "summary": "nothing pins the validation"}],
+        )
+        assert (
+            run("lens_findings_preserved", make_ctx(tmp_path, policy), lenses=list(self.LENSES)).outcome
+            is PASS
+        )
+
+    def test_a_merge_may_not_soften_what_it_absorbs(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        self._setup(
+            tmp_path,
+            {
+                "findings": [
+                    {"id": "TEST-1", "lens": "review-test-adequacy", "severity": "minor",
+                     "file": "A.java", "summary": "folded in", "merged_ids": ["SEC-1"]}
+                ],
+                "summary": "",
+            },
+            review_security=[{"id": "SEC-1", "severity": "blocker", "confidence": "high",
+                              "file": "A.java", "summary": "unvalidated redirect target"}],
+            review_test_adequacy=[{"id": "TEST-1", "severity": "minor", "confidence": "high",
+                                   "file": "A.java", "summary": "nothing pins the validation"}],
+        )
+        result = run(
+            "lens_findings_preserved", make_ctx(tmp_path, policy), lenses=list(self.LENSES)
+        )
+        assert result.outcome is FAIL
+        assert result.evidence["downgraded"] == ["SEC-1: blocker -> minor"]
+
+    def test_an_unreadable_lens_artifact_fails_rather_than_passing(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        """Unverifiable is not the same as verified."""
+        write_artifact(tmp_path, "review.json", {"findings": [], "summary": ""})
+        result = run(
+            "lens_findings_preserved", make_ctx(tmp_path, policy), lenses=["review-security"]
+        )
+        assert result.outcome is FAIL
+        assert "cannot verify the join" in result.detail
 
 
 class TestNoSecrets:
