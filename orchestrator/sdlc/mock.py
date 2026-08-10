@@ -30,7 +30,7 @@ from typing import Any
 import yaml
 
 from .model import NodeResult
-from .nodes import NodeInvocation
+from .nodes import NodeInvocation, finalize_output
 
 
 class ScriptError(ValueError):
@@ -127,18 +127,20 @@ class MockBackend:
                 duration_seconds=attempt.duration_seconds,
             )
 
-        written = self._apply(attempt, invocation)
+        written, output = self._apply(attempt, invocation)
         return NodeResult(
             node_id=node.id,
             ok=True,
-            output=attempt.output or {},
+            output=output,
             files_written=tuple(written),
             cost_usd=attempt.cost_usd,
             duration_seconds=attempt.duration_seconds,
             escalations=attempt.escalations,
         )
 
-    def _apply(self, attempt: ScriptedAttempt, invocation: NodeInvocation) -> list[str]:
+    def _apply(
+        self, attempt: ScriptedAttempt, invocation: NodeInvocation
+    ) -> tuple[list[str], dict[str, Any]]:
         """Perform the node's real side effects on the real workspace."""
         written: list[str] = []
         for rel, content in sorted(attempt.files.items()):
@@ -154,17 +156,22 @@ class MockBackend:
                 written.append(rel)
 
         # A node that declares an output schema writes it where the exit gate
-        # looks, mirroring what the live backend does with structured output.
+        # looks, mirroring what the live backend does with structured output --
+        # including the orchestrator-computed fields. The two backends have to
+        # produce byte-identical artifacts, or a recorded run stops being a
+        # faithful replay of a live one and the fixtures prove nothing.
+        output: dict[str, Any] = dict(attempt.output or {})
         if attempt.output is not None and invocation.node.output_schema:
+            output = finalize_output(output, invocation.workspace)
             rel = f"{invocation.artifacts_dirname}/{invocation.node.output_schema}.json"
             target = invocation.workspace / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(
-                json.dumps(attempt.output, indent=2, sort_keys=True), encoding="utf-8"
+                json.dumps(output, indent=2, sort_keys=True), encoding="utf-8"
             )
             if rel not in written:
                 written.append(rel)
-        return written
+        return written, output
 
 
 def load_script(path: str | Path) -> MockBackend:

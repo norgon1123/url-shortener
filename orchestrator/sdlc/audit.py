@@ -237,16 +237,30 @@ class Journal:
         return sum(float(e.payload.get("cost_usd", 0.0)) for e in self.read())
 
 
-def hash_inputs(paths: list[Path], extra: dict[str, Any] | None = None) -> str:
+def hash_inputs(
+    paths: list[Path], extra: dict[str, Any] | None = None, root: Path | None = None
+) -> str:
     """Content-address a node's inputs.
 
     Feeds change-driven replanning: if this differs from what a downstream node
     recorded consuming, that node is stale and must re-run. Missing files hash
     as a sentinel so appearance/disappearance is itself a change.
+
+    `root` makes the digest location-independent by labelling each file
+    relative to it. The frozen contract needs that: it is hashed once in the
+    main workspace and re-derived in two git worktrees at different absolute
+    paths, and without it every branch would report a mismatch for no reason
+    but its own directory name.
     """
     digest = hashlib.sha256()
     for path in sorted(paths, key=lambda p: str(p)):
-        digest.update(str(path).encode())
+        label = str(path)
+        if root is not None:
+            try:
+                label = str(path.resolve().relative_to(root.resolve()))
+            except (ValueError, OSError):
+                label = path.name
+        digest.update(label.encode())
         digest.update(b"\0")
         digest.update(
             path.read_bytes() if path.is_file() else b"<absent>"

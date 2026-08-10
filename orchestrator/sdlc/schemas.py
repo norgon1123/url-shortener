@@ -141,6 +141,11 @@ DESIGN: dict[str, Any] = {
         ),
         "rationale": _STR,
         "assumption_ids": _array_of(_STR),
+        # Stamped by the orchestrator after the node returns, never emitted by
+        # the model. A hash the graded party computes about its own work is not
+        # evidence, and asking for one here would also mean asking a model to
+        # reproduce a hashing scheme by hand.
+        "contract_hash": _STR,
     },
 }
 

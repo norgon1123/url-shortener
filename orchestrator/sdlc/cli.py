@@ -60,16 +60,31 @@ def _load_manifest(runs_root: Path, run_id: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _backend(manifest: dict):
-    """Mock or live. Only mock exists until the SDK nodes are wired."""
+def _backend(manifest: dict, pipeline, transcripts: Path):
+    """Mock or live.
+
+    The live backend is imported lazily. Importing it pulls in the Agent SDK,
+    which the mock path deliberately does not need -- an evaluator with no API
+    key can still run everything the test suite runs.
+
+    Note what gets handed across: the *pipeline's* policy, not a copy of it.
+    The guardrails the backend enforces at the tool layer and the guardrails the
+    gates enforce afterwards are the same object read from the same YAML, so
+    they cannot drift apart into a live enforcement that is quietly laxer than
+    the audit check.
+    """
     if manifest.get("backend", "mock") == "mock":
         script = manifest.get("script")
         if not script:
             raise SystemExit("mock backend requires --script")
         return load_script(script)
-    from .agent_backend import AgentSDKBackend  # imported late: needs an API key
+    from .agent_backend import AgentSDKBackend
 
-    return AgentSDKBackend(prompts_root=Path(manifest["prompts"]))
+    return AgentSDKBackend(
+        prompts_root=Path(manifest["prompts"]),
+        policy=pipeline.policy,
+        transcripts_root=transcripts,
+    )
 
 
 def _engine(runs_root: Path, run_id: str, manifest: dict) -> Engine:
@@ -78,7 +93,7 @@ def _engine(runs_root: Path, run_id: str, manifest: dict) -> Engine:
     store = _store(runs_root)
     return Engine(
         pipeline=pipeline,
-        backend=_backend(manifest),
+        backend=_backend(manifest, pipeline, run_dir(runs_root, run_id) / "transcripts"),
         store=store,
         journal=_journal(runs_root, run_id),
         checkpoints=CheckpointManager(

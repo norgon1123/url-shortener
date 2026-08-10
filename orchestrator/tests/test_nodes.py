@@ -23,7 +23,7 @@ from sdlc.model import (
     NodeResult,
     NodeSpec,
 )
-from sdlc.nodes import NodeInvocation, PromptError, render_prompt
+from sdlc.nodes import NodeInvocation, PromptError, finalize_output, render_prompt
 
 
 @pytest.fixture
@@ -294,3 +294,37 @@ class TestRecording:
         recorder = RecordingBackend(inner=FakeLive(), out_dir=tmp_path / "fixture")
         recorder.run(invocation(tmp_path))
         assert load_script(recorder.save()).script["implement"][0].fail == "rate limited"
+
+
+class TestContractStamping:
+    """The orchestrator computes the freeze hash; the node never reports it."""
+
+    def _design(self, tmp_path: Path) -> dict:
+        contract = tmp_path / "service/pom.xml"
+        contract.parent.mkdir(parents=True, exist_ok=True)
+        contract.write_text("<project/>")
+        return {"contract_files": ["service/pom.xml"], "rationale": "r"}
+
+    def test_a_contract_declaring_node_gets_a_hash(self, tmp_path: Path) -> None:
+        stamped = finalize_output(self._design(tmp_path), tmp_path)
+        assert len(stamped["contract_hash"]) == 64
+
+    def test_the_hash_tracks_the_contents_not_the_file_list(self, tmp_path: Path) -> None:
+        design = self._design(tmp_path)
+        before = finalize_output(design, tmp_path)["contract_hash"]
+        (tmp_path / "service/pom.xml").write_text("<project><modules/></project>")
+        assert finalize_output(design, tmp_path)["contract_hash"] != before
+
+    def test_output_without_a_contract_is_untouched(self, tmp_path: Path) -> None:
+        assert finalize_output({"goal": "g"}, tmp_path) == {"goal": "g"}
+
+    def test_both_backends_stamp_identically(self, tmp_path: Path) -> None:
+        """A recorded run is only a faithful replay if the artifacts match."""
+        node = NodeSpec(id="design", prompt_path="implement.md", output_schema="design")
+        design = self._design(tmp_path)
+        backend = MockBackend(script={"design": [ScriptedAttempt(output=design)]})
+
+        result = backend.run(invocation(tmp_path, node=node))
+        on_disk = json.loads((tmp_path / "artifacts/design.json").read_text())
+        assert result.output["contract_hash"] == on_disk["contract_hash"]
+        assert on_disk["contract_hash"] == finalize_output(design, tmp_path)["contract_hash"]

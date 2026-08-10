@@ -619,7 +619,7 @@ def _contract_frozen(ctx: GateContext, params: dict[str, Any]) -> GateResult:
             missing=missing,
         )
 
-    actual = hash_inputs([ctx.path(f) for f in files])
+    actual = hash_inputs([ctx.path(f) for f in files], root=ctx.workspace)
     recorded = design.get("contract_hash")
     if recorded and recorded != actual:
         return _result(

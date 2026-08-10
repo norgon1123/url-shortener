@@ -103,6 +103,27 @@ def render_prompt(invocation: NodeInvocation, root: Path) -> str:
     return "\n\n---\n\n".join(sections)
 
 
+def finalize_output(output: dict[str, Any], workspace: Path) -> dict[str, Any]:
+    """Stamp orchestrator-computed fields onto a node's structured output.
+
+    There is exactly one today: a node that declares `contract_files` gets a
+    content hash of them recorded alongside. The parallel branches re-derive it
+    at their entry gate, so a contract that drifts between the freeze and the
+    fan-out is caught immediately rather than surfacing later as an unexplained
+    pile of merge conflicts.
+
+    The orchestrator computes it, never the node. A hash self-reported by the
+    party whose work it attests to is not evidence of anything.
+    """
+    files = output.get("contract_files")
+    if not files:
+        return output
+    from .audit import hash_inputs
+
+    digest = hash_inputs([workspace / f for f in files], root=workspace)
+    return {**output, "contract_hash": digest}
+
+
 def _context_section(context: dict[str, Any]) -> str:
     lines = ["## Upstream context", ""]
     for node_id, payload in sorted(context.items()):

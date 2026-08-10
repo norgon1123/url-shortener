@@ -452,7 +452,7 @@ class TestContractFrozen:
         from sdlc.audit import hash_inputs
 
         contract = self._seed(tmp_path)
-        self._design(tmp_path, hash_inputs([contract]))
+        self._design(tmp_path, hash_inputs([contract], root=tmp_path))
         assert run("contract_frozen", make_ctx(tmp_path, policy)).outcome is PASS
 
     def test_a_modified_contract_fails(self, tmp_path: Path, policy: Policy) -> None:
@@ -460,7 +460,7 @@ class TestContractFrozen:
         from sdlc.audit import hash_inputs
 
         contract = self._seed(tmp_path)
-        self._design(tmp_path, hash_inputs([contract]))
+        self._design(tmp_path, hash_inputs([contract], root=tmp_path))
         contract.write_text("record Link(String code, long clicks) {}")
         result = run("contract_frozen", make_ctx(tmp_path, policy))
         assert result.outcome is FAIL and "has changed since design froze it" in result.detail
@@ -469,6 +469,25 @@ class TestContractFrozen:
         self._design(tmp_path, None)
         result = run("contract_frozen", make_ctx(tmp_path, policy))
         assert result.outcome is FAIL and "absent from the worktree" in result.detail
+
+    def test_the_hash_survives_the_move_into_a_worktree(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        """The contract is frozen in the main checkout and verified in two
+        worktrees at different absolute paths. If the digest depended on where
+        the files sit, both branches would report a mismatch caused by nothing
+        but their own directory name -- and the gate that exists to catch a
+        drifted contract would fail every run instead."""
+        import shutil
+
+        from sdlc.audit import hash_inputs
+
+        contract = self._seed(tmp_path)
+        self._design(tmp_path, hash_inputs([contract], root=tmp_path))
+
+        worktree = tmp_path.parent / "worktree-implement"
+        shutil.copytree(tmp_path, worktree)
+        assert run("contract_frozen", make_ctx(worktree, policy)).outcome is PASS
 
 
 # --------------------------------------------------------------------------
