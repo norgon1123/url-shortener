@@ -785,17 +785,42 @@ class TestContractFrozen:
         assert run("contract_frozen", make_ctx(tmp_path, policy)).outcome is PASS
 
     def test_a_modified_contract_fails(self, tmp_path: Path, policy: Policy) -> None:
-        """Blind parallel authoring is only valid while both sides see the same bytes."""
-        from sdlc.audit import hash_inputs
+        """Parallel authoring is only valid while both sides see the same bytes.
+
+        Checked from the perspective of a node that may *not* write the file:
+        a node editing its own half of the freeze is doing its job, and the
+        gate now asks the narrower question of whether anything moved that this
+        node was never allowed to move.
+        """
+        from sdlc.nodes import finalize_output
 
         contract = self._seed(tmp_path)
-        self._design(tmp_path, hash_inputs([contract], root=tmp_path))
+        write_artifact(
+            tmp_path,
+            "design.json",
+            finalize_output(
+                {
+                    "openapi_path": "artifacts/openapi.yaml",
+                    "contract_files": ["service/src/main/java/Link.java"],
+                    "endpoints": [],
+                    "rationale": "r",
+                },
+                tmp_path,
+            ),
+        )
         contract.write_text("record Link(String code, long clicks) {}")
-        result = run("contract_frozen", make_ctx(tmp_path, policy))
+        result = run(
+            "contract_frozen",
+            make_ctx(
+                tmp_path,
+                policy,
+                node_id="author-tests",
+                write_paths=("service/src/test/**",),
+                deny_paths=("service/src/main/**",),
+            ),
+        )
         assert result.outcome is FAIL
-        # Names the artifact that drifted: the freeze spans design.json and
-        # test-contract.json, and "the contract changed" would not say which.
-        assert "design.json has changed since it was frozen" in result.detail
+        assert "may not write" in result.detail
 
     def test_missing_contract_file_fails(self, tmp_path: Path, policy: Policy) -> None:
         self._design(tmp_path, None)
@@ -1311,14 +1336,17 @@ class TestMavenTimeout:
 
 
 class TestContractFrozenSpansArtifacts:
-    """`design` freezes the HTTP surface; `test-contract` freezes the proof.
+    """Each branch is verified against the half of the freeze it may not write.
 
-    Verifying only the first leaves half the contract unguarded -- and it is the
-    half both branches were most recently told to agree on.
+    The skeletons *are* the files the branches must edit -- `implement` fills in
+    the production classes, `author-tests` fills in the test bodies -- so
+    checking the whole set fails the moment a branch does its job. That is not
+    hypothetical: a partially-completed attempt left a worktree looking like a
+    drifted contract and killed both branches on resume.
     """
 
     def _seed(self, tmp_path: Path):
-        from sdlc.audit import hash_inputs
+        from sdlc.nodes import finalize_output
 
         prod = tmp_path / "service/src/main/java/Link.java"
         prod.parent.mkdir(parents=True)
@@ -1330,56 +1358,73 @@ class TestContractFrozenSpansArtifacts:
         write_artifact(
             tmp_path,
             "design.json",
-            {
-                "openapi_path": "artifacts/openapi.yaml",
-                "contract_files": ["service/src/main/java/Link.java"],
-                "endpoints": [],
-                "rationale": "r",
-                "contract_hash": hash_inputs([prod], root=tmp_path),
-            },
+            finalize_output(
+                {
+                    "openapi_path": "artifacts/openapi.yaml",
+                    "contract_files": ["service/src/main/java/Link.java"],
+                    "endpoints": [],
+                    "rationale": "r",
+                },
+                tmp_path,
+            ),
         )
         write_artifact(
             tmp_path,
             "test-contract.json",
-            {
-                "contract_files": ["service/src/test/java/LinkTest.java"],
-                "behaviours": [],
-                "harness": [],
-                "rationale": "r",
-                "contract_hash": hash_inputs([test], root=tmp_path),
-            },
+            finalize_output(
+                {
+                    "contract_files": ["service/src/test/java/LinkTest.java"],
+                    "behaviours": [],
+                    "harness": [],
+                    "rationale": "r",
+                },
+                tmp_path,
+            ),
         )
         return prod, test
 
-    def _run(self, tmp_path: Path, policy: Policy):
+    def _implement(self, tmp_path: Path, policy: Policy):
+        """`implement` owns src/main and is denied src/test."""
         return run(
             "contract_frozen",
-            make_ctx(tmp_path, policy),
+            make_ctx(
+                tmp_path,
+                policy,
+                node_id="implement",
+                write_paths=("service/src/main/**",),
+                deny_paths=("service/src/test/**",),
+            ),
             artifacts=["design.json", "test-contract.json"],
         )
 
-    def test_both_intact_passes(self, tmp_path: Path, policy: Policy) -> None:
+    def test_it_verifies_the_other_branch_half(self, tmp_path: Path, policy: Policy) -> None:
         self._seed(tmp_path)
-        result = self._run(tmp_path, policy)
+        result = self._implement(tmp_path, policy)
         assert result.outcome is PASS
-        assert "2 contract file(s) across 2 artifact(s)" in result.detail
+        assert result.evidence["verified"] == 1  # the test skeleton, not its own
 
-    def test_a_drifted_test_skeleton_is_caught_and_named(
+    def test_a_branch_editing_its_own_skeleton_is_not_drift(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        """Filling in the production skeleton is the job, not a contract change."""
+        prod, _ = self._seed(tmp_path)
+        prod.write_text("record Link(String code) { String resolve() { return code; } }")
+        assert self._implement(tmp_path, policy).outcome is PASS
+
+    def test_touching_the_other_branch_half_is_caught(
         self, tmp_path: Path, policy: Policy
     ) -> None:
         _, test = self._seed(tmp_path)
-        test.write_text("class LinkTest { void extra() {} }")
-        result = self._run(tmp_path, policy)
+        test.write_text("class LinkTest { void weakened() {} }")
+        result = self._implement(tmp_path, policy)
         assert result.outcome is FAIL
-        assert "test-contract.json has changed" in result.detail
+        assert "may not write" in result.detail
+        assert result.evidence["drifted"] == ["service/src/test/java/LinkTest.java"]
 
-    def test_a_drifted_production_skeleton_is_still_caught(
-        self, tmp_path: Path, policy: Policy
-    ) -> None:
-        prod, _ = self._seed(tmp_path)
-        prod.write_text("record Link(String code, long clicks) {}")
-        result = self._run(tmp_path, policy)
-        assert result.outcome is FAIL and "design.json has changed" in result.detail
+    def test_a_missing_contract_file_still_fails(self, tmp_path: Path, policy: Policy) -> None:
+        _, test = self._seed(tmp_path)
+        test.unlink()
+        assert self._implement(tmp_path, policy).outcome is FAIL
 
 
 class TestSkeletonHasNoAssertions:

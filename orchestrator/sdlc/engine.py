@@ -93,6 +93,12 @@ class Engine:
         run_id: str,
         budget: BudgetGuard | None = None,
         command_runner=gate_lib.subprocess_runner,
+        # Injected for the same reason the command runner is: a test that wants
+        # to assert on a backoff should not spend the wall-clock, and patching
+        # `time.sleep` globally to catch it also catches every other sleep in
+        # the process. That made one test intermittently fail on delays it
+        # never caused.
+        sleep=time.sleep,
         max_parallel: int = 4,
     ) -> None:
         self.pipeline = pipeline
@@ -105,6 +111,7 @@ class Engine:
         self.run_id = run_id
         self.budget = budget or BudgetGuard(pipeline.budget)
         self.command_runner = command_runner
+        self.sleep = sleep
         self.max_parallel = max_parallel
         # The parallel branch means two node runners finish at unpredictable
         # moments. The journal's hash chain and the store's counters are both
@@ -469,7 +476,7 @@ class Engine:
             attempt=attempt,
             seconds=delay,
         )
-        time.sleep(delay)
+        self.sleep(delay)
 
     def _invoke(
         self,

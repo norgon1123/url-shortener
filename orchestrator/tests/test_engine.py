@@ -12,6 +12,7 @@ milliseconds, which is the entire argument for building mock mode first.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -119,6 +120,11 @@ def make_prompts(tmp_path: Path, names: list[str]) -> Path:
 class Harness:
     """Everything an Engine needs, assembled for a test."""
 
+    # Swapped by the `recorded_sleeps` fixture. Injected rather than
+    # monkeypatched onto the `time` module, which would also capture sleeps this
+    # engine never asked for.
+    sleep = staticmethod(time.sleep)
+
     def __init__(self, tmp_path: Path, nodes: list[dict], script: dict, **top):
         self.tmp_path = tmp_path
         self.git = make_repo(tmp_path)
@@ -146,6 +152,7 @@ class Harness:
             prompts_root=self.prompts,
             run_id=RUN_ID,
             budget=self.budget,
+            sleep=Harness.sleep,
         )
 
     def run(self, **kw) -> RunStatus:
@@ -171,7 +178,7 @@ def happy(tmp_path: Path) -> Harness:
 
 
 @pytest.fixture(autouse=True)
-def recorded_sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+def recorded_sleeps() -> list[float]:
     """Retry backoff is recorded rather than served.
 
     Two reasons, and the second is the interesting one. No test should spend
@@ -179,11 +186,10 @@ def recorded_sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     as elapsed time is a delay no test can assert on. Recording it makes the
     wait a fact in the journal of the test rather than a slow test.
     """
-    import time
-
     delays: list[float] = []
-    monkeypatch.setattr(time, "sleep", delays.append)
-    return delays
+    Harness.sleep = staticmethod(delays.append)
+    yield delays
+    Harness.sleep = staticmethod(time.sleep)
 
 
 # --------------------------------------------------------------------------
