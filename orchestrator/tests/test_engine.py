@@ -1130,3 +1130,28 @@ class TestMixedVerdicts:
     def test_a_node_never_routed_a_repair_carries_no_note(self, tmp_path: Path) -> None:
         h = Harness(tmp_path, TRIAGE_NODES, triage_script(MIXED_VERDICT))
         assert h.engine()._repair_note("plan") == ""
+
+
+class TestRepairBrief:
+    """A branch needs the failures attributed to *it*, not the overall summary."""
+
+    def test_the_brief_itemises_only_this_branch_failures(self) -> None:
+        """Handed the summary alone, the first live repair found nothing
+        addressed to it, concluded nothing was broken, and spent seven dollars
+        verifying that."""
+        brief = Engine._repair_brief("implement", MIXED_VERDICT, "overall")
+        assert "expiryRoundTrips" in brief
+        assert "abuseReportAccepted" not in brief
+        assert "nanos vs micros" in brief
+
+    def test_each_branch_gets_its_own(self) -> None:
+        tests = Engine._repair_brief("author-tests", MIXED_VERDICT, "overall")
+        assert "abuseReportAccepted" in tests
+        assert "expiryRoundTrips" not in tests
+
+    def test_it_says_not_to_chase_the_other_branch_failures(self) -> None:
+        brief = Engine._repair_brief("implement", MIXED_VERDICT, "overall")
+        assert "not yours to chase" in brief or "another branch" in brief.lower()
+
+    def test_it_falls_back_to_the_summary_when_nothing_is_attributed(self) -> None:
+        assert Engine._repair_brief("implement", {"failures": []}, "overall") == "overall"

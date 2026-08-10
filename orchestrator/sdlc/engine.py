@@ -765,7 +765,7 @@ class Engine:
                 triggered_by=node.id,
                 attempt=used,
                 allowed=spec.repair_attempts,
-                reason=reason,
+                reason=self._repair_brief(target, verdict.output, reason),
                 reset_nodes=sorted(affected),
             )
 
@@ -774,6 +774,39 @@ class Engine:
         if not routed:
             return self._replan(node, execution)
         return None
+
+    @classmethod
+    def _repair_brief(
+        cls, target: str, output: dict[str, Any] | None, summary: str
+    ) -> str:
+        """What *this* branch is being asked to fix, itemised.
+
+        The overall summary is not enough and the first live repair proved it:
+        handed "23 failing methods across 7 classes, three root causes", the
+        node found nothing addressed to it, concluded nothing was broken, and
+        spent seven dollars verifying that. A branch needs the failures
+        attributed to it and the evidence for each, or the attempt is a re-roll
+        with extra steps.
+        """
+        output = output or {}
+        mine = [
+            f
+            for f in (output.get("failures") or [])
+            if cls._TARGET_FOR.get(str(f.get("classification"))) == target
+        ]
+        if not mine:
+            return summary
+        lines = [
+            f"`verify` failed and {len(mine)} of its failures were attributed to "
+            f"this node. Fix these and only these; another branch is repairing "
+            f"the rest in parallel.",
+            "",
+        ]
+        for f in mine:
+            lines.append(f"- **{f.get('test')}** ({f.get('confidence')} confidence)")
+            lines.append(f"  {f.get('evidence')}")
+        lines += ["", f"Adjudicator's overall summary: {summary}"]
+        return "\n".join(lines)
 
     def _repair_note(self, node_id: str) -> str:
         """Why this node is being asked to run again, from the journal.

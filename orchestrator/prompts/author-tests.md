@@ -110,13 +110,16 @@ ones. They run for the first time after the join, against code written by
 someone who never saw them.
 
 
-## If `artifacts/triage.json` exists, read it first
+## If this prompt carries a repair brief, that is your whole job
 
-It means `verify` failed and an adjudicator attributed some of those failures to
-this branch. Its `failures` entries carry the test, the classification, and the
-evidence for the call.
+`verify` failed and an adjudicator attributed some of those failures to this
+node. The brief names each one and the evidence for the call.
 
-Fix the ones classified `test` and leave the rest alone -- another branch is
-repairing those in parallel, and a failure attributed elsewhere is not yours to
-chase. If you believe a failure was misattributed, say so in your response
-rather than working around it; the verdict is advisory and a human reads it.
+Fix exactly those. Another branch is repairing the failures attributed to it,
+in parallel, and a failure that is not in your brief is not yours to chase --
+changing code to satisfy it will collide with the branch that owns it.
+
+If you believe a failure was misattributed, say so in your response rather than
+working around it: the verdict is advisory and a human reads it. And if the
+brief is empty or names nothing you can act on, say that too rather than
+re-doing work that is already committed.
