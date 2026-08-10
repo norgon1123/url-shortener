@@ -67,6 +67,14 @@ public class ShortCodeGenerator {
      *         alphabet and quietly costs entropy, so the draw must be unbiased.
      */
     public String generate() {
-        throw new UnsupportedOperationException("Frozen contract skeleton; implemented by the implement node.");
+        char[] code = new char[CODE_LENGTH];
+        for (int position = 0; position < CODE_LENGTH; position++) {
+            // SecureRandom.nextInt(bound) rejects the values that would skew a
+            // modulo, so every character is drawn uniformly. `nextInt() % 62` would
+            // favour the first four characters of the alphabet and quietly cost
+            // part of the entropy this length was chosen to carry.
+            code[position] = ALPHABET.charAt(random.nextInt(ALPHABET.length()));
+        }
+        return new String(code);
     }
 }
