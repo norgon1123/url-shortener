@@ -312,7 +312,10 @@ def cmd_lineage(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="sdlc", description=__doc__)
-    parser.add_argument("--runs-dir", default=DEFAULT_RUNS)
+    # Resolved, not stored as given. Worktree paths are derived from it, and a
+    # relative one produces commands that only work from the directory the run
+    # happened to start in -- which is the main checkout, never a worktree.
+    parser.add_argument("--runs-dir", default=DEFAULT_RUNS, type=lambda p: Path(p).resolve())
     sub = parser.add_subparsers(dest="command", required=True)
 
     run = sub.add_parser("run", help="start a new run")

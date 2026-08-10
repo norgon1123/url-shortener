@@ -179,8 +179,16 @@ class GateContext:
             return []
 
     def maven(self, *goals: str) -> CommandResult:
-        """Prefer the wrapper so the build uses the pinned Maven version."""
-        wrapper = self.service_dir / "mvnw"
+        """Prefer the wrapper so the build uses the pinned Maven version.
+
+        Resolved to an absolute path, because the command runs *in* the service
+        directory: a workspace-relative `service/mvnw` is not `service/mvnw`
+        once the cwd is `service`. The main checkout hid this -- the CLI
+        resolves the workspace -- and the parallel branches did not, because
+        their worktree paths were built from a relative runs directory. The
+        symptom was exit 127 in a worktree and a green build everywhere else.
+        """
+        wrapper = (self.service_dir / "mvnw").resolve()
         exe = str(wrapper) if wrapper.exists() else (shutil.which("mvn") or "mvn")
         return self.run([exe, "-B", "-q", *goals], self.service_dir)
 

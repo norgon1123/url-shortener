@@ -1054,3 +1054,25 @@ class TestHumanApproval:
         approval = Approval("design", ApprovalDecision.APPROVED, "neil")
         ctx = make_ctx(tmp_path, policy, node_id="release-readiness", approvals={"design": approval})
         assert run("human_approval", ctx).outcome is ESCALATE
+
+
+class TestMavenInvocation:
+    def test_the_wrapper_is_invoked_by_absolute_path(self, tmp_path: Path, policy: Policy) -> None:
+        """The command runs *in* the service directory, so a workspace-relative
+        `service/mvnw` is not `service/mvnw` once the cwd is `service`. The main
+        checkout hid this because the CLI resolves the workspace; a worktree
+        built from a relative runs directory did not, and the gate died with
+        exit 127 on one branch while the other stayed green."""
+        wrapper = tmp_path / "service" / "mvnw"
+        wrapper.parent.mkdir(parents=True)
+        wrapper.write_text("#!/bin/sh\n")
+        seen: list[list[str]] = []
+
+        def runner(cmd, cwd, timeout=None):
+            seen.append(cmd)
+            return CommandResult(exit_code=0, stdout="", stderr="")
+
+        ctx = make_ctx(tmp_path, policy, runner=runner)
+        ctx.maven("compile")
+        assert Path(seen[0][0]).is_absolute()
+        assert seen[0][0] == str(wrapper)
