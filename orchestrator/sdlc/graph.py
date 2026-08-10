@@ -134,6 +134,7 @@ def _parse_node(raw: Any, defaults: dict[str, Any]) -> NodeSpec:
         worktree=raw.get("worktree"),
         model=pick("model"),
         effort=pick("effort"),
+        max_turns=int(pick("max_turns")) if pick("max_turns") else None,
         replan_target=raw.get("replan_target"),
         replan_after_attempts=int(raw.get("replan_after_attempts", 2)),
         max_replans=int(raw.get("max_replans", 2)),

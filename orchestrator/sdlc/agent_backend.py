@@ -205,7 +205,7 @@ class AgentSDKBackend:
             allowed_tools=[],
             model=node.model or self.default_model,
             effort=node.effort or self.default_effort,  # type: ignore[arg-type]
-            max_turns=self.max_turns,
+            max_turns=node.max_turns or self.max_turns,
             permission_mode="default",
             can_use_tool=self._permission_callback(invocation, engine, escalations),
             env=dict(os.environ),
