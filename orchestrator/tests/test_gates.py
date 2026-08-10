@@ -575,6 +575,52 @@ class TestClarificationGates:
         result = run("no_blocking_ambiguities", make_ctx(tmp_path, policy))
         assert result.outcome is FAIL and result.evidence["ambiguity_ids"] == ["Q1"]
 
+    def test_a_human_answer_clears_the_escalation(self, tmp_path: Path, policy: Policy) -> None:
+        """Otherwise the pause is a deadlock, not a checkpoint: the run asks a
+        question, gets an answer, and stops again for the same reason forever."""
+        write_artifact(
+            tmp_path,
+            "clarification.json",
+            {
+                "assumptions": [],
+                "ambiguities": [
+                    {"id": "Q1", "question": "what does reliable mean?", "severity": "blocking", "proposed_answer": "?"}
+                ],
+            },
+        )
+        approval = Approval(
+            "clarify", ApprovalDecision.APPROVED, "neil", answers={"Q1": "rate limiting"}
+        )
+        result = run(
+            "no_blocking_ambiguities",
+            make_ctx(tmp_path, policy, node_id="clarify", approvals={"clarify": approval}),
+        )
+        assert result.outcome is PASS and "answered by neil" in result.detail
+
+    def test_an_approval_without_the_answer_still_blocks(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        """Approving is not answering. A blank rubber stamp leaves the question open."""
+        write_artifact(
+            tmp_path,
+            "clarification.json",
+            {
+                "assumptions": [],
+                "ambiguities": [
+                    {"id": "Q1", "question": "what does reliable mean?", "severity": "blocking", "proposed_answer": "?"},
+                    {"id": "Q2", "question": "which analytics?", "severity": "blocking", "proposed_answer": "?"},
+                ],
+            },
+        )
+        approval = Approval(
+            "clarify", ApprovalDecision.APPROVED, "neil", answers={"Q1": "rate limiting"}
+        )
+        result = run(
+            "no_blocking_ambiguities",
+            make_ctx(tmp_path, policy, node_id="clarify", approvals={"clarify": approval}),
+        )
+        assert result.outcome is FAIL and result.evidence["ambiguity_ids"] == ["Q2"]
+
     def test_advisory_ambiguity_does_not_block(self, tmp_path: Path, policy: Policy) -> None:
         write_artifact(
             tmp_path,

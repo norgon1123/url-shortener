@@ -439,22 +439,40 @@ def _no_blocking_ambiguities(ctx: GateContext, params: dict[str, Any]) -> GateRe
             ctx, "no_blocking_ambiguities", GateClass.SELF_REPORT, _FAIL, str(exc)
         )
     blocking = _blocking(data)
-    if blocking:
-        questions = "; ".join(a.get("question", a.get("id", "?")) for a in blocking[:3])
+    if not blocking:
+        return _result(
+            ctx,
+            "no_blocking_ambiguities",
+            GateClass.SELF_REPORT,
+            _PASS,
+            "no blocking ambiguities reported",
+        )
+
+    # A human answer clears it. Without this the gate re-escalates on every
+    # resume and the pause becomes a deadlock -- the run would ask a question,
+    # receive an answer, and stop again for the same reason forever. The
+    # difference between a checkpoint and a dead run is that someone can get
+    # past it.
+    approval = ctx.approvals.get(params.get("approval_node", ctx.node.id))
+    answers = approval.answers if approval else {}
+    unanswered = [a for a in blocking if not answers.get(a.get("id", ""))]
+    if unanswered:
+        questions = "; ".join(a.get("question", a.get("id", "?")) for a in unanswered[:3])
         return _result(
             ctx,
             "no_blocking_ambiguities",
             GateClass.SELF_REPORT,
             _FAIL,  # the spec's on_fail: escalate converts this to a pause
-            f"{len(blocking)} blocking ambiguity/ies: {questions}",
-            ambiguity_ids=[a.get("id") for a in blocking],
+            f"{len(unanswered)} blocking ambiguity/ies: {questions}",
+            ambiguity_ids=[a.get("id") for a in unanswered],
         )
     return _result(
         ctx,
         "no_blocking_ambiguities",
         GateClass.SELF_REPORT,
         _PASS,
-        "no blocking ambiguities reported",
+        f"{len(blocking)} blocking ambiguity/ies answered by {approval.approver}",
+        answered=[a.get("id") for a in blocking],
     )
 
 
