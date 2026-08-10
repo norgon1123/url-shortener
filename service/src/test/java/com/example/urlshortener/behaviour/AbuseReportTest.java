@@ -31,7 +31,7 @@ import org.junit.jupiter.api.Test;
  */
 class AbuseReportTest extends AbstractIntegrationTest {
 
-    /** A reason at the documented maximum length, for the boundary case. */
+    /** An ordinary reason, well inside the documented maximum length. */
     private static final String REASON = "Phishing page imitating a bank sign-in";
 
     /**

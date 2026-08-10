@@ -259,16 +259,6 @@ class ListLinksTest extends AbstractIntegrationTest {
         return links.stream().map(LinkResponse::code).collect(java.util.stream.Collectors.toSet());
     }
 
-    /** Position of a code in a page, or -1 when it is not there. */
-    private int indexOf(List<LinkResponse> links, String code) {
-        for (int i = 0; i < links.size(); i++) {
-            if (links.get(i).code().equals(code)) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
     /** The link with this code, from a list the caller already fetched. */
     private LinkResponse find(List<LinkResponse> links, String code) {
         Optional<LinkResponse> found =
