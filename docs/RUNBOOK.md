@@ -29,6 +29,12 @@ Smoke test:
 ```bash
 curl -s http://localhost:8080/actuator/health          # {"status":"UP"}
 curl -i http://localhost:8080/no-such-code             # 404 not_found
+
+# The two unauthenticated write paths, which need V3 and V4 applied:
+curl -s -X POST http://localhost:8080/api/v1/public/links \
+  -H 'Content-Type: application/json' \
+  -d '{"longUrl":"https://example.com/smoke"}'          # 201
+curl -i http://localhost:8080/api/v1/public/links       # 405, not 401
 ```
 
 Tests use Testcontainers, not compose:
@@ -57,6 +63,7 @@ or as the equivalent environment variable.
 | Property | Default | Notes |
 |---|---|---|
 | `app.links.default-ttl` | `P30D` | Applied at creation; changing it never rewrites existing links |
+| `app.links.anonymous-ttl` | `P30D` | Lifetime of a `POST /api/v1/public/links` link. Never caller-supplied and never changeable afterwards. Separate from `default-ttl` so it can be tightened for abuse reasons without touching what customers get |
 | `app.links.max-url-length` | `2048` | |
 | `app.cache.ttl` / `app.cache.negative-ttl` | `PT60S` | **Must not exceed 60s** — see below |
 | `app.session.ttl` | `PT24H` | Non-refreshable, non-revocable |
@@ -66,7 +73,15 @@ or as the equivalent environment variable.
 | `app.threat.fail-open` | `true` | On `false`, creation returns 503 whenever the denylist is unreadable |
 | `app.rate-limit.enabled` | `true` | |
 | `app.rate-limit.{click,not-found,write,abuse-report,sign-in}-per-minute` | `3000` / `300` / `300` / `60` / `60` | |
+| `app.rate-limit.sign-up-per-minute` | `60` | `POST /api/v1/customers`, keyed by client IP |
+| `app.rate-limit.anonymous-create-per-minute` | `30` | `POST /api/v1/public/links`, keyed by client IP. Deliberately an order of magnitude under `write-per-minute` |
 | `app.rate-limit.window` | `PT1M` | Refill period; capacity is the per-minute figure |
+
+`app.links.anonymous-ttl`, `app.rate-limit.sign-up-per-minute` and
+`app.rate-limit.anonymous-create-per-minute` are **not listed in
+`application.yml`**; their defaults come from `AppProperties`. Set them as
+ordinary Spring properties or environment variables
+(`APP_RATE_LIMIT_ANONYMOUS_CREATE_PER_MINUTE`) to change them.
 
 Redis command and connect timeouts are pinned at `1s`: the click path talks to
 Redis up to three times and must keep answering when Redis does not.
@@ -81,6 +96,21 @@ set both.
 abuse report) is delivered by *actively invalidating* the cache entry; the TTL is
 only the floor under a missed invalidation. Raising `app.cache.ttl` above 60s
 breaks that bound with nothing failing.
+
+## Deploying the unauthenticated endpoints
+
+`POST /api/v1/customers` and `POST /api/v1/public/links` need two schema changes
+that ship **ahead of** the code:
+
+| Migration | What | Watch for |
+|---|---|---|
+| [`V3__unique_lower_email.sql`](../service/src/main/resources/db/migration/V3__unique_lower_email.sql) | Unique index over `lower(email)` on `customers` | **Fails and stops the deploy** if the live table already holds two addresses differing only in case. Check first: `SELECT lower(email) FROM customers GROUP BY lower(email) HAVING count(*) > 1;` The remedy is deciding which row keeps the address, not a looser index |
+| [`V4__links_customer_id_nullable.sql`](../service/src/main/resources/db/migration/V4__links_customer_id_nullable.sql) | `links.customer_id` becomes nullable — an anonymous link is a row with no owner | One-way in practice: re-adding `NOT NULL` means deleting or re-homing every anonymous row. The rollback plan is to stop creating them and let `app.links.anonymous-ttl` drain |
+
+During a rolling deploy the two new paths answer `401` on old pods (the session
+filter has not been told to exempt them) and their documented status on new
+ones, for the length of the rollout. Nothing in the code fixes that — announce
+the endpoints only once the rollout has completed.
 
 ## Health and metrics
 
@@ -111,6 +141,9 @@ aliases, so no customer link can shadow these routes.
 | Click counts briefly high | A flush wrote durably but could not subtract the pending delta (`ERROR` log: "could not settle the pending delta") | Self-correcting on the next pass; overcount is the chosen direction, clicks are never lost |
 | `429` with `Retry-After` on clicks | not-found bucket exhausted by an enumeration sweep from one IP | Expected. The click bucket is separate, so genuine traffic to a popular link is unaffected |
 | Nothing shortens; WARN "Accepting a link to … without a threat verdict" | Denylist unreadable, `fail-open` on | Links are accepted unchecked. Auditable by design |
+| Every anonymous caller shares one rate-limit bucket; one address exhausts sign-up or anonymous-create for everybody | A proxy in front that does not preserve the source address | IP-keyed buckets use the socket peer address. `X-Forwarded-For` is **not** trusted, because with no configured trusted-proxy list it would make every IP-keyed bucket spoofable, including the two defending the click path. Behind such a proxy these numbers are global ceilings, not per-caller ones. Fix by preserving the source address (PROXY protocol / L4 passthrough), not by raising the limits |
+| Unmetered sign-ups and anonymous link creation during a Redis outage | The rate limiter fails open when its store is down | Deliberate — a limiter that 429s the click path when Redis is down is a self-inflicted outage. But it leaves two unauthenticated PostgreSQL writes unmetered, one of them behind a 25 ms Argon2id hash. Watch CPU and the `customers` row count during a Redis outage |
+| A rising `422 url_rejected` rate on creation after deploy | Host canonicalisation now refuses equivalent-form spellings (numeric IPv4, trailing dots) that used to be accepted | Expected and logged. Callers submitting numeric-literal targets are the exposed population. There is no retroactive rescan, so links created through those forms before the change keep redirecting |
 
 The click path is built never to return 5xx: it constructs its own responses and
 catches anything that escapes, answering `404` rather than a server error.
@@ -121,6 +154,12 @@ catches anything that escapes, answering `404` rather than a server error.
   a Flyway migration today.
 - **No moderation console.** An abuse report blocks the link immediately, and
   only a database write can unblock it.
+- **An anonymous link cannot be taken down through the API by anyone but a
+  reporter.** Nobody owns it, so `DELETE` answers 404 for every caller; the
+  routes to removing one are an abuse report (which blocks it immediately) or a
+  database write.
+- **No account administration.** No endpoint reads, updates, disables or deletes
+  a customer; sign-up is the only operation on `customers`.
 - **No sign-out or token revocation.** A leaked token is valid until it expires
   (24h); the only mitigation is rotating the signing keys, which invalidates
   every session.
