@@ -8,14 +8,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.example.urlshortener.api.LinkPage;
 import com.example.urlshortener.api.LinkResponse;
+import com.example.urlshortener.domain.LinkStatus;
 import com.example.urlshortener.support.AbstractIntegrationTest;
 import com.example.urlshortener.support.ApiClient;
 import com.example.urlshortener.support.Fixtures;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -29,8 +32,30 @@ import org.junit.jupiter.api.Test;
  * newly created account a null, default or shared tenant - would pass every
  * existing test and fail here. Both directions are exercised, because "cannot
  * see" is a claim about a pair.
+ *
+ * <p>The last two behaviours are about the one endpoint that has never been
+ * owner-scoped: an abuse report names any code and takes that link down. Before
+ * this change the set of callers who could do that was two accounts a human had
+ * provisioned; after it, it is anybody who can complete a sign-up, and the
+ * per-reporter bucket bounds nothing because the reporter id is now free to mint.
+ * The eligibility rule - an account may not report a link it does not pre-date
+ * unless it is older than {@code app.abuse.min-reporter-age} - is what closes
+ * that, and both sides of it are pinned here: the fresh account that must be
+ * refused, and the account that must still be able to report, because a takedown
+ * path nobody can use is not a fix.
  */
 class SignUpIsolationTest extends AbstractIntegrationTest {
+
+    /** An ordinary reason, well inside the documented maximum length. */
+    private static final String REASON = "Phishing page imitating a bank sign-in";
+
+    /**
+     * How long a link is watched to show a report did <em>not</em> take it down.
+     * Long enough that a takedown applied a moment late is still caught, short
+     * enough that two behaviours can afford it; the owner's view of the link's
+     * status is what makes the claim rather than this wait alone.
+     */
+    private static final Duration STILL_UP_WINDOW = Duration.ofSeconds(5);
 
     /**
      * Starts from full buckets. Every behaviour here signs up, signs in and then
@@ -204,6 +229,98 @@ class SignUpIsolationTest extends AbstractIntegrationTest {
                         "a newcomer's link appears on no page of a seeded customer's list"),
                 () -> assertEquals(302, api.click(theirLink.code()).statusCode(),
                         "and it is untouched by the attempt"));
+    }
+
+    /**
+     * An account created after a link exists cannot get that link taken down. The
+     * report is refused, the link keeps redirecting and its owner still sees it as
+     * active.
+     *
+     * <p>This is the control on the hole self-service sign-up opens. The takedown
+     * is immediate, permanent and has no unblock path, its only bound is a bucket
+     * keyed by reporter, and an attacker who can sign up mints reporters at
+     * whatever rate the sign-up bucket allows - so without this rule any published
+     * short link can be killed by anybody who can register an address.
+     *
+     * <p>The refusal is compared against the same caller reporting a code that was
+     * never issued, because the no-oracle rule still holds here: whatever this
+     * endpoint answers an ineligible reporter, it must answer identically whether
+     * or not the code resolves. That comparison is deliberately written as sameness
+     * rather than as a status, since the refusal may be a silent 202 or a catalogue
+     * error and both satisfy the rule; what may not happen is the link going down.
+     *
+     * <p>Demonstrates: AC8.
+     */
+    @Test
+    void aSignedUpCustomerCannotTakeDownALinkThatPreDatesTheirAccount() {
+        String alice = alice();
+        // The link has to exist before the account does: that ordering is the whole
+        // condition the rule turns on.
+        LinkResponse alicesLink = givenLink(alice);
+        String newcomer = sessionFor(givenAccount());
+
+        HttpResponse<String> reported = api.reportAbuse(newcomer, alicesLink.code(), REASON);
+        HttpResponse<String> againstAnUnissuedCode =
+                api.reportAbuse(newcomer, Fixtures.UNISSUED_CODE, REASON);
+
+        // No evictResolutionCache(): a takedown has to invalidate by itself, so a
+        // link that is still redirecting here is a link that was never blocked.
+        Optional<Duration> stoppedRedirectingAfter =
+                observeUntil(() -> api.click(alicesLink.code()).statusCode() != 302, STILL_UP_WINDOW);
+        LinkResponse asItsOwnerSeesIt = ApiClient.asLink(api.getLink(alice, alicesLink.code()));
+        assertAll(
+                () -> assertTrue(stoppedRedirectingAfter.isEmpty(),
+                        "an account younger than the link took it down after "
+                                + stoppedRedirectingAfter.orElse(null)),
+                () -> assertEquals(Fixtures.TARGET_URL,
+                        ApiClient.header(api.click(alicesLink.code()), Fixtures.LOCATION).orElse(null),
+                        "and it still points where its owner put it"),
+                () -> assertEquals(LinkStatus.ACTIVE, asItsOwnerSeesIt.status(),
+                        "the owner's link was not blocked by an account that post-dates it"),
+                () -> assertEquals(againstAnUnissuedCode.statusCode(), reported.statusCode(),
+                        "the refusal must not depend on whether the code resolves"),
+                () -> assertEquals(againstAnUnissuedCode.body(), reported.body(),
+                        "nor may its body: this endpoint is not an existence oracle"),
+                () -> assertNotEquals(404, reported.statusCode(),
+                        "a 404 here would confirm which codes exist"),
+                () -> assertTrue(reported.statusCode() < 500,
+                        "a refusal is a decision, not a server error: " + reported.statusCode()),
+                () -> assertFalse(reported.body().contains(alicesLink.code()),
+                        "and it echoes nothing about the link: " + reported.body()));
+    }
+
+    /**
+     * A customer who signed up before the link existed reports it and it goes down,
+     * within the published bound and with the 202 every report gets.
+     *
+     * <p>The other side of the same rule, and the reason it is a rule about age
+     * rather than about how the account arrived: abuse reporting must keep working
+     * for accounts that came through sign-up, or the fix for one abuse path has
+     * quietly removed the only takedown path a link with no owner has. It also
+     * pins that eligibility is not a shortcut keyed off the two seeded ids.
+     *
+     * <p>Demonstrates: AC8, AC17.
+     */
+    @Test
+    void aSignedUpCustomerCanStillReportALinkTheirAccountPreDates() {
+        String reporter = sessionFor(givenAccount());
+        String alice = alice();
+        LinkResponse alicesLink = givenLink(alice);
+
+        HttpResponse<String> reported = api.reportAbuse(reporter, alicesLink.code(), REASON);
+
+        Optional<Duration> tookEffectAfter = observeUntil(
+                () -> api.click(alicesLink.code()).statusCode() == 404, Fixtures.TAKEDOWN_BOUND);
+        LinkResponse asItsOwnerSeesIt = ApiClient.asLink(api.getLink(alice, alicesLink.code()));
+        assertAll(
+                () -> assertEquals(202, reported.statusCode(),
+                        "an account that pre-dates the link may report it: " + reported.body()),
+                () -> assertEquals("", reported.body(), "the report response carries no body"),
+                () -> assertTrue(tookEffectAfter.isPresent(),
+                        "the reported link was still redirecting after the published bound of "
+                                + Fixtures.TAKEDOWN_BOUND),
+                () -> assertEquals(LinkStatus.BLOCKED, asItsOwnerSeesIt.status(),
+                        "and its owner is told why it stopped working"));
     }
 
     // ---- helpers ----------------------------------------------------------
