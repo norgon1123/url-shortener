@@ -42,7 +42,8 @@ public record AppProperties(
         @DefaultValue Session session,
         @DefaultValue Click click,
         @DefaultValue Threat threat,
-        @DefaultValue RateLimit rateLimit) {
+        @DefaultValue RateLimit rateLimit,
+        @DefaultValue Abuse abuse) {
 
     /**
      * Link creation policy.
@@ -196,4 +197,32 @@ public record AppProperties(
             @DefaultValue("60") int signUpPerMinute,
             @DefaultValue("30") int anonymousCreatePerMinute,
             @DefaultValue("PT1M") Duration window) {}
+
+    /**
+     * Who may get a link taken down by reporting it.
+     *
+     * <p>The abuse endpoint blocks a link the moment it is reported, with no
+     * moderation queue and no unblock path, and its only bound was a bucket keyed
+     * by reporter at 60 a minute. That bound assumed reporters were provisioned by
+     * hand. Self-service sign-up removes the assumption: a reporter id now costs
+     * one unauthenticated request, so a bucket keyed by reporter bounds nothing and
+     * any published link could be taken down permanently by anyone.
+     *
+     * @param minReporterAge how long an account must have existed before it may
+     *                       take down a link that already existed when the account
+     *                       was created. An account may always act on links minted
+     *                       after it signed up, so an ordinary customer reporting
+     *                       the phishing link they were just sent is unaffected;
+     *                       what the age buys is that taking down something already
+     *                       published has to be planned this far in advance rather
+     *                       than done with an account created for the purpose. Seven
+     *                       days is chosen as the shortest period that is longer
+     *                       than an opportunistic attack and shorter than a customer
+     *                       would wait for anything; set it to {@code PT0S} to
+     *                       restore the pre-sign-up behaviour, knowingly. It is not
+     *                       a complete closure - an aged account farm defeats it -
+     *                       and the real fix, a queue or a second reporter before a
+     *                       block, is a subsystem this build does not have.
+     */
+    public record Abuse(@DefaultValue("P7D") Duration minReporterAge) {}
 }

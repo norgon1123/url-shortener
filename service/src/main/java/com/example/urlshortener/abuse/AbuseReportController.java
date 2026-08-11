@@ -22,6 +22,10 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>The body is optional. What is recorded is the reporter and the time; a reason
  * is useful to whoever reviews the report later and is not needed to accept it.
+ *
+ * <p>Accepted is not the same as acted on: {@link AbuseReportService} decides
+ * whether the report also takes the link down, and the response is the same either
+ * way for the reason above.
  */
 @RestController
 public class AbuseReportController {
