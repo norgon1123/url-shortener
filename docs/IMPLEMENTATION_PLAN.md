@@ -115,6 +115,7 @@ url-shortener/
     fixtures/runs/           # recorded journals shipped in-repo
   docs/
     IMPLEMENTATION_PLAN.md   # this file: design, plan, and what changed
+    ENGINEERING_SUMMARY.md   # what happened: four runs, seven defects, next steps
     METRICS.md               # both runs measured, and what each metric hides
     adr/001..006             # the decisions, what they cost, what would reverse them
     OPERATIONS.md            # driving it: commands, recorded runs, constraints
@@ -124,11 +125,12 @@ url-shortener/
     API.md  RUNBOOK.md       # written by the pipeline's `docs` node
 ```
 
-The plan originally listed `architecture.md`, `deployment-staging.md`,
-`demo-script.md` and `ENGINEERING_SUMMARY.md` as separate pages. They were
-folded into this file and the README instead: four documents that each restate
-part of one design drift apart, and the drift is invisible until someone quotes
-the stale one.
+`architecture.md`, `deployment-staging.md` and `demo-script.md` were folded into
+this file and the README: three documents that each restate part of one design
+drift apart, and the drift is invisible until someone quotes the stale one.
+`ENGINEERING_SUMMARY.md` was written, and turned out to be the only one of the
+four that earned its own page — it holds what happened *after* the plan, which
+nothing here could have contained in advance.
 
 Node interiors call the Agent SDK's `query(prompt, options)` with a per-node
 tool allowlist and a JSON output schema. **The graph, gates, journal,
