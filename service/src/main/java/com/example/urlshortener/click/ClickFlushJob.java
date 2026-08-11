@@ -17,9 +17,13 @@ import org.springframework.stereotype.Component;
  * at risk if the counting tier is lost, and how much write traffic reaches
  * PostgreSQL.
  *
- * <p>The claim is atomic and destructive, so between claiming a delta and
- * committing it this process is the only place those clicks exist. A failed write
- * therefore has to put them back, and does.
+ * <p>A pass reads, writes, then subtracts what it wrote. Reading does not remove
+ * anything, so at no point are a link's clicks only in this process: a write that
+ * fails, a pass that is interrupted or a Redis call whose reply never arrives all
+ * leave the delta where it was and cost nothing but a repeated read next time.
+ * The order is what keeps the total honest -- the durable write commits before
+ * the delta is taken back, so the pair is briefly counted twice rather than
+ * briefly not at all, which is the direction a customer can be shown.
  */
 @Component
 public class ClickFlushJob {
@@ -38,22 +42,23 @@ public class ClickFlushJob {
 
     @Scheduled(fixedDelayString = "${app.click.flush-interval:PT5S}")
     public void flush() {
-        Map<UUID, Long> claimed = counter.claim(batchSize);
-        if (claimed.isEmpty()) {
+        Map<UUID, Long> pending = counter.readPending(batchSize);
+        if (pending.isEmpty()) {
             return;
         }
         int written = 0;
-        for (Map.Entry<UUID, Long> delta : claimed.entrySet()) {
+        for (Map.Entry<UUID, Long> delta : pending.entrySet()) {
             try {
                 writer.write(delta.getKey(), delta.getValue());
-                written++;
             } catch (RuntimeException failed) {
-                log.warn("Could not write {} click(s) for {}; returning them to the pending tier: {}",
+                log.warn("Could not write {} click(s) for {}; they stay pending and are retried next pass: {}",
                         delta.getValue(), delta.getKey(), failed.getMessage());
-                counter.restore(delta.getKey(), delta.getValue());
+                continue;
             }
+            counter.settle(delta.getKey(), delta.getValue());
+            written++;
         }
-        log.debug("Flushed clicks for {} of {} link(s)", written, claimed.size());
+        log.debug("Flushed clicks for {} of {} link(s)", written, pending.size());
     }
 
 }
