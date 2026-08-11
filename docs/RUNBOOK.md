@@ -158,6 +158,11 @@ catches anything that escapes, answering `404` rather than a server error.
   reporter.** Nobody owns it, so `DELETE` answers 404 for every caller; the
   routes to removing one are an abuse report (which blocks it immediately) or a
   database write.
+- **The `{code}` path variable is not validated at the edge.** It is passed to
+  the datastores as written, and `abuse_reports.code` is `VARCHAR(64)`, so a
+  report carrying a longer code fails on the insert. `ApiExceptionHandler` has
+  no catch-all, so that surfaces as a `500` with Spring's default body rather
+  than the declared error shape. Tracked in [TODO.md](TODO.md).
 - **No account administration.** No endpoint reads, updates, disables or deletes
   a customer; sign-up is the only operation on `customers`.
 - **No sign-out or token revocation.** A leaked token is valid until it expires

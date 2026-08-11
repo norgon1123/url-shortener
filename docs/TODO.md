@@ -12,13 +12,17 @@ run and give brownfield a baseline. These are the reasons it said no. Approving
 did not resolve any of them, and the node's own artifact
 (`artifacts/release.json`) is the fuller record.
 
-**AC21 has a working bypass in shipped code, and no test catches it.**
-A trailing dot — `https://malware.example.com./x` — defeats the denylist
-(SEC-2), and a non-dotted-quad literal — `http://2130706433/` — defeats the
-internal-address rule (SEC-6). Both were confirmed by a standalone JDK 21 probe,
-not by a test. Fix the host normaliser (strip the root label, resolve integer and
-hex literal forms) and add the two cases as regression tests. The acceptance
-criterion is currently marked satisfied by a suite that would not notice either.
+**~~AC21 has a working bypass in shipped code, and no test catches it.~~ Closed
+by brownfield-1.** A trailing dot — `https://malware.example.com./x` — defeated
+the denylist (SEC-2), and a non-dotted-quad literal — `http://2130706433/` —
+defeated the internal-address rule (SEC-6). Both host decisions now go through
+`HostNormalizer`, which lower-cases, strips trailing dots, punycodes and renders
+every numeric IPv4 form as a dotted quad, and fails closed (422) on a host it
+cannot canonicalise. The regression tests are
+`unit/HostCanonicalisationTest` and `behaviour/HostEvasionRefusalTest`.
+Remaining: there is **no retroactive rescan** — links created through those
+forms before the change keep redirecting — and the requester's own note stands,
+that more equivalent forms may exist beyond the family closed here.
 
 **An unvalidated `{code}` reaches the datastores.**
 On the two untrusted paths it flows to Redis, PostgreSQL, and
@@ -65,10 +69,13 @@ in the main migration — they are real data. Provision real accounts by an
 operator step. Rotate the plaintexts out of `openapi.yaml`, or mark them
 explicitly as fixtures that exist only when the test location is active.
 
-**Unblocked by brownfield-1.** That run adds `POST /api/v1/customers`, so real
-accounts can be provisioned and the two seeded ones are no longer the only way
-in. Removing them was held out of that change's scope deliberately; it is now
-just a migration and a rotation, and there is no longer an argument for waiting.
+**Unblocked by brownfield-1.** That run has landed `POST /api/v1/customers`, so
+real accounts can be provisioned and the two seeded ones are no longer the only
+way in. Removing them was held out of that change's scope deliberately; it is
+now just a migration and a rotation, and there is no longer an argument for
+waiting. The seeded rows and their plaintexts are still shipped by
+`V2__seed_customers_and_denylist.sql` and still published in
+`artifacts/openapi.yaml`.
 
 **One precondition travels with it.** `V3__unique_lower_email.sql` adds
 `UNIQUE (lower(email))`. Before it is applied anywhere real:
