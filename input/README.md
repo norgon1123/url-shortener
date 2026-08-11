@@ -8,6 +8,7 @@ in place says only what was asked last.
 |---|---|---|
 | `greenfield.txt` | `greenfield-3` | Build the URL shortener. 92 lines, no code exists. |
 | `brownfield.txt` | `brownfield-1` | Change the running service: fix the URL filter's bypasses, add self-service sign-up, add anonymous links that expire after a month. 76 lines, written against a live codebase. |
+| `ambiguous.txt` | `ambiguous-1`, `ambiguous-2` | "More reliable, and we want analytics." 20 lines, deliberately underspecified — the same file run twice with different human answers. |
 | `requirement.txt` | whichever run is live | What `intake` actually reads. A copy of the run's file. |
 
 Both are verbatim what the agents were handed, recoverable from git as well:
