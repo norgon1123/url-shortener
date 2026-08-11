@@ -65,6 +65,23 @@ in the main migration — they are real data. Provision real accounts by an
 operator step. Rotate the plaintexts out of `openapi.yaml`, or mark them
 explicitly as fixtures that exist only when the test location is active.
 
+**Unblocked by brownfield-1.** That run adds `POST /api/v1/customers`, so real
+accounts can be provisioned and the two seeded ones are no longer the only way
+in. Removing them was held out of that change's scope deliberately; it is now
+just a migration and a rotation, and there is no longer an argument for waiting.
+
+**One precondition travels with it.** `V3__unique_lower_email.sql` adds
+`UNIQUE (lower(email))`. Before it is applied anywhere real:
+
+```sql
+SELECT lower(email) FROM customers GROUP BY lower(email) HAVING count(*) > 1;
+```
+
+A non-empty result fails the migration and stops the deploy mid-way. The remedy
+is deciding which row keeps the address, not a looser index. It returns nothing
+in this repository, where the only rows are the two seeded accounts — which is
+not evidence about any database that has had real traffic.
+
 **Note the interaction with SEC-5.** As long as any account can take down any
 link, the blast radius of one leaked credential is the whole service. Fixing
 SEC-1 alone narrows who has the credential; it does not narrow what the
