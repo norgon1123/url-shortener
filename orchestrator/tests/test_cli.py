@@ -14,7 +14,10 @@ from pathlib import Path
 import pytest
 import yaml
 
+from sdlc.audit import Journal
 from sdlc.cli import main
+from sdlc.model import NodeStatus
+from sdlc.state import RunStore
 
 NODES = [
     {
@@ -119,6 +122,51 @@ class TestRunLifecycle:
         cli(env, "reject", "run-cli", "design", "--approver", "neil", "--note", "302 not 301")
         assert cli(env, "resume", "run-cli") == 2
         assert (env["workspace"] / "artifacts/design.txt").read_text() == "v2: 302"
+
+    def test_repair_sends_a_finished_node_back_with_a_brief(
+        self, env: dict, capsys
+    ) -> None:
+        """The move a human had no way to make.
+
+        `triage` routes repairs, but only out of a `verify` failure. A green
+        build whose review found a blocker left the reviewer with two useless
+        options: reject the reviewing node, which re-runs the reviewer and
+        cannot change code, or approve it, which accepts the finding.
+        """
+        start(env)
+        cli(env, "approve", "run-cli", "design", "--approver", "neil", "--note", "ok")
+        cli(env, "resume", "run-cli")
+        store = RunStore(env["runs"] / "state.db")
+        assert store.get_node("run-cli", "build").status is NodeStatus.PASSED
+
+        assert (
+            cli(
+                env,
+                "repair",
+                "run-cli",
+                "build",
+                "--approver",
+                "neil",
+                "--note",
+                "a fresh account can take down any link",
+            )
+            == 0
+        )
+        assert store.get_node("run-cli", "build").status is NodeStatus.PENDING
+
+        entries = Journal(
+            env["runs"] / "run-cli" / "journal.jsonl", run_id="run-cli"
+        ).by_event("human_repair_requested")
+        assert len(entries) == 1
+        # Not `repair_routed`: the journal must never say the machine decided
+        # something a person decided.
+        assert entries[0].payload["approver"] == "neil"
+        assert "take down any link" in entries[0].payload["reason"]
+
+    def test_repair_rejects_a_node_the_pipeline_does_not_have(self, env: dict) -> None:
+        start(env)
+        with pytest.raises(SystemExit, match="unknown node"):
+            cli(env, "repair", "run-cli", "nope", "--approver", "neil", "--note", "x")
 
     def test_a_manifest_makes_resume_self_contained(self, env: dict) -> None:
         """Resume takes a run id and nothing else -- CI does not re-supply flags."""

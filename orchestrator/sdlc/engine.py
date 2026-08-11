@@ -933,8 +933,22 @@ class Engine:
         for entry in reversed(self.journal.entries()):
             if entry.event == "node_passed" and entry.node_id == node_id:
                 return ""  # repaired since; the note is spent
-            if entry.event == "repair_routed" and entry.node_id == node_id:
-                return str(entry.payload.get("reason") or "")
+            # Two ways work comes back to a node, and they are not the same
+            # claim: `triage` attributing a test failure, or a person reading a
+            # review and deciding. Both reach the node as its brief; only the
+            # journal has to keep them apart.
+            if entry.event in ("repair_routed", "human_repair_requested") and (
+                entry.node_id == node_id
+            ):
+                reason = str(entry.payload.get("reason") or "")
+                if entry.event == "human_repair_requested":
+                    approver = entry.payload.get("approver") or "a reviewer"
+                    return (
+                        f"{approver} read the review of your last attempt and is "
+                        f"sending this back. Address it directly; it is a "
+                        f"decision, not a suggestion.\n\n{reason}"
+                    )
+                return reason
         return ""
 
     _TARGET_FOR = {"implementation": "implement", "test": "author-tests"}
