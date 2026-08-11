@@ -101,6 +101,38 @@ has the full account; the two things worth knowing before quoting it:
   on attempts that were thrown away. Four of the causes were defects in the
   orchestrator itself, each now a test.
 
+### `brownfield-1` — the same graph against code that exists
+
+`orchestrator/fixtures/runs/brownfield-1`. Completed: 276 tests, 88.3% coverage,
+97% gate pass rate, zero replans, $98.16 with 53% rework. Signed off over a
+`ready: false` verdict, same as `greenfield-3`.
+
+Read it for the things a greenfield run cannot show: an impact analysis with a
+real codebase to analyse, a security finding that no test could have caught
+because nothing was red, and two findings the release node made against the
+pipeline itself.
+
+### Sending work back to a branch
+
+`triage` routes repairs out of a `verify` failure. When the build is green and a
+*review* finds something, that route does not exist — rejecting the reviewing
+node re-runs the reviewer, which cannot change code, and approving it accepts
+the finding. Use:
+
+```bash
+python -m sdlc.cli repair <run-id> implement author-tests \
+  --approver <you> --note "what to fix and why"
+```
+
+The note reaches each node as its brief, so it is the whole instruction rather
+than a label; a repair with no account of what it is repairing is a re-roll of
+the same dice. It resets the named nodes and everything downstream, and records
+`human_repair_requested` — not `repair_routed`, because the journal must never
+say the machine decided something a person decided.
+
+Each such decision also buys the named branch one repair attempt beyond its
+machine budget. See [ADR-006](adr/006-bounded-repair-with-human-routing.md).
+
 ### A note on resuming after a session limit
 
 A Max subscription's session limit ends a node mid-run with

@@ -114,14 +114,21 @@ url-shortener/
     tests/                   # pytest over mock backends — the orchestrator's own suite
     fixtures/runs/           # recorded journals shipped in-repo
   docs/
-    IMPLEMENTATION_PLAN.md   # this file
-    architecture.md
-    deployment-staging.md
-    demo-script.md
-    ENGINEERING_SUMMARY.md
-    adr/001..005
-    scenarios/{greenfield,brownfield,ambiguous}.md
+    IMPLEMENTATION_PLAN.md   # this file: design, plan, and what changed
+    METRICS.md               # both runs measured, and what each metric hides
+    adr/001..006             # the decisions, what they cost, what would reverse them
+    OPERATIONS.md            # driving it: commands, recorded runs, constraints
+    TODO.md                  # known and not built, with mechanism and fix
+    evidence/                # a failing-test run the graph cannot produce itself
+    REQUIREMENTS_BRIEF.md    # the service's design positions
+    API.md  RUNBOOK.md       # written by the pipeline's `docs` node
 ```
+
+The plan originally listed `architecture.md`, `deployment-staging.md`,
+`demo-script.md` and `ENGINEERING_SUMMARY.md` as separate pages. They were
+folded into this file and the README instead: four documents that each restate
+part of one design drift apart, and the drift is invisible until someone quotes
+the stale one.
 
 Node interiors call the Agent SDK's `query(prompt, options)` with a per-node
 tool allowlist and a JSON output schema. **The graph, gates, journal,
@@ -438,6 +445,30 @@ control that did not exist before — see §12.
 ---
 
 ## 10. Demo script
+
+> **As planned, below. As it turned out, the walkthrough writes itself from the
+> two recorded runs** — every point this section proposes to stage has a journal
+> entry behind it, which is a stronger demonstration than a scripted one. The
+> ten-minute version:
+>
+> 1. `pytest orchestrator/tests` — 425 tests, six seconds, no API key. The
+>    machinery is exercised without spending anything.
+> 2. `python -m sdlc.cli verify greenfield-3` — 345 entries, chain intact.
+>    Then edit one byte of the journal and run it again.
+> 3. `python -m sdlc.cli report brownfield-1` — metrics derived from that
+>    journal, including the 53% rework figure.
+> 4. **The escalation that could not be faked**: `brownfield-1` seq 11 —
+>    `clarify` refuses to proceed because any visible refusal of a duplicate
+>    sign-up turns the endpoint into an account-existence oracle. Nobody
+>    scripted that question.
+> 5. **The repair loop**: `greenfield-3` seq 205-207 — a mixed verdict routed to
+>    both branches with separate briefs, 23 failures down to 1.
+> 6. **The human in the loop doing something a machine cannot**: seq 115, a
+>    contract question adjudicated, the branch named, and the repair honouring
+>    the ruling rather than evading it.
+> 7. **The system finding a hole in itself**: `brownfield-1`'s
+>    `release-readiness` reporting that a gate was edited inside the run with no
+>    lens auditing the diff.
 
 The halt-on-ambiguity moment alone reads as a scripted `if`. Four things make it
 unfakeable:
