@@ -1,7 +1,25 @@
 package com.example.urlshortener.behaviour;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.example.urlshortener.api.AnonymousLinkResponse;
+import com.example.urlshortener.api.LinkPage;
+import com.example.urlshortener.api.LinkResponse;
 import com.example.urlshortener.support.AbstractIntegrationTest;
+import com.example.urlshortener.support.ApiClient;
+import com.example.urlshortener.support.Fixtures;
+import java.net.http.HttpResponse;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 
 /**
  * Nobody owns an anonymous link, and the API says so by saying nothing (AC13).
@@ -20,6 +38,18 @@ import org.junit.jupiter.api.Test;
 class AnonymousLinkInvisibilityTest extends AbstractIntegrationTest {
 
     /**
+     * Starts from full buckets, for the reason {@code AnonymousLinkCreationTest}
+     * gives: the anonymous-create bucket is keyed by client address and another
+     * class empties it on purpose, and every behaviour here needs an anonymous
+     * link to exist before it can fail to find one. This runs before the first
+     * click of each test.
+     */
+    @BeforeEach
+    void startFromFullBuckets() {
+        resetSharedTierState();
+    }
+
+    /**
      * Reading an anonymous code through the management API answers 404 for a
      * signed-in caller, including one who has just created an anonymous link in
      * this very test.
@@ -28,7 +58,30 @@ class AnonymousLinkInvisibilityTest extends AbstractIntegrationTest {
      */
     @Test
     void readingAnAnonymousCodeAnswersNotFoundForEverySignedInCaller() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        AnonymousLinkResponse anonymous = givenAnonymousLink();
+        String alice = alice();
+        String bob = bob();
+        // This caller created the link a moment ago, in this process, over this
+        // client: the closest thing to "whoever created it" that an account holder
+        // can be.
+        String theCreatorWithAnAccount = sessionFor(givenAccount());
+        AnonymousLinkResponse theirs = givenAnonymousLink(Fixtures.OTHER_TARGET_URL);
+
+        HttpResponse<String> asAlice = api.getLink(alice, anonymous.code());
+        HttpResponse<String> asBob = api.getLink(bob, anonymous.code());
+        HttpResponse<String> asItsCreator = api.getLink(theCreatorWithAnAccount, theirs.code());
+
+        assertAll(
+                () -> assertEquals(404, asAlice.statusCode(), asAlice.body()),
+                () -> assertEquals(404, asBob.statusCode(), asBob.body()),
+                () -> assertEquals(404, asItsCreator.statusCode(),
+                        "creating it buys no read: " + asItsCreator.body()),
+                () -> assertNotEquals(403, asAlice.statusCode(),
+                        "403 would confirm the code exists"),
+                () -> assertNotEquals(410, asItsCreator.statusCode(),
+                        "and 410 would confirm it once did"),
+                () -> assertEquals(302, api.click(anonymous.code()).statusCode(),
+                        "meanwhile the link itself is perfectly alive"));
     }
 
     /**
@@ -40,7 +93,24 @@ class AnonymousLinkInvisibilityTest extends AbstractIntegrationTest {
      */
     @Test
     void theNotFoundForAnAnonymousCodeIsByteIdenticalToTheOneForAnUnissuedCode() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        AnonymousLinkResponse anonymous = givenAnonymousLink();
+        String alice = alice();
+        LinkResponse bobsLink = givenLink(bob());
+
+        HttpResponse<String> nobodys = api.getLink(alice, anonymous.code());
+        HttpResponse<String> neverIssued = api.getLink(alice, Fixtures.UNISSUED_CODE);
+        HttpResponse<String> somebodyElses = api.getLink(alice, bobsLink.code());
+
+        assertAll(
+                () -> assertEquals(neverIssued.statusCode(), nobodys.statusCode(), nobodys.body()),
+                () -> assertEquals(neverIssued.body(), nobodys.body(),
+                        "nobody's is not a distinguishable state"),
+                () -> assertEquals(somebodyElses.statusCode(), nobodys.statusCode()),
+                () -> assertEquals(somebodyElses.body(), nobodys.body(),
+                        "and it is not distinguishable from somebody else's either"),
+                () -> assertEquals(Fixtures.NOT_FOUND_BODY, nobodys.body()),
+                () -> assertFalse(ApiClient.asTree(nobodys).has("fields"),
+                        "the not-found body carries nothing else: " + nobodys.body()));
     }
 
     /**
@@ -52,7 +122,23 @@ class AnonymousLinkInvisibilityTest extends AbstractIntegrationTest {
      */
     @Test
     void readingAnAnonymousCodeWithoutASessionIsRefusedAsUnauthenticated() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        AnonymousLinkResponse anonymous = givenAnonymousLink();
+
+        HttpResponse<String> forTheAnonymousCode = api.getLink(null, anonymous.code());
+        HttpResponse<String> forAnUnissuedCode = api.getLink(null, Fixtures.UNISSUED_CODE);
+
+        assertAll(
+                () -> assertEquals(401, forTheAnonymousCode.statusCode(),
+                        "the management API is authenticated whatever the code is: "
+                                + forTheAnonymousCode.body()),
+                () -> assertEquals("unauthorized", ApiClient.asError(forTheAnonymousCode).error()),
+                () -> assertEquals("Authentication required.",
+                        ApiClient.asError(forTheAnonymousCode).message()),
+                () -> assertTrue(
+                        ApiClient.header(forTheAnonymousCode, Fixtures.WWW_AUTHENTICATE).isPresent(),
+                        "with the challenge the contract documents"),
+                () -> assertEquals(forAnUnissuedCode.body(), forTheAnonymousCode.body(),
+                        "the 401 comes before any lookup, so it says nothing about the code"));
     }
 
     /**
@@ -64,7 +150,28 @@ class AnonymousLinkInvisibilityTest extends AbstractIntegrationTest {
      */
     @Test
     void changingAnAnonymousLinksExpiryAnswersNotFoundForEveryCaller() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        AnonymousLinkResponse anonymous = givenAnonymousLink();
+        Instant muchLater = Instant.now().plus(365, ChronoUnit.DAYS);
+
+        HttpResponse<String> asAlice = api.updateExpiry(alice(), anonymous.code(), muchLater);
+        HttpResponse<String> asANewCustomer =
+                api.updateExpiry(sessionFor(givenAccount()), anonymous.code(), muchLater);
+        HttpResponse<String> withNoCredential = api.updateExpiry(null, anonymous.code(), muchLater);
+
+        HttpResponse<String> clicked = api.click(anonymous.code());
+        assertAll(
+                () -> assertEquals(404, asAlice.statusCode(), asAlice.body()),
+                () -> assertEquals(Fixtures.NOT_FOUND_BODY, asAlice.body()),
+                () -> assertEquals(404, asANewCustomer.statusCode(), asANewCustomer.body()),
+                () -> assertEquals(401, withNoCredential.statusCode(),
+                        "and an unauthenticated caller does not get further: "
+                                + withNoCredential.body()),
+                () -> assertNotEquals(200, asAlice.statusCode(),
+                        "there is no way to extend or shorten an anonymous link"),
+                () -> assertEquals(302, clicked.statusCode(),
+                        "the link is untouched by the attempts: " + clicked.body()),
+                () -> assertEquals(Fixtures.TARGET_URL,
+                        ApiClient.header(clicked, Fixtures.LOCATION).orElse(null)));
     }
 
     /**
@@ -76,7 +183,25 @@ class AnonymousLinkInvisibilityTest extends AbstractIntegrationTest {
      */
     @Test
     void deletingAnAnonymousCodeAnswersNotFoundAndTakesNothingDown() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        AnonymousLinkResponse anonymous = givenAnonymousLink();
+
+        HttpResponse<String> asAlice = api.deleteLink(alice(), anonymous.code());
+        HttpResponse<String> asBob = api.deleteLink(bob(), anonymous.code());
+        HttpResponse<String> asANewCustomer =
+                api.deleteLink(sessionFor(givenAccount()), anonymous.code());
+        HttpResponse<String> withNoCredential = api.deleteLink(null, anonymous.code());
+
+        HttpResponse<String> clicked = api.click(anonymous.code());
+        assertAll(
+                () -> assertEquals(404, asAlice.statusCode(), asAlice.body()),
+                () -> assertEquals(404, asBob.statusCode(), asBob.body()),
+                () -> assertEquals(404, asANewCustomer.statusCode(), asANewCustomer.body()),
+                () -> assertEquals(Fixtures.NOT_FOUND_BODY, asAlice.body()),
+                () -> assertEquals(401, withNoCredential.statusCode(), withNoCredential.body()),
+                () -> assertNotEquals(204, asAlice.statusCode(),
+                        "a 204 here would be a takedown route for a link nobody owns"),
+                () -> assertEquals(302, clicked.statusCode(),
+                        "and the link is still redirecting afterwards: " + clicked.body()));
     }
 
     /**
@@ -89,7 +214,27 @@ class AnonymousLinkInvisibilityTest extends AbstractIntegrationTest {
      */
     @Test
     void anAnonymousCodeAppearsInNoCustomersLinkList() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        AnonymousLinkResponse anonymous = givenAnonymousLink();
+        String alice = alice();
+        String bob = bob();
+        String newcomer = sessionFor(givenAccount());
+        LinkResponse theirOwnLink = givenLink(newcomer);
+
+        List<String> alicesCodes = everyCodeOwnedBy(alice);
+        List<String> bobsCodes = everyCodeOwnedBy(bob);
+        List<String> newcomersCodes = everyCodeOwnedBy(newcomer);
+        LinkPage newcomersFirstPage = ApiClient.asPage(api.listLinks(newcomer, 0, 20));
+
+        assertAll(
+                () -> assertAll(List.of(alicesCodes, bobsCodes, newcomersCodes).stream()
+                        .map(codes -> (Executable) () -> assertFalse(codes.contains(anonymous.code()),
+                                "an anonymous code appears on no page of any customer's list: "
+                                        + codes))),
+                () -> assertEquals(List.of(theirOwnLink.code()), newcomersCodes,
+                        "the newcomer sees the one link they own and nothing else"),
+                () -> assertEquals(1L, newcomersFirstPage.totalElements(),
+                        "and the total counts only that one - hiding a row while counting it would "
+                                + "leak that something exists"));
     }
 
     /**
@@ -102,6 +247,42 @@ class AnonymousLinkInvisibilityTest extends AbstractIntegrationTest {
      */
     @Test
     void anonymousLinksDoNotDisturbAnExistingCustomersListing() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        LinkResponse alicesLink = givenLink(alice);
+        long totalBefore = ApiClient.asPage(api.listLinks(alice, 0, 1)).totalElements();
+        List<String> codesBefore = everyCodeOwnedBy(alice);
+
+        for (int i = 0; i < 3; i++) {
+            givenAnonymousLink(Fixtures.OTHER_TARGET_URL + "?n=" + i);
+        }
+
+        long totalAfter = ApiClient.asPage(api.listLinks(alice, 0, 1)).totalElements();
+        List<String> codesAfter = everyCodeOwnedBy(alice);
+        HttpResponse<String> herLinkStillReads = api.getLink(alice, alicesLink.code());
+        assertAll(
+                () -> assertEquals(totalBefore, totalAfter,
+                        "ownerless rows in the table do not enter an owner-scoped count"),
+                () -> assertEquals(codesBefore, codesAfter,
+                        "nor an owner-scoped page, in content or in order"),
+                () -> assertEquals(200, herLinkStillReads.statusCode(), herLinkStillReads.body()),
+                () -> assertEquals(alicesLink.longUrl(),
+                        ApiClient.asLink(herLinkStillReads).longUrl(),
+                        "and her own link is exactly as it was"));
+    }
+
+    // ---- helpers ----------------------------------------------------------
+
+    /** Every code on every page of this caller's list, in page order. */
+    private List<String> everyCodeOwnedBy(String bearer) {
+        List<String> codes = new ArrayList<>();
+        int page = 0;
+        while (true) {
+            LinkPage listed = ApiClient.asPage(api.listLinks(bearer, page, 100));
+            listed.items().forEach(item -> codes.add(item.code()));
+            page++;
+            if (page >= listed.totalPages()) {
+                return codes;
+            }
+        }
     }
 }

@@ -1,9 +1,22 @@
 package com.example.urlshortener.behaviour;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.example.urlshortener.api.AnonymousLinkResponse;
 import com.example.urlshortener.support.AbstractIntegrationTest;
+import com.example.urlshortener.support.ApiClient;
 import com.example.urlshortener.support.Fixtures;
+import java.net.http.HttpResponse;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 import org.springframework.boot.test.context.SpringBootTest;
 
 /**
@@ -32,6 +45,9 @@ import org.springframework.boot.test.context.SpringBootTest;
         })
 class AnonymousCreateRateLimitTest extends AbstractIntegrationTest {
 
+    /** The capacity this class configures for both buckets, quoted once. */
+    private static final int CAPACITY = 5;
+
     @BeforeEach
     void startFromEmptyBuckets() {
         resetSharedTierState();
@@ -47,7 +63,28 @@ class AnonymousCreateRateLimitTest extends AbstractIntegrationTest {
      */
     @Test
     void anonymousCreationIsThrottledOnceItsBucketIsEmpty() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        List<HttpResponse<String>> burst = createAnonymouslyRepeatedly(CAPACITY + 3);
+
+        long accepted = burst.stream().filter(r -> r.statusCode() == 201).count();
+        HttpResponse<String> throttled = burst.stream()
+                .filter(r -> r.statusCode() == 429)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(
+                        "an unauthenticated write path was never throttled: " + statuses(burst)));
+        String retryAfter = ApiClient.header(throttled, Fixtures.RETRY_AFTER)
+                .orElseThrow(() -> new AssertionError("a 429 must say when to come back"));
+        assertAll(
+                () -> assertEquals(201, burst.get(0).statusCode(),
+                        "the first create is served: " + burst.get(0).body()),
+                () -> assertTrue(accepted <= CAPACITY,
+                        "no more than the bucket holds were accepted: " + statuses(burst)),
+                () -> assertEquals(burst.size(), accepted + burst.stream()
+                        .filter(r -> r.statusCode() == 429).count(),
+                        "every answer was a 201 or a 429: " + statuses(burst)),
+                () -> assertEquals(Fixtures.RATE_LIMITED, ApiClient.asError(throttled).error()),
+                () -> assertEquals("Too many requests.", ApiClient.asError(throttled).message()),
+                () -> assertTrue(retryAfter.matches("\\d+"), "whole seconds: " + retryAfter),
+                () -> assertTrue(Long.parseLong(retryAfter) >= 1, "never 0: " + retryAfter));
     }
 
     /**
@@ -59,7 +96,30 @@ class AnonymousCreateRateLimitTest extends AbstractIntegrationTest {
      */
     @Test
     void aThrottledAnonymousCreateMintsNoLink() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        List<HttpResponse<String>> burst = createAnonymouslyRepeatedly(CAPACITY + 3);
+
+        Set<String> codesHandedBack = new LinkedHashSet<>();
+        List<HttpResponse<String>> refusals = new ArrayList<>();
+        for (HttpResponse<String> response : burst) {
+            if (response.statusCode() == 201) {
+                codesHandedBack.add(ApiClient.asAnonymousLink(response).code());
+            } else {
+                refusals.add(response);
+            }
+        }
+        assertAll(
+                () -> assertTrue(!refusals.isEmpty(), "the bucket was never emptied: " + statuses(burst)),
+                () -> assertTrue(codesHandedBack.size() <= CAPACITY,
+                        "the storage burn is bounded by the bucket: " + codesHandedBack),
+                () -> assertAll(refusals.stream().map(refused -> (Executable) () -> assertAll(
+                        () -> assertEquals(429, refused.statusCode(), refused.body()),
+                        () -> assertFalse(ApiClient.asTree(refused).has("code"),
+                                "a throttled create hands back no code: " + refused.body()),
+                        () -> assertFalse(ApiClient.asTree(refused).has("shortUrl"),
+                                refused.body())))),
+                () -> assertAll(codesHandedBack.stream().map(code -> (Executable) () -> assertEquals(
+                        302, api.click(code).statusCode(),
+                        "every code that was handed back is a real link: " + code))));
     }
 
     /**
@@ -72,7 +132,20 @@ class AnonymousCreateRateLimitTest extends AbstractIntegrationTest {
      */
     @Test
     void exhaustingTheAnonymousBucketLeavesAuthenticatedCreationServed() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        List<HttpResponse<String>> anonymousBurst = createAnonymouslyRepeatedly(CAPACITY + 3);
+
+        HttpResponse<String> asACustomer = api.createLink(alice, Fixtures.OTHER_TARGET_URL);
+
+        assertAll(
+                () -> assertTrue(anonymousBurst.stream().anyMatch(r -> r.statusCode() == 429),
+                        "the anonymous bucket really was emptied: " + statuses(anonymousBurst)),
+                () -> assertEquals(201, asACustomer.statusCode(),
+                        "an anonymous flood from this address must not spend a customer's write "
+                                + "tokens: " + asACustomer.body()),
+                () -> assertEquals(302,
+                        api.click(ApiClient.asLink(asACustomer).code()).statusCode(),
+                        "and the link it created works"));
     }
 
     /**
@@ -85,7 +158,25 @@ class AnonymousCreateRateLimitTest extends AbstractIntegrationTest {
      */
     @Test
     void aCustomerWhoHasSpentTheirWriteLimitCannotMintMoreLinksAnonymously() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        List<HttpResponse<String>> authenticatedBurst = new ArrayList<>();
+        for (int i = 0; i < CAPACITY + 3; i++) {
+            authenticatedBurst.add(api.createLink(alice, Fixtures.TARGET_URL + "&spent=" + i));
+        }
+
+        List<HttpResponse<String>> switchedToAnonymous = createAnonymouslyRepeatedly(CAPACITY + 3);
+
+        long mintedAnonymously = switchedToAnonymous.stream().filter(r -> r.statusCode() == 201).count();
+        assertAll(
+                () -> assertTrue(authenticatedBurst.stream().anyMatch(r -> r.statusCode() == 429),
+                        "the customer really did spend their write limit: "
+                                + statuses(authenticatedBurst)),
+                () -> assertTrue(switchedToAnonymous.stream().anyMatch(r -> r.statusCode() == 429),
+                        "switching path does not buy an unmetered one: "
+                                + statuses(switchedToAnonymous)),
+                () -> assertTrue(mintedAnonymously <= CAPACITY,
+                        "and it refuses at its own capacity, not at nothing: "
+                                + statuses(switchedToAnonymous)));
     }
 
     /**
@@ -97,6 +188,26 @@ class AnonymousCreateRateLimitTest extends AbstractIntegrationTest {
      */
     @Test
     void anEmptyAnonymousCreateBucketDoesNotAffectTheClickPath() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        AnonymousLinkResponse minted = givenAnonymousLink();
+        List<HttpResponse<String>> burst = createAnonymouslyRepeatedly(CAPACITY + 3);
+
+        List<HttpResponse<String>> clicks = clickRepeatedly(minted.code(), 5);
+
+        assertAll(
+                () -> assertTrue(burst.stream().anyMatch(r -> r.statusCode() == 429),
+                        "the create bucket is empty: " + statuses(burst)),
+                () -> assertTrue(clicks.stream().allMatch(r -> r.statusCode() == 302),
+                        "clicks do not share a bucket with anonymous creation: " + statuses(clicks)),
+                () -> assertTrue(clicks.stream().noneMatch(r -> r.statusCode() == 429),
+                        "and the click path is the priority: " + statuses(clicks)),
+                () -> assertEquals(Fixtures.TARGET_URL,
+                        ApiClient.header(clicks.get(clicks.size() - 1), Fixtures.LOCATION).orElse(null)));
+    }
+
+    // ---- helpers ----------------------------------------------------------
+
+    /** The status codes of a run of responses, for a failure message worth reading. */
+    private String statuses(List<HttpResponse<String>> responses) {
+        return responses.stream().map(r -> String.valueOf(r.statusCode())).toList().toString();
     }
 }
