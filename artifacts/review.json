@@ -2,13 +2,13 @@
   "findings": [
     {
       "confidence": "high",
-      "file": "service/src/main/java/com/example/urlshortener/../resources/db/migration/V2__seed_customers_and_denylist.sql",
+      "file": "service/src/main/resources/db/migration/V2__seed_customers_and_denylist.sql",
       "id": "SEC-1",
       "lens": "review-security",
       "line": 13,
       "severity": "blocker",
-      "suggestion": "Move the two customer INSERTs to a separate location (e.g. classpath:db/testdata) added to spring.flyway.locations only under a dev/test profile, leaving the denylist rows in the main migration; provision real accounts by an operator step. Then rotate the plaintexts out of openapi.yaml or mark them as fixtures that exist only when the test location is active. Note the interaction with SEC-5: as long as any account can take down any link, the blast radius of a leaked account is the whole service.",
-      "summary": "BLOCKER, and the one thing that should stop this shipping. Two customer accounts whose plaintext passwords are published in artifacts/openapi.yaml (lines 99-102: alice-dev-password / bob-dev-password) are installed by an ordinary Flyway migration with no profile or placeholder gate (spring.flyway.enabled: true, locations: classpath:db/migration), so a production deploy creates them. The migration comment says 'local and test use only'; nothing enforces that. Because there is no registration endpoint these ARE the accounts, and either one is sufficient to create links and \u2014 via the abuse endpoint (SEC-5) \u2014 permanently take down any link on the service. I concur with the security lens on severity: this is a published credential in an unconditional migration, not a hardening nit."
+      "suggestion": "Move the two customer INSERTs to a separate location (e.g. classpath:db/testdata) added to spring.flyway.locations only under a dev/test profile, leaving the denylist rows in the main migration; provision real accounts by an operator step; rotate the published plaintexts out of openapi.yaml or mark them as fixtures that exist only when the test location is active. Note that the api-contract lens could not verify statically that the seeded Argon2 hashes actually correspond to the published plaintexts, so confirm that when relocating them.",
+      "summary": "Two customer accounts whose plaintext passwords are published in artifacts/openapi.yaml (lines 99-102) are installed by an unconditional Flyway migration that runs in every environment. There is no registration endpoint, so these are the only accounts, and any account is enough to create links and \u2014 via the abuse endpoint (SEC-5) \u2014 take down any link on the service. This is the one finding that must be adjudicated by a person before this ships: it is a credential in the repository that reaches production by default, and the migration comment asserting 'local and test use only' is enforced by nothing."
     },
     {
       "confidence": "high",
@@ -17,8 +17,8 @@
       "lens": "review-security",
       "line": 39,
       "severity": "major",
-      "suggestion": "Normalise the host once in UrlValidator.parseOrThrow \u2014 lower-case, strip trailing dots, reject empty labels \u2014 and check and store that normalised form so the denylist, the own-host check and the stored target all agree. Add a test asserting https://malware.example.com./x and https://MALWARE.example.com/x are both refused with the same 422 body as the plain form. Fixing this alongside SEC-6 in one normalisation routine is cheaper than two point fixes.",
-      "summary": "Working AC21 bypass with a one-character change to the submitted URL. URI.getHost() on https://malware.example.com./campaign returns the host with the DNS root dot; the check lower-cases but does not strip it, so existsByHost misses and the parent walk yields example.com., com., '' \u2014 never the listed host. The link is created and redirects, and every browser and resolver treats the trailing dot as the same name. The security lens verified the JDK 21 parsing behaviour with a standalone probe, which is the strongest evidence in any of the five reports. Same root cause as SEC-6: a host is turned into an identity without being normalised first."
+      "suggestion": "Normalise the host once in UrlValidator.parseOrThrow (lower-case, strip trailing dots, reject empty labels) and check and store that normalised form so denylist, own-host check and stored target all agree. Add tests asserting https://malware.example.com./x and https://MALWARE.example.com/x both return the same 422 body as the plain form. Fixing this alongside SEC-6 closes both halves of the same 'normalise a string into an identity' mistake.",
+      "summary": "Working AC21 bypass: URI.getHost() on https://malware.example.com./campaign returns the host with the DNS root dot, the check lower-cases but does not strip it, existsByHost misses and the parent walk yields example.com., com., '' \u2014 never the listed host. The link is created and redirects, and every resolver and browser treats the trailing dot as the same name. Verified against JDK 21 parsing by the security lens, which is why this leads the majors: it is a live control bypass with a one-character input change and a contained fix."
     },
     {
       "confidence": "high",
@@ -31,8 +31,8 @@
         "PERF-6"
       ],
       "severity": "major",
-      "suggestion": "Reject codes that cannot exist before touching the cache or the database: length 1..64, charset [A-Za-z0-9_-]. On the click path answer the standard 404 (no cache write, no query); on the abuse path answer the standard 202 without writing a row, so neither response becomes an existence oracle. Do not let a database constraint decide the status. A test posting a 200-character code to the abuse endpoint would have caught the 500.",
-      "summary": "THREE LENSES CONVERGED on one defect from three directions: the {code} path variable is never validated for shape or length on either untrusted path. Security saw untrusted input reaching an unhandled server error; the API-contract lens (API-1) independently traced the same path to a spec violation \u2014 a code longer than 64 characters violates abuse_reports.code VARCHAR(64), Hibernate raises DataIntegrityViolationException, no handler catches it, and the caller gets a 500 with Spring Boot's default body where openapi.yaml:563-573 documents only 202/400/401/429; performance (PERF-6) independently flagged the click-path half, where a multi-kilobyte path becomes a Redis GET key, a PostgreSQL parameter and a negatively-cached entry whose size an attacker chooses on the one unauthenticated endpoint. Independent convergence from three lenses on one input-validation gap is strong evidence this is real, and one fix closes all three. It also closes SEC-9 (log injection), since a validated code cannot contain a newline."
+      "suggestion": "Reject codes that cannot exist before touching cache or database: length 1..64 and charset [A-Za-z0-9_-]. On the click path answer the standard notFound() with identical body and headers (so it stays a non-oracle) before the Redis and database round trips; on the abuse path answer the standard 202 without writing a row, so neither response becomes an existence oracle. This also closes SEC-9, since a validated code cannot contain a newline. API-2's fallback handler is still needed independently \u2014 validation removes this reachable case, not the class of cases.",
+      "summary": "Three lenses converged independently on the same defect: the {code} path variable is never validated for shape or length on either untrusted path. Security (SEC-7) and api-contract (API-1) both traced a code longer than 64 characters through the abuse endpoint into abuse_reports.code VARCHAR(64), raising DataIntegrityViolationException that no handler catches \u2014 the caller gets a 500 with Spring Boot's default error body where the spec (openapi.yaml:563-573) promises a uniform 202 and a closed ApiError catalogue. Performance (PERF-6) arrived at the click path from the other direction: an arbitrarily long segment becomes a Redis GET key, a PostgreSQL parameter and a negatively-cached entry whose size an attacker chooses, on the one endpoint that is unauthenticated. Convergence from three framings on one unvalidated input raises confidence to high; the severity is api-contract's major, since an untrusted input turning into an unhandled 500 is the concrete part."
     },
     {
       "confidence": "high",
@@ -41,8 +41,8 @@
       "lens": "review-api-contract",
       "line": 36,
       "severity": "major",
-      "suggestion": "Add a fallback @ExceptionHandler(Exception.class) that logs and returns a fixed ApiError body, then either document a 500 entry in the error catalogue or map the reachable dependency failures onto documented statuses (see API-3).",
-      "summary": "No fallback exception handler on the management surface. ApiExceptionHandler covers ApiException, MethodArgumentNotValid, HttpMessageNotReadable, MethodArgumentTypeMismatch and MissingServletRequestParameter and nothing else, so any other RuntimeException \u2014 a Postgres outage mid-request, a Jackson failure, the DataIntegrityViolation of SEC-7/API-1 \u2014 falls through to Boot's BasicErrorController and answers 500 with {timestamp,status,error,path} rather than ApiError. openapi.yaml:47 states the catalogue is closed and 500 appears nowhere in the document. This is the framework default leaking through at the one point nobody decided; the click path made the opposite decision deliberately (RedirectController:86, see API-8). Clear fix, high confidence, and it is the backstop that makes SEC-7's 500 and API-3's outage behaviour merely wrong rather than unshaped."
+      "suggestion": "Add a fallback @ExceptionHandler(Exception.class) that logs and returns a fixed ApiError body, then either document a 500 entry in the error catalogue or map the reachable dependency failures onto documented statuses (API-3). Clear, small fix; do it even after SEC-7's validation lands, because validation removes one reachable case and not the class.",
+      "summary": "ApiExceptionHandler covers five exception types and nothing else, so any other RuntimeException on the management surface (Postgres outage mid-request, Jackson serialization failure, the DataIntegrityViolation of SEC-7) falls through to Boot's BasicErrorController and answers 500 with {timestamp,status,error,path} rather than ApiError. openapi.yaml:47 declares the catalogue closed and every non-2xx body ApiError-shaped; 500 appears nowhere in the document. The click path made this decision deliberately (RedirectController:86, see API-8); the management path is the framework default leaking through at the one point nobody decided."
     },
     {
       "confidence": "high",
@@ -51,28 +51,8 @@
       "lens": "review-performance",
       "line": 116,
       "severity": "major",
-      "suggestion": "Fetch all pending deltas for the page in one call \u2014 opsForHash().multiGet(pendingKey, codes); HMGET is single-key so it preserves the Cluster-safety property the class documents \u2014 and do it after the transaction returns rather than inside it.",
-      "summary": "N+1 against the cache tier, inside a transaction holding a database connection. GET /api/v1/links maps every row through toResponse, which calls clickCounter.pendingDelta per link \u2014 one sequential Redis HGET per item, up to 100 (MAX_PAGE_SIZE) \u2014 inside a readOnly @Transactional that has already acquired a Hibernate connection for the page query. With the configured 1s Redis timeout, a degraded-but-alive Redis makes one list request pin a Hikari connection for up to 100 seconds; ten such requests exhaust the default pool of 10 (see PERF-5) and stall every other endpoint, including a redirect that missed cache. This is the clearest cross-tier coupling in the change and it has a mechanical fix. Note the amplification with SEC-11: this endpoint is charged to no rate-limit bucket at all."
-    },
-    {
-      "confidence": "high",
-      "file": "service/src/main/java/com/example/urlshortener/ratelimit/RedisTokenBucketRateLimiter.java",
-      "id": "SEC-4",
-      "lens": "review-security",
-      "line": 70,
-      "severity": "major",
-      "suggestion": "Make the failure mode per bucket: keep fail-open for CLICK (that rationale is sound and AC20 asks for it) and fail closed \u2014 or fall back to a small in-process per-instance bucket \u2014 for SIGN_IN, WRITE and ABUSE_REPORT, where refusing is the safe direction. Add a bounded concurrency limit around password verification (PERF-8) so sign-in cannot consume the heap regardless of the limiter's state, and a test asserting sign-in is still throttled with the Redis container stopped.",
-      "summary": "The limiter fails open for every bucket, not just the click path the fail-open rationale was written for. When Redis is unreachable the SIGN_IN bucket also allows everything, so a Redis outage removes all brute-force and credential-stuffing protection at the moment the service is already unhappy, and lets an unauthenticated caller drive unbounded memory-hard Argon2id work (see PERF-8, which measured the same attack from the resource side: ~200 concurrent hashes, ~3.2 GiB transient heap). The same outage removes the only bound on abuse-report takedowns (SEC-5) and on junk-link creation. The outage need not be an accident \u2014 the click path is the cheapest way to pressure the shared Redis, and PERF-2 shows a background job can stall it without any attacker at all."
-    },
-    {
-      "confidence": "high",
-      "file": "service/src/main/java/com/example/urlshortener/click/ClickFlushJob.java",
-      "id": "TEST-1",
-      "lens": "review-test-adequacy",
-      "line": 44,
-      "severity": "major",
-      "suggestion": "Add ClickDurabilityTest (own context, e.g. properties = \"app.click.flush-interval=PT1S\"): click a link N times, wait out more than one flush interval, call resetSharedTierState() to empty the shared tier, and assert the reported count is still N. Add a converse method asserting no double-report immediately after a flush (click N, wait a flush, read N not 2N). This test is also the instrument that would make PERF-1's fix verifiable.",
-      "summary": "No test would fail if the click flush to PostgreSQL never ran. Every count assertion reads durable + pendingDelta (LinkService.toResponse) and the Redis hash holding the delta is never emptied between the clicks and the assertion; DurabilityAcrossRestartTest restarts only the application and deliberately keeps the same Redis. Delete @Scheduled from flush(), break read_click_deltas.lua, or break ClickFlushWriter.write and the suite stays green. Read this next to PERF-1 and PERF-2, which found \u2014 independently and from a completely different angle \u2014 that this same drain cannot keep up by construction and stalls Redis while trying: the subsystem with the worst structural risk in the change is also the one the suite cannot see. That coincidence is the most useful thing in this review. The harness even anticipated the test: AbstractRestartIntegrationTest.sleep is documented 'for waiting out a flush interval' and no test calls it."
+      "suggestion": "Fetch all pending deltas for the page in one opsForHash().multiGet(pendingKey, codes) \u2014 HMGET is single-key so it keeps the Cluster-safety property the class documents \u2014 and do it after the transaction returns rather than inside it.",
+      "summary": "GET /api/v1/links maps every row through toResponse, which calls clickCounter.pendingDelta per link \u2014 one sequential Redis HGET per item, up to 100 (MAX_PAGE_SIZE), inside a readOnly @Transactional that has already acquired a Hikari connection. With the configured 1s Redis timeout, a degraded-but-alive Redis makes one list request hold a database connection for up to 100 seconds; ten such requests exhaust the default pool of 10 and stall every other endpoint, including a redirect that missed cache. SEC-11 notes the same endpoint is charged to no rate-limit bucket, so a single account can drive this at will \u2014 the two compound and are worth fixing together."
     },
     {
       "confidence": "medium",
@@ -81,58 +61,18 @@
       "lens": "review-performance",
       "line": 32,
       "severity": "major",
-      "suggestion": "Replace HGETALL with a cursor: HSCAN key cursor COUNT n in a loop until limit fields are collected, persisting the cursor (or using a per-pass random start) so passes make progress across the hash; the zero-field sweep can stay on the scanned window. Confirm with redis-cli --latency / SLOWLOG during a pass against a synthetically large pending hash.",
-      "summary": "readPending bounds what it returns but not what it reads: the script HGETALLs the entire pending hash and discards everything past the limit, so the 'batch' is O(total pending links) in Redis CPU and Lua memory every 5 seconds on every instance. Redis is single-threaded for scripts, so a pass over a hash grown to hundreds of thousands of fields (which PERF-1 shows is the steady state, not an edge case) blocks the same Redis that serves the resolution cache and the rate limiter on the redirect hot path. The failure couples: a click-counting backlog becomes redirect latency, and the 1s command timeout converts it into cache misses and fail-open rate limiting (SEC-4) rather than an outage. Background job degrading the hot path is the shape to care about here."
+      "suggestion": "Replace HGETALL with HSCAN in a loop inside the script until `limit` fields are collected, persisting the cursor (or using a per-pass random start) so passes make progress across the hash; keep the zero-field sweep on the scanned window. Confirm with redis-cli --latency or SLOWLOG during a pass against a synthetically large pending hash.",
+      "summary": "readPending bounds what it returns (limit) but not what it reads: the script HGETALLs the entire pending hash and discards everything past the limit, so the batch is O(total pending links) in Redis CPU and Lua memory every 5 seconds on every instance. Redis is single-threaded for scripts, so once the hash has grown (PERF-1) the background job stalls the same Redis that serves the resolution cache and the rate limiter on the redirect hot path; the 1s command timeout then converts that into cache misses and fail-open rate limiting rather than an outage. Put first among the click-drain findings because it has a bounded, mechanical fix."
     },
     {
       "confidence": "high",
       "file": "service/src/main/java/com/example/urlshortener/click/ClickFlushJob.java",
-      "id": "PERF-1",
-      "lens": "review-performance",
-      "line": 45,
-      "severity": "major",
-      "suggestion": "Batch the durable writes \u2014 one transaction per pass with a multi-row update or a JDBC batch of `update links set click_count = click_count + ? where id = ?` \u2014 and pipeline the settle decrements; then raise flush-batch-size and measure drain rate against arrival rate. Before shipping, expose HLEN clicks:pending as a gauge and alert if it trends upward: a monotonically growing pending hash is the signal that the drain is behind, and it is currently invisible.",
-      "summary": "The click drain has a hard ceiling of 500 distinct links per 5s pass (flush-batch-size=500, flush-interval=PT5S), each costing one JPA transaction plus one Redis settle round trip, sequentially on a single scheduler thread \u2014 about 100 distinct links/second per instance, against a design that reasons about 100M links/day. Above that arrival rate the pending hash grows without bound, which is what feeds PERF-2. Every instance runs the same unsharded schedule, so replicas multiply the read of the same hash rather than dividing the work. This is structural rather than a bug: it needs a design decision, not a patch, and it is the finding most likely to cost real time. Whether it blocks release depends on expected day-one load, which nobody has measured (see top_risks)."
-    },
-    {
-      "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/redirect/RedirectController.java",
-      "id": "SEC-3",
-      "lens": "review-security",
-      "line": 64,
-      "severity": "major",
-      "suggestion": "Either set server.forward-headers-strategy: native|framework and have the edge overwrite (not append to) X-Forwarded-For so the app sees a trustworthy client address, or state in the contract that the edge owns per-IP limiting and drop the app-side IP buckets. Do not read X-Forwarded-For without a trusted-proxy list \u2014 that hands the limit to the attacker. A test driving two requests with different forwarded addresses through one socket would pin whichever choice is made.",
-      "summary": "The three buckets the contract documents as 'keyed by client IP' (click, not-found, sign-in) are keyed by request.getRemoteAddr(), and nothing sets server.forward-headers-strategy. Behind any load balancer or edge proxy \u2014 which this service is specified to sit behind \u2014 that is the proxy's address for every request, so all callers share one bucket. Two consequences: per-source throttling for AC19 does not distinguish sources at all, and the global caps become a self-inflicted denial of service (3000 clicks/min, 60 sign-ins/min for the entire service against a stated ~100M clicks/day target). Same call at SignInController:40. The test lens reached the same ground independently from the other side (TEST-7: every test shares one loopback bucket, and the test contract concedes per-source isolation was never demonstrated), so the behaviour is both wrong and unpinned."
-    },
-    {
-      "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/abuse/AbuseReportService.java",
-      "id": "SEC-5",
-      "lens": "review-security",
-      "line": 74,
-      "severity": "major",
-      "suggestion": "Add a per-reporter daily cap distinct from the per-minute bucket, and require either a second distinct reporter or operator confirmation before blocking a link above a click threshold. Independently, add an operator-only unblock path so an incorrect takedown is recoverable \u2014 the audit rows already record who reported what. Note this is a design decision a human must adjudicate, not a mechanical fix; the clarification record shows it was signed off on an assumption that the implemented limit does not satisfy.",
-      "summary": "Any signed-in customer can permanently disable any link whose code they have seen, and codes are seen by everyone handed the link. The takedown is immediate and irreversible in this build: updateExpiry answers 409 for a non-ACTIVE link and there is no unblock path, so a false or malicious takedown needs a DBA. Clarification Q4 accepted the mechanism on the strength of 'rate-limited per reporter' plus an audit row, but the limit chosen is 60/min \u2014 86,400 links a day from one account \u2014 which does not bound the attack the design said it bounded, and the accepted reasoning did not consider irreversibility. This is the multiplier on SEC-1 (published production credentials) and on SEC-4 (the bucket fails open when Redis is down), and the audit trail it relies on is forgeable per SEC-9."
-    },
-    {
-      "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/link/LinkService.java",
-      "id": "API-3",
-      "lens": "review-api-contract",
-      "line": 81,
-      "severity": "major",
-      "suggestion": "Map DataAccessResourceFailureException/CannotCreateTransactionException on the create path onto ApiException.dependencyUnavailable so the documented 503 is what a caller sees; alternatively document that 503 covers only the cache and threat tiers, which would be a weaker promise than openapi.yaml:325 currently makes.",
-      "summary": "openapi.yaml:324-337 documents 503 service_unavailable on POST /api/v1/links for 'a dependency the create path needs is unavailable', but 503 is produced in exactly three places: short-code exhaustion (LinkService:182), the threat checker unavailable with fail-open disabled (LinkService:198, fail-open is true by default), and the resolution cache unreachable before issuing (ResolutionCache:91). PostgreSQL \u2014 the dependency most likely to be unavailable \u2014 is not one of them: saveAndFlush throws a DataAccessException that reaches no handler and answers 500 with the framework body (API-2). The documented degradation story for AC20 therefore does not hold for the most probable outage. Note that the one 503 branch that does exist is also the one the suite cannot fail (TEST-3), so AC20's create half is weak on both sides."
-    },
-    {
-      "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/link/LinkService.java",
-      "id": "TEST-2",
+      "id": "TEST-1",
       "lens": "review-test-adequacy",
-      "line": 101,
+      "line": 44,
       "severity": "major",
-      "suggestion": "Add to CustomAliasTest: anAliasProbedBeforeItExistedRedirectsAsSoonAsItIsCreated \u2014 click(alias) and assert 404 (negative entry now cached), create a link with that alias, then click(alias) again with no evictResolutionCache() and assert 302 with the right Location. It needs its own test rather than an extra assertion on an existing one, because the prior probe is the whole point of the behaviour.",
-      "summary": "resolutionCache.invalidateBeforeIssuing(code) on the create path is unpinned. LinkResolver caches misses for app.cache.negative-ttl (60s), so a code requested before it existed carries a 'no such code' entry, and clearing it at issue time is the only thing stopping a newly created link from 404ing for its first minute. No test ever clicks a code and then creates a link under it: CustomAliasTest only creates-then-clicks, and RedirectTest's not-found tests never reuse the code they probed. Remove the invalidate call and nothing goes red, while a customer who checks their vanity alias before claiming it gets a link that does not work for 60 seconds. Cheap test, real customer-visible bug class."
+      "suggestion": "Add ClickDurabilityTest in its own context (app.click.flush-interval=PT1S): click a link N times, wait out more than one flush interval, call resetSharedTierState() to empty the shared tier, and assert the reported count is still N. Add the converse ordering assertion (click N, wait a flush, read N and not 2N). The harness already anticipated this \u2014 AbstractRestartIntegrationTest.sleep is documented 'for waiting out a flush interval' and no test calls it.",
+      "summary": "No test would fail if the click flush to PostgreSQL never ran: every count assertion reads durable + pendingDelta and the Redis hash is never emptied between the clicks and the assertion, and DurabilityAcrossRestartTest deliberately keeps the same Redis across the restart. Delete @Scheduled from flush(), break read_click_deltas.lua or break ClickFlushWriter.write and the suite stays green. Read together with PERF-1 and PERF-2 this is the most important cluster in the review: the subsystem carrying AC3's 'exact for the life of the link' claim has a throughput ceiling nobody measured, a scan cost nobody bounded, and no test that would notice if the durable write path were removed entirely."
     },
     {
       "confidence": "medium",
@@ -141,8 +81,71 @@
       "lens": "review-test-adequacy",
       "line": 215,
       "severity": "major",
-      "suggestion": "Split out aCreateIsRefusedWhileTheSharedTierIsUnavailable: with Redis paused, POST /api/v1/links and assert 503, error service_unavailable, message 'Temporarily unable to accept new links.', and \u2014 after resuming \u2014 that the caller's link total did not move, so a refused create left no orphan row. Leave the click assertions where they are.",
-      "summary": "The create half of AC20 is asserted disjunctively \u2014 created == 201 || created == 503 \u2014 so it cannot fail whichever way the service behaves. The design calls the 503 on create 'the only place AC20's serve-clicks-over-accepting-links preference is visible on the wire', and the implementation does refuse (invalidateBeforeIssuing throws when the shared tier is unreachable, precisely because issuing a code other instances still cache as absent yields a dead link). An implementation that quietly issued the code anyway passes today. The click side of the same test is pinned firmly, so this is one unpinned half inside an otherwise good test \u2014 and the half that the contract lens (API-3) also found under-specified."
+      "suggestion": "Split out aCreateIsRefusedWhileTheSharedTierIsUnavailable: with Redis paused, POST /api/v1/links and assert 503, error service_unavailable, message 'Temporarily unable to accept new links.', and after resuming that the caller's link total did not move so a refused create left no orphan row. Leave the click assertions where they are.",
+      "summary": "The create half of AC20 is asserted disjunctively (created == 201 || created == 503), so it cannot fail whichever way the service behaves. The design calls the 503-on-create 'the only place AC20's serve-clicks-over-accepting-links preference is visible on the wire' and the implementation does refuse, but an implementation that quietly issued the code anyway passes. The click side of the same test is pinned firmly, so this is one unpinned half inside an otherwise good test \u2014 and it is the half API-3 shows is already narrower than the spec claims."
+    },
+    {
+      "confidence": "medium",
+      "file": "service/src/main/java/com/example/urlshortener/link/LinkService.java",
+      "id": "TEST-2",
+      "lens": "review-test-adequacy",
+      "line": 101,
+      "severity": "major",
+      "suggestion": "Add to CustomAliasTest: anAliasProbedBeforeItExistedRedirectsAsSoonAsItIsCreated \u2014 click(alias) and assert 404, create a link with that alias, click(alias) again with no evictResolutionCache() and assert 302 with the right Location. Give it its own test rather than an extra assertion, because the prior probe is the whole arrangement.",
+      "summary": "resolutionCache.invalidateBeforeIssuing(code) on the create path is unpinned: LinkResolver caches misses for 60s, so a code probed before it existed carries a 'no such code' entry, and clearing that at issue time is what stops a newly created link 404ing for its first minute. No test ever clicks a code and then creates a link under it \u2014 CustomAliasTest only creates-then-clicks and RedirectTest never reuses a probed code. Remove the invalidate call and nothing goes red, while a customer who checks their vanity alias before claiming it gets a link that does not work for a minute."
+    },
+    {
+      "confidence": "high",
+      "file": "service/src/main/java/com/example/urlshortener/ratelimit/RedisTokenBucketRateLimiter.java",
+      "id": "SEC-4",
+      "lens": "review-security",
+      "line": 70,
+      "merged_ids": [
+        "PERF-8"
+      ],
+      "severity": "major",
+      "suggestion": "Make the failure mode per bucket: keep fail-open for CLICK (that rationale is sound and AC20 asks for it) and fail closed \u2014 or fall back to a small in-process per-instance bucket \u2014 for SIGN_IN, WRITE and ABUSE_REPORT, where refusing is the safe direction. Independently, bound password verification with a semaphore or small dedicated executor sized to available cores, returning 503/429 when saturated, so credential-stuffing load cannot displace redirects regardless of the limiter's state. Add a test asserting sign-in is still throttled with the Redis container stopped, and measure p99 redirect latency while replaying concurrent sign-in failures.",
+      "summary": "Security and performance converged on the same defect from opposite ends: nothing bounds unauthenticated memory-hard work. The limiter fails open for every bucket, not just the click path the rationale justifies, so a Redis outage removes brute-force and credential-stuffing protection at the moment the service is already unhappy (SEC-4); and even with the limiter healthy, nothing caps concurrent Argon2id \u2014 Tomcat's default 200 request threads means up to 200 simultaneous hashes at m=16384 KiB, roughly 3.2 GiB of transient allocation and full CPU saturation, sharing the heap and thread pool with the redirect path (PERF-8). The click path is itself the cheapest way to pressure the shared Redis that is the only brake. Two independent lenses reaching this raises confidence; it needs two distinct fixes, not one."
+    },
+    {
+      "confidence": "medium",
+      "file": "service/src/main/java/com/example/urlshortener/link/LinkService.java",
+      "id": "API-3",
+      "lens": "review-api-contract",
+      "line": 81,
+      "severity": "major",
+      "suggestion": "Map DataAccessResourceFailureException/CannotCreateTransactionException on the create path onto ApiException.dependencyUnavailable so the documented 503 is what a caller sees; alternatively document that 503 covers only the cache and threat tiers, which is a weaker promise than openapi.yaml:325 currently makes. Whichever is chosen, TEST-3's split-out test should assert it.",
+      "summary": "openapi.yaml:324-337 documents 503 on POST /api/v1/links for 'a dependency the create path needs is unavailable', but 503 is produced in exactly three places \u2014 code exhaustion, the threat checker with fail-open disabled (fail-open is true by default), and the resolution cache. PostgreSQL, the dependency most likely to be unavailable, is not one of them: saveAndFlush throws a DataAccessException that reaches no handler and answers 500 with the framework body. The documented degradation story for AC20 therefore does not hold for the most probable outage. Ranked below API-2 because it needs a decision about which promise moves, not just a handler."
+    },
+    {
+      "confidence": "medium",
+      "file": "service/src/main/java/com/example/urlshortener/redirect/RedirectController.java",
+      "id": "SEC-3",
+      "lens": "review-security",
+      "line": 64,
+      "severity": "major",
+      "suggestion": "Either set server.forward-headers-strategy: native|framework and have the edge overwrite (not append to) X-Forwarded-For, or state in the contract that the edge owns per-IP limiting and drop the app-side IP buckets. Do not read X-Forwarded-For without a trusted-proxy list \u2014 that hands the limit key to the attacker. A test driving two requests with different forwarded addresses through one socket would pin whichever choice is made.",
+      "summary": "The three buckets the contract documents as 'keyed by client IP' (click, not-found, sign-in) are keyed by request.getRemoteAddr(), and nothing sets server.forward-headers-strategy. Behind any load balancer that is the proxy's address for every request: per-source throttling for AC19 does not distinguish sources at all, and the global caps become a self-inflicted denial of service \u2014 3000 clicks/min and 60 sign-ins/min for the entire service against a target of ~100M clicks/day. Same call at SignInController:40. This is a deployment-shape decision as much as a code fix, which is why it sits below the mechanical majors; the test lens independently noted (TEST-7, and in its not_examined) that per-source isolation of these buckets is untestable from loopback, so nothing in the suite would reveal it either."
+    },
+    {
+      "confidence": "medium",
+      "file": "service/src/main/java/com/example/urlshortener/abuse/AbuseReportService.java",
+      "id": "SEC-5",
+      "lens": "review-security",
+      "line": 74,
+      "severity": "major",
+      "suggestion": "Add a per-reporter daily cap distinct from the per-minute bucket, and require a second distinct reporter or operator confirmation before blocking a link above a click threshold. Independently add an operator-only unblock path so an incorrect takedown is recoverable; the audit rows already record who reported what. This reverses a clarification a human already signed off, so it wants that human rather than a unilateral change.",
+      "summary": "Any signed-in customer can permanently disable any link whose code they have seen, and codes are seen by everyone handed the link. The takedown is immediate and irreversible in this build \u2014 updateExpiry answers 409 for a non-ACTIVE link and there is no unblock path \u2014 so a false or malicious takedown needs a DBA. Clarification Q4 accepted the mechanism on 'rate-limited per reporter' plus an audit row, but the limit is 60/min (86,400 links a day from one account), which does not bound the attack the design said it bounded, and the accepted reasoning did not consider irreversibility. SEC-1 makes this worse: the seeded accounts are enough. Note SEC-9 also undermines the audit row this design leans on, and API-6 shows the block can be overwritten by a subsequent owner delete."
+    },
+    {
+      "confidence": "high",
+      "file": "service/src/main/java/com/example/urlshortener/click/ClickFlushJob.java",
+      "id": "PERF-1",
+      "lens": "review-performance",
+      "line": 45,
+      "severity": "major",
+      "suggestion": "Batch the durable writes \u2014 one transaction per pass with a multi-row update or a JDBC batch of `update links set click_count = click_count + ? where id = ?` \u2014 and pipeline the settle decrements, then raise flush-batch-size and measure drain rate against arrival rate. Before shipping, expose HLEN clicks:pending as a gauge and alert on an upward trend; a monotonically growing pending hash is the signal that the drain is behind and it is currently invisible.",
+      "summary": "The click drain has a hard ceiling of 500 distinct links per 5s pass, each costing one JPA transaction plus one Redis settle round trip, sequentially on one scheduler thread \u2014 about 100 distinct links/second per instance against a design that reasons about 100M links/day. Every replica runs the same unsharded schedule, so replicas multiply reads of the same hash rather than dividing work; above that arrival rate the pending hash only grows, which is what feeds PERF-2. Placed last among the majors because unlike the others it is structural: the fix is a redesign of the drain, not an edit, and TEST-1 means nothing in the suite would show it either way."
     },
     {
       "confidence": "high",
@@ -151,41 +154,8 @@
       "lens": "review-security",
       "line": 152,
       "severity": "minor",
-      "suggestion": "Treat any host containing no alphabetic character as an address literal and run it through InetAddress.getByName before isInternalAddress, which covers decimal, octal and short-form IPv4 in one line. The DNS-name case is already documented as deliberately out of scope and can stay that way.",
-      "summary": "The loopback/private/link-local target check is bypassable with non-dotted-quad address literals: IPV4_LITERAL matches only d.d.d.d, so isIpLiteral returns false for http://2130706433/ and http://0/, they are treated as ordinary names, and InetAddress is never consulted (verified on JDK 21 that getByName(\"2130706433\") is 127.0.0.1). Impact is bounded \u2014 nothing fetches the target server-side, so this is not SSRF \u2014 it is the shortener being usable to point clickers at loopback and LAN addresses under our name, which is the case the 422 rule exists to prevent. Same underlying mistake as SEC-2 (identity derived from an unnormalised string) and best fixed in the same sitting."
-    },
-    {
-      "confidence": "medium",
-      "file": "service/src/main/resources/application.yml",
-      "id": "SEC-8",
-      "lens": "review-security",
-      "line": 63,
-      "merged_ids": [
-        "API-5"
-      ],
-      "severity": "minor",
-      "suggestion": "Bind actuator to a separate management port on the internal interface (management.server.port), or expose only health,info on the main port and keep metrics/prometheus on the management port. Either way, document the actuator surface in the spec (or a note stating it is operational and outside the public contract), and if the edge is expected to block /actuator, say so in docs/OPERATIONS.md so the assumption is reviewable. Related but distinct: TEST-5 covers whether these endpoints stay routable under the root catch-all at all.",
-      "summary": "TWO LENSES CONVERGED, from disclosure and from contract. Actuator exposes health, info, metrics and prometheus, and the session filter is registered only for /api/v1/* (WebConfig:28), so those endpoints need no credential on the service port; /actuator/metrics and /actuator/prometheus disclose JVM internals, connection-pool state and per-route request volumes. The API-contract lens (API-5, high confidence) reached the same line from the other side: this surface appears nowhere in openapi.yaml, whose 'Two surfaces' table lists only the management API and the click path, and undocumented surface becomes a de facto contract the moment a probe depends on it. Whether the exposure reaches the internet depends on an edge configuration that is not in this repository and is documented nowhere in docs/ \u2014 which is why both lenses left it minor and why it appears again in top_risks."
-    },
-    {
-      "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/auth/SignInService.java",
-      "id": "PERF-8",
-      "lens": "review-performance",
-      "line": 54,
-      "severity": "minor",
-      "suggestion": "Bound password hashing with a semaphore (or a small dedicated executor) sized to available cores, returning 503/429 when saturated, so credential-stuffing load cannot displace the redirect path. Measure heap allocation rate and p99 redirect latency while replaying concurrent sign-in failures.",
-      "summary": "Every sign-in attempt \u2014 including every failed one, deliberately, for timing equality \u2014 runs Argon2id at m=16384 KiB, t=2, and nothing bounds how many run concurrently: Tomcat's 200 default request threads means up to 200 simultaneous hashes, ~3.2 GiB of transient heap and full CPU saturation, from unauthenticated requests. The sign-in bucket (60/min/IP) is the only brake, and SEC-4 found it fails open exactly when the service is already unhappy \u2014 while SEC-3 found it is not per-IP at all behind a proxy. I have kept this separate from SEC-4 because fixing the limiter does not add the concurrency bound and vice versa, but they are the same attack seen from two lenses and should be fixed together. Cost of being wrong is a GC-thrashing JVM that also stops serving redirects, since they share the thread pool and heap."
-    },
-    {
-      "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/link/LinkController.java",
-      "id": "SEC-11",
-      "lens": "review-security",
-      "line": 67,
-      "severity": "minor",
-      "suggestion": "Add a read bucket keyed by customer id (a number in AppProperties.RateLimit, like the other four), or state explicitly in the contract that authenticated reads are unmetered by design so the omission is a decision rather than an oversight.",
-      "summary": "The two owner read endpoints are charged to no bucket at all \u2014 the write bucket is deliberately applied only to create/patch/delete. One authenticated account can therefore issue unlimited GET /api/v1/links, and the performance lens quantified independently what each of those requests costs: a paged query plus an unbounded COUNT (PERF-7) plus one sequential Redis HGET per row inside a transaction holding a pooled connection (PERF-3). Unbounded database and Redis work triggered by one caller, on the tier AC20 wants left with headroom for clicks. The rate-limit omission and the per-request cost are separate defects; together they are the cheapest self-service outage in the change."
+      "suggestion": "Treat any host containing no alphabetic character as an address literal and run it through InetAddress.getByName before isInternalAddress, which covers decimal, octal and short-form IPv4 in one line. The DNS-name case is documented as deliberately out of scope and can stay that way.",
+      "summary": "The loopback/private/link-local check is bypassable with non-dotted-quad address literals: IPV4_LITERAL matches only d.d.d.d, so http://2130706433/ and http://0/ are treated as ordinary names and InetAddress is never consulted (verified on JDK 21). Impact is bounded because nothing fetches the target server-side, so this is not SSRF \u2014 it is the shortener being usable to point clickers at loopback and LAN addresses under our name, which is the case the 422 rule exists to prevent. Same root cause as SEC-2; fix them in one sitting."
     },
     {
       "confidence": "medium",
@@ -194,18 +164,61 @@
       "lens": "review-security",
       "line": 79,
       "severity": "minor",
-      "suggestion": "Strip or escape CR/LF and other control characters from any request-derived value before logging it. Validating the code shape per SEC-7 closes this instance, but the escaping is the durable fix \u2014 the next request-derived value someone logs will not be a code.",
-      "summary": "Untrusted path input is logged unescaped. Tomcat percent-decodes the path before the handler, so a code containing %0A arrives as a real newline and is logged verbatim here and at RedirectController:87. An attacker can forge log lines \u2014 including plausible-looking abuse-report entries \u2014 in the log this build relies on as the audit trail for takedowns, since no moderation console exists (SEC-5). Kept separate from SEC-7 because it is a distinct defect (unescaped logging of request-derived values) even though SEC-7's shape validation happens to close this particular vector."
+      "suggestion": "Strip or escape CR/LF and other control characters from any request-derived value before logging. Validating the code shape per SEC-7 also closes this, so sequence SEC-7 first and this becomes a defence-in-depth change.",
+      "summary": "Untrusted path input is logged unescaped. Tomcat percent-decodes the path before the handler, so a code containing %0A arrives as a real newline and is logged verbatim here and at RedirectController:87, letting an attacker forge log lines \u2014 including plausible abuse-report entries \u2014 in the log this build relies on as the takedown audit trail, since no moderation console exists. That makes it a direct amplifier of SEC-5 rather than a standalone logging nit."
     },
     {
       "confidence": "high",
-      "file": "service/src/main/java/com/example/urlshortener/redirect/RedirectController.java",
-      "id": "PERF-9",
-      "lens": "review-performance",
-      "line": 73,
+      "file": "service/src/main/java/com/example/urlshortener/link/UrlValidator.java",
+      "id": "CLEAN-1",
+      "lens": "review-cleanliness",
+      "line": 40,
       "severity": "minor",
-      "suggestion": "Pipeline the rate-limit and cache-GET into one round trip (both are needed unconditionally), and/or issue the HINCRBY asynchronously on the Lettuce connection without awaiting the reply \u2014 this differs from the executor-with-a-queue the javadoc rightly rejects, since it drops nothing. At minimum lower the command timeout for the increment specifically, and measure redirect p99 against a latency-injected Redis (CLIENT PAUSE or toxiproxy).",
-      "summary": "A served redirect makes three sequential Redis round trips (rate-limit script, cache GET, click HINCRBY) before the 302 is written, four on a not-found, each carrying the 1s command timeout \u2014 so a Redis that is slow rather than down can add up to ~3s to a redirect otherwise served entirely from cached data. The analytics write in particular delays the response purely to record a statistic. The lens is explicit that this is a documented deliberate trade (ClickCounter javadoc, AC3), not an oversight, and I agree; it is filed because it is the mechanism by which PERF-2's Redis stall becomes user-visible redirect latency, and because nothing measures the tail it produces (TEST-4)."
+      "suggestion": "Make the configured value load-bearing or delete it. Cheapest consistent option: have LinkPolicyConfig.urlValidator(...) pass properties.links().maxUrlLength() into UrlValidator (it already passes baseUrl) and drop the hardcoded constant; keep @Size(max = 2048) only by referencing a shared compile-time constant.",
+      "summary": "The maximum long-URL length exists three times and two agree only by accident: UrlValidator.MAX_URL_LENGTH = 2048, @Size(max = 2048) on CreateLinkRequest.longUrl, and app.links.max-url-length: 2048 bound to AppProperties.Links.maxUrlLength, which no code reads. Raising the limit in config changes nothing and a reviewer would reasonably believe it did \u2014 the dangerous kind of duplication, because the dead copy is the one that looks authoritative."
+    },
+    {
+      "confidence": "high",
+      "file": "service/src/main/java/com/example/urlshortener/api/CreateLinkRequest.java",
+      "id": "CLEAN-2",
+      "lens": "review-cleanliness",
+      "line": 26,
+      "severity": "minor",
+      "suggestion": "Write @Pattern(regexp = AliasPolicy.PATTERN) \u2014 it is a public static final String and so a valid annotation constant \u2014 and delete the comment. If the package cycle is unwanted, move PATTERN to the api package and have AliasPolicy reference it.",
+      "summary": "The alias charset rule is a literal regex on the DTO and again as AliasPolicy.PATTERN, which carries the comment 'identical to the one on the request DTO' \u2014 documenting the drift risk rather than removing it. PATTERN also duplicates MIN_LENGTH/MAX_LENGTH inside its own literal. Worth fixing in the same pass as SEC-7, which adds a third place that needs the same charset."
+    },
+    {
+      "confidence": "high",
+      "file": "service/src/main/java/com/example/urlshortener/click/ClickFlushJob.java",
+      "id": "CLEAN-3",
+      "lens": "review-cleanliness",
+      "line": 43,
+      "severity": "minor",
+      "suggestion": "Drop the inline default \u2014 @Scheduled(fixedDelayString = \"${app.click.flush-interval}\") \u2014 since @DefaultValue(\"PT5S\") plus application.yml already supply it, and comment AppProperties.Click.flushInterval to say it is consumed by the annotation, so the accessor does not read as dead.",
+      "summary": "@Scheduled(fixedDelayString = \"${app.click.flush-interval:PT5S}\") reaches past the typed AppProperties surface the rest of the change uses uniformly and restates the PT5S default AppProperties.Click.flushInterval already declares, so that accessor is read by nothing and the documented value can diverge silently from the actual schedule. Same file as PERF-1 and TEST-1: whoever touches the flush job should land all three."
+    },
+    {
+      "confidence": "medium",
+      "file": "service/src/main/java/com/example/urlshortener/redirect/CachedLink.java",
+      "id": "CLEAN-4",
+      "lens": "review-cleanliness",
+      "line": 50,
+      "severity": "minor",
+      "suggestion": "Delete the unused LinkEntity.isResolvableAt and let CachedLink.redirectsAt be the single statement of the rule, or express both in terms of one static predicate on LinkStatus. Either way one of the two should stop existing.",
+      "summary": "'A link redirects when it is ACTIVE and not yet expired' is expressed twice \u2014 CachedLink.redirectsAt and LinkEntity.statusAt/isResolvableAt \u2014 and they must agree: a fourth LinkStatus, or moving the expiry boundary from exclusive to inclusive, has to be done in both. LinkEntity.isResolvableAt is currently called by nothing, so nothing would fail if only one copy were updated."
+    },
+    {
+      "confidence": "high",
+      "file": "service/src/main/resources/application.yml",
+      "id": "SEC-8",
+      "lens": "review-security",
+      "line": 63,
+      "merged_ids": [
+        "API-5"
+      ],
+      "severity": "minor",
+      "suggestion": "Bind actuator to a separate management port on the internal interface (management.server.port), or expose only health,info on the main port and keep metrics/prometheus on the management port. Either way document the decision \u2014 in the spec or a note stating the surface is operational and outside the public contract \u2014 and if the edge is expected to block /actuator, say so in docs/OPERATIONS.md so the assumption is reviewable. TEST-5 is the matching test gap.",
+      "summary": "Security and api-contract converged on the actuator surface from different angles, which is why confidence here is high: health, info, metrics and prometheus are exposed on the service port and the session filter is registered only for /api/v1/* (WebConfig:28), so they need no credential (SEC-8), and they appear nowhere in openapi.yaml, whose 'Two surfaces' table lists only the management API and the click path (API-5). /actuator/metrics and /actuator/prometheus disclose JVM internals, pool state and per-route request volumes; whether that reaches the internet depends on edge configuration that is neither in this repository nor documented in docs/. Undocumented surface becomes a de facto contract the moment a probe depends on it."
     },
     {
       "confidence": "medium",
@@ -214,28 +227,48 @@
       "lens": "review-performance",
       "line": 35,
       "severity": "minor",
-      "suggestion": "Drop @Transactional from resolve() and let the repository call use its own transaction, then perform cache.put after it returns. Confirm with a connection-hold histogram (hikaricp.connections.usage is already exported via the Prometheus registry) comparing hit and miss requests.",
-      "summary": "resolve() is @Transactional(readOnly = true) and the cache write happens inside it, after the JDBC statement has acquired a connection. Hibernate's delayed acquisition means a cache hit costs no connection \u2014 good \u2014 but every miss holds a pooled connection across a Redis PUT with a 1s timeout, so under a miss storm (PERF-5) connection-hold time is proportional to Redis latency rather than database latency, on the one path that must not queue. The transaction buys nothing here: it wraps a single read. Same anti-pattern as PERF-3 but on the hot path and cheaper to fix."
+      "suggestion": "Drop @Transactional from resolve(), let the repository call use its own transaction, and perform cache.put after it returns. Confirm with a Hikari connections-usage histogram comparing hit and miss requests.",
+      "summary": "resolve() is @Transactional(readOnly = true) and the cache.put happens inside it, after the JDBC statement has acquired a connection. Hibernate's delayed acquisition means a cache hit costs no connection, but every miss holds a pooled connection across a Redis PUT with a 1s timeout \u2014 connection-hold time proportional to Redis latency on the one path that must not queue. The transaction buys nothing: it wraps a single read."
     },
     {
       "confidence": "medium",
-      "file": "service/src/main/resources/application.yml",
-      "id": "PERF-5",
-      "lens": "review-performance",
-      "line": 15,
+      "file": "service/src/test/java/com/example/urlshortener/behaviour/CustomAliasTest.java",
+      "id": "TEST-5",
+      "lens": "review-test-adequacy",
+      "line": 186,
       "severity": "minor",
-      "suggestion": "Set spring.datasource.hikari.maximum-pool-size explicitly with a comment tying it to expected concurrency and PostgreSQL max_connections, and consider per-code single-flight (a striped lock or loading-cache wrapper on the miss path) so a hot link's TTL expiry produces one database read rather than one per in-flight click. Measure hikaricp.connections.pending and the redirect miss ratio under sustained load.",
-      "summary": "No connection pool sizing is configured, so Hikari runs at its default maximum of 10, and nothing configures the Lettuce or Tomcat side either. That interacts with a structural property of the design: app.cache.ttl is pinned at 60s to floor the takedown bound, so every actively-clicked link must be re-read from PostgreSQL at least once a minute per replica, and there is no single-flight \u2014 N concurrent clicks on a link whose entry just expired all miss and all issue the same lookup. The redirect's database read rate has a floor of (distinct active links)/60s served through 10 connections. Each lookup is an indexed unique hit on ux_links_domain_code, so the pool, not the query, is the ceiling \u2014 and nobody picked the number deliberately. This is the multiplier that turns PERF-3 and PERF-4 into a stall rather than a slow request."
+      "suggestion": "Add actuatorEndpointsStayReachableUnderTheRootRedirectMapping: GET /actuator/health returns 200 with status UP, is not a 302 and carries no Location. Keep it separate from the reserved-alias test \u2014 one is about alias validation, the other about routing precedence at the root of the namespace.",
+      "summary": "impact.json names 'actuator endpoints staying reachable once a catch-all GET /{code} is mapped at the root' as regression surface and no test asserts it. The nearest thing asserts only assertNotEquals(302, api.click(\"actuator\")), which passes if /actuator is 404 or 500 \u2014 it demonstrates the reservation but not the thing the reservation exists to protect. Pairs with SEC-8: the same surface is untested and undocumented."
     },
     {
       "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/repository/LinkRepository.java",
-      "id": "PERF-7",
-      "lens": "review-performance",
-      "line": 39,
+      "file": "service/src/test/java/com/example/urlshortener/behaviour/RedirectTest.java",
+      "id": "TEST-7",
+      "lens": "review-test-adequacy",
+      "line": 263,
       "severity": "minor",
-      "suggestion": "If the totals must stay in the contract, at least bound page (or cap offset) the way size is capped in requireValidPaging. Longer term, keyset pagination on (created_at desc, code asc) removes both the count and the offset walk. Confirm with EXPLAIN ANALYZE of the count query against a customer with ~1M links.",
-      "summary": "findOwnedBy returns Page, so Spring Data issues a select count(...) alongside every list request, and LinkPage exposes totalElements/totalPages so it cannot be dropped without an API change. The count scans the whole customer_id range of ix_links_owner_listing on every page request, and offset paging compounds it: page is unbounded, so page=100000 makes PostgreSQL walk and discard the offset rows. Management endpoint, not the hot path, so blast radius is one caller's latency and the connection they hold \u2014 but that caller is unmetered (SEC-11) and each of their requests also holds the pool connection through PERF-3's Redis round trips."
+      "suggestion": "Give the same @BeforeEach resetSharedTierState() to every class that asserts a specific non-2xx status on a code that does not resolve, or pull it into AbstractIntegrationTest for all classes that are not counting tests.",
+      "summary": "Cross-class coupling through the JVM-wide Redis makes some 404 assertions order- and clock-dependent: token buckets are keyed by client IP (one loopback address for the whole suite) and survive the context switch, and ClickRateLimitTest runs with not-found-per-minute=5 and deliberately drains that bucket. RedirectTest, DeleteLinkTest and CustomAliasTest then assert 404 on unissued codes with nothing between them and a 429 but wall-clock refill. AbuseReportTest and TenantIsolationTest reset, showing the authors knew the hazard and fixed it only where it had already bitten \u2014 this is how a suite acquires a test that fails once a month and gets muted."
+    },
+    {
+      "confidence": "medium",
+      "file": "service/src/main/java/com/example/urlshortener/link/LinkService.java",
+      "id": "TEST-6",
+      "lens": "review-test-adequacy",
+      "line": 196,
+      "severity": "minor",
+      "suggestion": "Add ThreatCheckConfigurationTest with two contexts: app.threat.enabled=false asserting Fixtures.DENYLISTED_URL is accepted with 201 (proving the check is a configurable port and the 422 elsewhere really comes from it), and app.threat.fail-open=false asserting the documented refusal when the verdict is unavailable. If the second cannot be arranged without taking PostgreSQL down, record that in the artifacts rather than leaving the key unexercised.",
+      "summary": "The threat-check configuration surface is entirely unexercised: Fixtures.THREAT_FAIL_OPEN_KEY is declared and used by no test \u2014 the fingerprint of a test planned and not written \u2014 and neither the fail-open branch (UNAVAILABLE accepted with a WARN), nor the fail-closed 503, nor app.threat.enabled=false has a test. design.json flags this reading as one of two blocking ambiguities a human never answered, so the unverified branch is precisely the one someone is being asked to sign off blind. AC21's positive path is well covered, so the risk is confined to what happens when the checker cannot answer."
+    },
+    {
+      "confidence": "medium",
+      "file": "service/src/main/java/com/example/urlshortener/link/LinkController.java",
+      "id": "SEC-11",
+      "lens": "review-security",
+      "line": 67,
+      "severity": "minor",
+      "suggestion": "Add a read bucket keyed by customer id (a number in AppProperties.RateLimit like the other four), or state in the contract that authenticated reads are unmetered by design so the omission is a decision rather than an oversight.",
+      "summary": "The two owner read endpoints are charged to no bucket at all \u2014 the write bucket is applied only to create/patch/delete \u2014 so one authenticated account can issue unlimited GET /api/v1/links, each running a paged query plus a COUNT (PERF-7) and one Redis round trip per row (PERF-3). Unbounded database and Redis work from a single caller, on the tier AC20 wants left with headroom for clicks. Two lenses reached this endpoint by different routes; the rate-limit gap is what turns their cost findings into an availability one."
     },
     {
       "confidence": "medium",
@@ -244,8 +277,8 @@
       "lens": "review-api-contract",
       "line": 36,
       "severity": "minor",
-      "suggestion": "Decide and record which side moves. Either set spring.mvc.throw-exception-if-no-handler-found and handle NoResourceFoundException/HttpRequestMethodNotSupportedException into ApiError, or state in the spec that dispatcher-level 404/405 responses carry the container's body and are outside the closed catalogue.",
-      "summary": "Dispatcher-level refusals on the management surface return the framework error body rather than ApiError: an unknown path under /api/v1 with a valid token (NoResourceFoundException -> 404) and a wrong method on a documented path (PUT /api/v1/links/{code} -> 405). openapi.yaml:29-43 promises the not-found body byte for byte 'on both surfaces' and openapi.yaml:47 promises the ApiError shape for every non-2xx; Note 2 (openapi.yaml:123) exempts only the /{code} 405 status, not the body shape, and says nothing about the management surface. Same class of gap as API-2 but at the dispatcher rather than the handler, and it is a decision to record rather than an outage to prevent."
+      "suggestion": "Decide and record which side moves: either set spring.mvc.throw-exception-if-no-handler-found and handle NoResourceFoundException/HttpRequestMethodNotSupportedException into ApiError, or state in the spec that dispatcher-level 404/405 responses carry the container's body and are outside the closed catalogue.",
+      "summary": "Dispatcher-level refusals on the management surface return the framework error body rather than ApiError: an unknown path under /api/v1 with a valid token (NoResourceFoundException -> 404) and a wrong method on a documented path (PUT /api/v1/links/{code} -> 405). openapi.yaml:29-43 promises the not-found body byte for byte 'on both surfaces' and :47 promises ApiError for every non-2xx; Note 2 exempts only the /{code} 405 status, not the body shape, and says nothing about the management surface. Same closed-catalogue promise as API-2, one layer further out."
     },
     {
       "confidence": "medium",
@@ -255,67 +288,37 @@
       "line": 130,
       "severity": "minor",
       "suggestion": "Decide which side is right and write it down. If BLOCKED must survive a delete, make markDeleted conditional the way markBlocked is and keep answering 204 (idempotent, no new status). If an owner may relabel their blocked link, say so in the DELETE description, because a reader of the PATCH 409 rationale will assume the opposite.",
-      "summary": "DELETE on the caller's own BLOCKED link answers 204 and overwrites the status to DELETED (LinkService:141 -> markDeleted, unconditional, unlike markBlocked at LinkEntity:139 which deliberately refuses to overwrite). The status conforms \u2014 DELETE documents no 409 \u2014 but the representation diverges: afterwards GET reports DELETED for a link taken down for abuse, and the takedown is invisible in the API. This reads differently once you have SEC-5 next to it: with no unblock path and a forgeable log (SEC-9), the API's record of a takedown is the only record, and an owner can erase it. It does not restore redirection, so it is not an authorization bypass \u2014 hence minor, not major."
+      "summary": "DELETE on the caller's own BLOCKED link answers 204 and overwrites the status to DELETED (markDeleted is unconditional, unlike markBlocked at LinkEntity:139, which deliberately refuses to overwrite). That conforms on status \u2014 DELETE documents no 409 \u2014 but the representation diverges: GET afterwards reports DELETED for a link taken down for abuse, so the takedown becomes invisible in the API. Read alongside SEC-5, which notes there is no unblock path and no moderation console: this is the one way a block silently stops being visible, and the abuse audit trail is the only remaining record."
     },
     {
       "confidence": "high",
-      "file": "service/src/main/java/com/example/urlshortener/link/UrlValidator.java",
-      "id": "CLEAN-1",
-      "lens": "review-cleanliness",
-      "line": 40,
+      "file": "service/src/main/java/com/example/urlshortener/redirect/RedirectController.java",
+      "id": "PERF-9",
+      "lens": "review-performance",
+      "line": 73,
       "severity": "minor",
-      "suggestion": "Make the configured value load-bearing or delete it. Cheapest consistent option: have LinkPolicyConfig.urlValidator(...) pass properties.links().maxUrlLength() into UrlValidator (it already passes baseUrl) and drop the hardcoded constant; keep @Size(max = 2048) only via a shared compile-time constant, since bean validation needs one.",
-      "summary": "The maximum long-URL length exists three times and only two of them agree by accident: UrlValidator.MAX_URL_LENGTH = 2048, @Size(max = 2048) on CreateLinkRequest.longUrl, and app.links.max-url-length: 2048 bound to AppProperties.Links.maxUrlLength, which no code reads. Raising the limit in config changes nothing, and a reviewer would reasonably believe it did \u2014 a dead configuration knob is worse than no knob, because the next operator to turn it will conclude the service ignored them."
-    },
-    {
-      "confidence": "high",
-      "file": "service/src/main/java/com/example/urlshortener/api/CreateLinkRequest.java",
-      "id": "CLEAN-2",
-      "lens": "review-cleanliness",
-      "line": 26,
-      "severity": "minor",
-      "suggestion": "Write @Pattern(regexp = AliasPolicy.PATTERN) \u2014 it is a public static final String, so it is a valid annotation constant \u2014 and delete the comment. If a package cycle is unwanted, move PATTERN to the api package and have AliasPolicy reference it.",
-      "summary": "The alias charset rule is a literal regex on the DTO and again as AliasPolicy.PATTERN, which carries the comment 'identical to the one on the request DTO' \u2014 documenting the drift risk rather than removing it \u2014 and PATTERN also duplicates MIN_LENGTH/MAX_LENGTH inside its own literal. Worth noting that SEC-7's fix adds a fourth statement of very nearly this same charset rule on the {code} paths, so whoever fixes SEC-7 should land it against a single shared constant rather than typing the regex out again."
-    },
-    {
-      "confidence": "high",
-      "file": "service/src/main/java/com/example/urlshortener/click/ClickFlushJob.java",
-      "id": "CLEAN-3",
-      "lens": "review-cleanliness",
-      "line": 43,
-      "severity": "minor",
-      "suggestion": "Drop the inline default \u2014 @Scheduled(fixedDelayString = \"${app.click.flush-interval}\") \u2014 since @DefaultValue(\"PT5S\") plus application.yml already supply it, and add a one-line comment on AppProperties.Click.flushInterval saying it is consumed by the annotation rather than a constructor, so the accessor does not read as dead.",
-      "summary": "@Scheduled(fixedDelayString = \"${app.click.flush-interval:PT5S}\") reaches past the typed configuration surface the rest of the change uses uniformly (AppProperties) and restates the PT5S default that AppProperties.Click.flushInterval already declares; that accessor is consequently read by nothing, so the documented accessor and the actual schedule can diverge silently. Small on its own, but this is the tuning knob PERF-1's fix depends on and the property TEST-1's proposed test overrides, so both of those land on a knob nobody currently reads."
+      "suggestion": "Pipeline the rate-limit and cache GET into one round trip (both are needed unconditionally), and/or issue the HINCRBY asynchronously on the Lettuce connection without awaiting the reply \u2014 this differs from the executor-with-a-queue the javadoc rightly rejects, since it drops nothing. At minimum lower the command timeout for the increment specifically, and measure redirect p99 against a latency-injected Redis.",
+      "summary": "A served redirect makes three sequential Redis round trips (rate-limit script, cache GET, click HINCRBY) before the 302 is written, four on a not-found, each carrying the 1s command timeout \u2014 so a Redis that is slow rather than down can add ~3s to a redirect otherwise servable from cached data, and the increment delays the response purely to record a statistic. This is a documented deliberate trade (ClickCounter javadoc, AC3) rather than an oversight; kept at minor and stated plainly because it is the tail PERF-2's stalls would land on, and TEST-4 shows nothing measures redirect latency at all."
     },
     {
       "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/redirect/CachedLink.java",
-      "id": "CLEAN-4",
-      "lens": "review-cleanliness",
-      "line": 50,
+      "file": "service/src/main/resources/application.yml",
+      "id": "PERF-5",
+      "lens": "review-performance",
+      "line": 15,
       "severity": "minor",
-      "suggestion": "Delete the unused LinkEntity.isResolvableAt and let CachedLink.redirectsAt be the single statement of the rule, or express both in terms of one static predicate on LinkStatus. Either way, one of the two should stop existing.",
-      "summary": "'A link redirects when it is ACTIVE and not yet expired' is expressed twice \u2014 CachedLink.redirectsAt and LinkEntity.statusAt/isResolvableAt. They must agree (a fourth LinkStatus, or changing the expiry boundary from exclusive to inclusive, has to be done in both) and LinkEntity.isResolvableAt is currently called by nothing, so nothing would fail if only one copy were updated. This is the rule that decides whether a taken-down link still redirects, which makes the duplication more load-bearing than its severity suggests."
+      "suggestion": "Set spring.datasource.hikari.maximum-pool-size explicitly with a comment tying it to expected concurrency and PostgreSQL max_connections, and consider per-code single-flight (a striped lock or loading wrapper on the miss path) so a hot link's TTL expiry produces one database read rather than one per in-flight click. Measure hikaricp.connections.pending and the redirect miss ratio under sustained load.",
+      "summary": "No pool sizing is configured, so Hikari runs at its default maximum of 10 connections and nothing configures the Lettuce or Tomcat side either. That meets a structural property: app.cache.ttl is pinned at 60s to floor the takedown bound, so every actively-clicked link is re-read from PostgreSQL at least once per minute per replica, and with no single-flight, N concurrent clicks on a link whose entry just expired all miss and all issue the same lookup. The database read rate has a floor of (distinct active links)/60s served through 10 connections \u2014 the pool, not the indexed query, is the ceiling, and nobody picked the number deliberately. PERF-3 and PERF-4 are what consume that pool from elsewhere."
     },
     {
       "confidence": "medium",
-      "file": "service/src/test/java/com/example/urlshortener/support/AbstractRestartIntegrationTest.java",
-      "id": "CLEAN-5",
-      "lens": "review-cleanliness",
-      "line": 75,
+      "file": "service/src/main/java/com/example/urlshortener/repository/LinkRepository.java",
+      "id": "PERF-7",
+      "lens": "review-performance",
+      "line": 39,
       "severity": "minor",
-      "suggestion": "Move the container-independent helpers to static methods on ApiClient or Fixtures (e.g. Fixtures.givenLink(api, bearer), ApiClient.clickRepeatedly(api, code, times)) and have both base classes delegate, so the restart harness inherits nothing but still shares one definition of each helper.",
-      "summary": "alice(), bob(), givenLink(bearer), sleep(Duration) and clickRepeatedly(...) are re-implemented alongside AbstractIntegrationTest. The class comment explains convincingly why the two cannot share a superclass, but that argument does not extend to the helpers \u2014 and clickRepeatedly has already drifted: List<Integer> here, List<HttpResponse<String>> there, so the same name means two things depending on which base class a test extends. Relevant to TEST-1 and TEST-7, both of which propose new tests and shared @BeforeEach resets across exactly these two harnesses."
-    },
-    {
-      "confidence": "medium",
-      "file": "docs/IMPLEMENTATION_PLAN.md",
-      "id": "CLEAN-6",
-      "lens": "review-cleanliness",
-      "line": 328,
-      "severity": "minor",
-      "suggestion": "Update \u00a77 to match the delivered contract (or mark it superseded by artifacts/design.json), and change the CacheConfig javadoc to point at something that exists \u2014 the negative-caching rationale is already written in LinkResolver and CachedLink.",
-      "summary": "\u00a77 of the committed 'plan of record' now contradicts the service that was built: 410-for-expired vs 404-for-unknown (the design deliberately chose a single 404 for both), 'Caffeine only \u2014 no Redis in the build' (the change is Redis-backed throughout), a /api/v1/links/{code}/stats endpoint, Idempotency-Key, an outbox, and 7-character codes (shipped: 22). Relatedly, CacheConfig.LINKS_CACHE cites 'the enumeration note in ADR-004', but no ADR documents exist in the repo. A reviewer or on-call engineer who reads this document first will be wrong about the single most security-relevant decision in the change (the single-404 rule), which is why stale docs are worth the same minor as a dead config knob."
+      "suggestion": "If the totals must stay in the contract, at least bound page (or cap offset) the way size is capped in requireValidPaging. Longer term, keyset pagination on (created_at desc, code asc) removes both the count and the offset walk. Confirm with EXPLAIN ANALYZE of the count query against a customer with ~1M links.",
+      "summary": "findOwnedBy returns Page, so every list request issues a count query, and LinkPage exposes totalElements/totalPages so it cannot be dropped without an API change. The count scans the whole customer_id range of ix_links_owner_listing on each page request, and offset paging compounds it \u2014 page is unbounded, so page=100000 makes PostgreSQL walk and discard the offset rows. This is the management endpoint rather than the hot path, so the blast radius is one caller's latency and the connection they hold \u2014 except that SEC-11 leaves that caller unmetered."
     },
     {
       "confidence": "medium",
@@ -324,58 +327,38 @@
       "lens": "review-test-adequacy",
       "line": 171,
       "severity": "minor",
-      "suggestion": "Either publish a number and assert it (e.g. capture per-request durations in the existing hot-link test and assert a generous in-JVM p95 bound such as 250ms, which catches an accidental per-click database round trip without being clock-flaky), or record explicitly in the artifacts that AC22's latency half is accepted as unverified so it is a decision rather than an omission.",
-      "summary": "AC22 has two halves \u2014 'continue to be served fast and counted' \u2014 and only counting is pinned. aHotLinkKeepsBeingServedAndStaysExact drives 300 concurrent clicks and asserts every one was a 302 and the total exact, but asserts nothing about latency, and no test in the suite asserts any timing on the click path. That is partly the contract's fault: neither openapi.yaml nor design.json publishes a click-path latency number, so there is nothing to assert against. Note what this means alongside PERF-9 and PERF-2 \u2014 the two findings that predict a latency regression on this exact path are the ones the suite has no instrument to detect."
+      "suggestion": "Either publish a number and assert it (capture per-request durations in the existing hot-link test and assert a generous p95 bound such as 250ms in-JVM against the container, which catches an accidental per-click database round trip without being clock-flaky), or record in the artifacts that AC22's latency half is knowingly unverified so it is a decision rather than an omission.",
+      "summary": "AC22 has two halves \u2014 'continue to be served fast and counted' \u2014 and only counting is pinned: aHotLinkKeepsBeingServedAndStaysExact drives 300 concurrent clicks and asserts every one was a 302 and the total exact, but no test in the suite asserts any timing on the click path. That is partly the contract's fault, since neither openapi.yaml nor design.json publishes a latency number, so the 'fast' half of an acceptance criterion is shipping with no definition and no check \u2014 and PERF-9 and PERF-2 are precisely the mechanisms that would move it."
     },
     {
       "confidence": "medium",
-      "file": "service/src/test/java/com/example/urlshortener/behaviour/CustomAliasTest.java",
-      "id": "TEST-5",
-      "lens": "review-test-adequacy",
-      "line": 186,
+      "file": "service/src/test/java/com/example/urlshortener/support/AbstractRestartIntegrationTest.java",
+      "id": "CLEAN-5",
+      "lens": "review-cleanliness",
+      "line": 75,
       "severity": "minor",
-      "suggestion": "Add actuatorEndpointsStayReachableUnderTheRootRedirectMapping: GET /actuator/health returns 200 with status UP, and is not a 302 and carries no Location. Keep it separate from the reserved-alias test \u2014 one is about alias validation, the other about routing precedence at the root of the namespace.",
-      "summary": "impact.json names 'actuator endpoints staying reachable once a catch-all GET /{code} is mapped at the root' as regression surface, and no test asserts it. The nearest thing, aReservedAliasIsRejectedAsInvalidRatherThanAsAConflict, asserts only assertNotEquals(302, api.click(\"actuator\")) \u2014 which passes if /actuator is 404 or 500 or anything else that is not a redirect, so it demonstrates the reservation but not the thing the reservation exists to protect. Distinct from SEC-8/API-5, which are about that surface being exposed and undocumented; this is about it being routable at all."
+      "suggestion": "Move the container-independent helpers to static methods on ApiClient or Fixtures (Fixtures.givenLink(api, bearer), ApiClient.clickRepeatedly(api, code, times)) and have both base classes delegate, so the restart harness inherits nothing but still shares one definition of each helper. Worth doing before TEST-1's durability test lands, since that test needs the restart harness's sleep helper.",
+      "summary": "alice(), bob(), givenLink(bearer), sleep(Duration) and clickRepeatedly(...) are re-implemented alongside AbstractIntegrationTest. The class comment explains convincingly why the two cannot share a superclass, but that argument does not extend to the helpers \u2014 and clickRepeatedly has already drifted: it returns List<Integer> here and List<HttpResponse<String>> there, so the same name means two things depending on which base class a test extends."
     },
     {
       "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/link/LinkService.java",
-      "id": "TEST-6",
-      "lens": "review-test-adequacy",
-      "line": 196,
+      "file": "docs/IMPLEMENTATION_PLAN.md",
+      "id": "CLEAN-6",
+      "lens": "review-cleanliness",
+      "line": 328,
       "severity": "minor",
-      "suggestion": "Add ThreatCheckConfigurationTest with two contexts: one at app.threat.enabled=false asserting Fixtures.DENYLISTED_URL is accepted with 201 (proving the check is a configurable port and that the 422 elsewhere really comes from it), and one at app.threat.fail-open=false asserting the documented refusal when the verdict is unavailable. If the second cannot be arranged without taking PostgreSQL down, say so in the artifacts rather than leaving the key unexercised.",
-      "summary": "The threat-check configuration surface is untested. Fixtures.THREAT_FAIL_OPEN_KEY is declared and used by no test \u2014 the fingerprint of a test that was planned and not written. Neither the fail-open branch (ThreatVerdict.UNAVAILABLE accepted with a WARN) nor the fail-closed branch (503) nor app.threat.enabled=false has a test, and design.json flags this reading as one of two blocking ambiguities a human never answered. AC21's positive path is well covered by CreateLinkTest, so the risk is confined to what happens when the checker cannot answer \u2014 which is exactly the case a human is being asked to sign off blind, and exactly the branch API-3 found is one of only three producing the documented 503."
+      "suggestion": "Update \u00a77 to match the delivered contract (or mark it superseded by artifacts/design.json), and point the CacheConfig javadoc at something that exists \u2014 the negative-caching rationale is already written in LinkResolver and CachedLink.",
+      "summary": "\u00a77 of the committed 'plan of record' now contradicts the service that was built: 410-for-expired vs 404-for-unknown (the design deliberately chose 404 for both), 'Caffeine only \u2014 no Redis in the build' (the change is Redis-backed throughout), a /api/v1/links/{code}/stats endpoint, Idempotency-Key, an outbox, and 7-character codes (shipped: 22). Relatedly CacheConfig.LINKS_CACHE cites 'the enumeration note in ADR-004', but no ADR documents exist in the repo and the only ADR-004 reference is this plan's superseded code-length decision. Documentation that confidently describes a different system is worse than none."
     },
     {
-      "confidence": "medium",
-      "file": "service/src/test/java/com/example/urlshortener/behaviour/RedirectTest.java",
-      "id": "TEST-7",
-      "lens": "review-test-adequacy",
-      "line": 263,
-      "severity": "minor",
-      "suggestion": "Give the same @BeforeEach resetSharedTierState() to every class asserting a specific non-2xx status on a code that does not resolve (RedirectTest, DeleteLinkTest, CustomAliasTest), or pull it up into AbstractIntegrationTest for all classes that are not counting tests.",
-      "summary": "Cross-class coupling through the single JVM-wide Redis makes some 404 assertions order- and clock-dependent. Token buckets are keyed by client IP (one loopback address for the whole suite \u2014 the same property SEC-3 found is a production defect) and survive the context switch between classes; ClickRateLimitTest runs with not-found-per-minute=5 and deliberately drains that bucket. Classes that follow and assert 404 on unissued codes \u2014 RedirectTest, DeleteLinkTest, CustomAliasTest \u2014 do not reset, so the only thing between them and a 429 is wall-clock refill. AbuseReportTest and TenantIsolationTest show the authors knew the hazard and fixed it only where it had already bitten. This is the classic way a suite acquires a test that fails once a month and gets muted."
-    },
-    {
-      "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/link/LinkService.java",
-      "id": "SEC-10",
-      "lens": "review-security",
-      "line": 103,
+      "confidence": "high",
+      "file": "service/src/main/java/com/example/urlshortener/abuse/AbuseReportService.java",
+      "id": "CLEAN-8",
+      "lens": "review-cleanliness",
+      "line": 27,
       "severity": "nit",
-      "suggestion": "Log the link's UUID rather than its code; the UUID is already the join key for the click counters and identifies the row for any operator who needs it, without spreading the credential-like value into log aggregation.",
-      "summary": "Short codes are logged at INFO on create, expiry change, delete and abuse report. The design treats codes as capability-like secrets (AC16 \u2014 unguessable and non-enumerable), and this puts every issued code into the application log, whose audience is much wider than the audience for the link itself. Cheap to fix and worth doing while SEC-9 is being fixed in the same log statements."
-    },
-    {
-      "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/config/LinkPolicyConfig.java",
-      "id": "SEC-12",
-      "lens": "review-security",
-      "line": 37,
-      "severity": "nit",
-      "suggestion": "Fail startup when app.base-url is still the localhost default outside a dev/test profile, or refuse any target whose host matches any configured serving domain rather than the single base-url host.",
-      "summary": "The self-referential-target check derives its host from app.base-url, which defaults to http://localhost:8080, so a deployment that forgets APP_BASE_URL silently protects localhost instead of the real host and short links pointing back at our own shortener are accepted, looping redirect chains through the service. The failure is invisible: the only symptom is a check that stops matching. It also covers exactly one host, so the planned customer-owned-domain feature will need it revisited. Same family as SEC-1: a development default that a production deploy inherits without noticing."
+      "suggestion": "Replace \\' with ' in the three AbuseReportService javadoc lines and add the java.util.UUID import in SignInService.",
+      "summary": "Javadoc contains escaped apostrophes (competitor\\'s, customer\\'s on lines 35-36) \u2014 a shell-escaping artifact that renders literally in generated docs \u2014 and SignInService.java:46 writes java.util.UUID.randomUUID() fully qualified where every other file imports UUID. Trivial and mechanical; listed first among the nits because it can be fixed without thinking."
     },
     {
       "confidence": "medium",
@@ -384,18 +367,8 @@
       "lens": "review-api-contract",
       "line": 46,
       "severity": "nit",
-      "suggestion": "Add spring.jackson.serialization.write-dates-as-timestamps: false explicitly, next to the deserialization block that is already pinned for the same reason.",
-      "summary": "The spec freezes the timestamp format (openapi.yaml:67, ISO-8601 instants in UTC) and the config pins fail-on-unknown-properties for the strict-body rule right beside it, but nothing pins serialization.write-dates-as-timestamps. Contract-correct rendering of createdAt/expiresAt therefore rests on a Spring Boot default. The default is currently right \u2014 Instant renders as 2026-08-10T12:00:00Z \u2014 so this is not a live divergence, only an unpinned one on a value the spec calls frozen."
-    },
-    {
-      "confidence": "high",
-      "file": "service/src/main/java/com/example/urlshortener/redirect/RedirectController.java",
-      "id": "API-8",
-      "lens": "review-api-contract",
-      "line": 86,
-      "severity": "nit",
-      "suggestion": "No code change implied by the contract. Consider a sentence in the /{code} 404 description recording that an internal failure is also answered this way, so the 404 is not read as a positive assertion that the code was never issued \u2014 and consider an alert on the catch, since this failure mode is silent by design.",
-      "summary": "The click path catches every RuntimeException and answers the documented 404 not_found. That honours 'this operation never returns 5xx' (openapi.yaml:601) and the body and cache headers match the spec exactly \u2014 but it means a PostgreSQL outage renders every live link as 'does not resolve', indistinguishable to a caller from mass deletion. The contract offers no other status, so the code is following it. Worth a reviewer's eye rather than a change, and worth contrasting with API-2: the click path made this decision deliberately, the management path made no decision at all."
+      "suggestion": "Add spring.jackson.serialization.write-dates-as-timestamps: false explicitly, next to the deserialization block already pinned for the same reason.",
+      "summary": "The spec freezes the timestamp format (openapi.yaml:67, ISO-8601 instants in UTC) and the config pins fail-on-unknown-properties for the strict-body rule right beside it, but nothing pins serialization.write-dates-as-timestamps. The contract-correct rendering of createdAt/expiresAt therefore rests on a Spring Boot default. The default is currently right, so this is not a live divergence \u2014 only an unpinned one on a value the spec calls frozen."
     },
     {
       "confidence": "high",
@@ -405,37 +378,27 @@
       "line": 16,
       "severity": "nit",
       "suggestion": "Either store and query email lower-cased (as threat_denylist.host already does, with a comment explaining exactly this reasoning), or add CREATE UNIQUE INDEX ux_customers_email_lower ON customers (lower(email)) and query with a matching predicate. Confirm with EXPLAIN on the generated statement.",
-      "summary": "findByEmailIgnoreCase generates upper(email) = upper(?), which cannot use the ux_customers_email btree index in V1__initial_schema.sql, so every sign-in is a sequential scan of customers. Today that is two seeded rows and there is no registration endpoint, so the cost is nil; it is filed only because the index exists and reads as if it serves this lookup, and the day accounts arrive the scan arrives with them. Note that fixing SEC-1 (removing the seeded accounts and provisioning real ones) is the day accounts arrive."
+      "summary": "findByEmailIgnoreCase generates upper(email) = upper(?), which cannot use the ux_customers_email btree index, so every sign-in is a sequential scan of customers. Today that is two seeded rows and there is no registration endpoint, so the cost is nil; it is filed because the index exists and reads as if it serves this lookup, and the day accounts arrive the scan arrives with them. Note SEC-1's fix removes those two rows from production, which changes who this affects but not the shape."
     },
     {
       "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/link/UrlValidator.java",
-      "id": "CLEAN-7",
-      "lens": "review-cleanliness",
-      "line": 66,
+      "file": "service/src/main/java/com/example/urlshortener/config/LinkPolicyConfig.java",
+      "id": "SEC-12",
+      "lens": "review-security",
+      "line": 37,
       "severity": "nit",
-      "suggestion": "Either drop the ones with no caller, or add a single line to each saying it is contract surface retained for future callers.",
-      "summary": "Members that exist for tests that never call them: UrlValidator.ownHost() and its no-arg constructor, ShortCodeGenerator.random() and its SecureRandom constructor, RateLimitDecision.remaining(), LinkEntity.getDomain()/getCustomerId(). Plausibly frozen into the contract before the tests were written, which is a real reason \u2014 but as shipped they are surface nobody exercises, and a later reader has to grep the repo to learn that."
-    },
-    {
-      "confidence": "high",
-      "file": "service/src/main/java/com/example/urlshortener/abuse/AbuseReportService.java",
-      "id": "CLEAN-8",
-      "lens": "review-cleanliness",
-      "line": 27,
-      "severity": "nit",
-      "suggestion": "Replace \\' with ' in the three AbuseReportService javadoc lines, and add the java.util.UUID import in SignInService.",
-      "summary": "Javadoc contains escaped apostrophes (competitor\\'s, customer\\'s on lines 35-36) \u2014 a shell-escaping artifact that renders literally in generated docs, and a small tell about how the file was produced. Separately, SignInService.java:46 writes java.util.UUID.randomUUID() fully qualified where every other file in the change imports java.util.UUID."
+      "suggestion": "Fail startup when app.base-url is still the localhost default outside a dev/test profile, or refuse any target whose host matches any configured serving domain rather than the single base-url host.",
+      "summary": "The self-referential-target check derives its host from app.base-url, which defaults to http://localhost:8080, so a deployment that forgets APP_BASE_URL silently protects localhost instead of the real host and short links pointing back at our own shortener are accepted, looping redirect chains through the service. The failure is invisible because the only symptom is a check that stops matching. It also covers exactly one host, so the planned customer-owned-domain feature will need it revisited. Same class of silent-default risk as SEC-1's unconditional migration."
     },
     {
       "confidence": "medium",
-      "file": "service/src/test/java/com/example/urlshortener/behaviour/SignInBehaviourTest.java",
-      "id": "TEST-8",
-      "lens": "review-test-adequacy",
-      "line": 74,
+      "file": "service/src/main/java/com/example/urlshortener/link/LinkService.java",
+      "id": "SEC-10",
+      "lens": "review-security",
+      "line": 103,
       "severity": "nit",
-      "suggestion": "Either add signInCostsTheSameWhetherOrNotTheAccountExists with a deliberately coarse bound (e.g. median of 5 unknown-account attempts within 3x the median of 5 wrong-password attempts, tolerant enough not to flake on a loaded CI box), or record the timing half as knowingly untested. A coarse test that catches an early return is worth more than none; a tight one is worth less.",
-      "summary": "unknownAccountAndWrongPasswordAreRefusedIdentically pins the body half of the anti-enumeration promise but not the timing half. SignInService goes out of its way to hash against a dummy Argon2 digest when the email is unknown (absentAccountHash) precisely so the two paths cost the same; a refactor to an early return on 'no such customer' passes every test in the suite and reinstates the oracle in the one channel identical JSON cannot hide. Note the tension with PERF-8: the deliberate always-hash is also what makes unbounded sign-in concurrency expensive, so whoever adds the semaphore must not accidentally add the early return."
+      "suggestion": "Log the link's UUID rather than its code; the UUID is already the join key for the click counters and identifies the row for any operator who needs it, without spreading a credential-like value into log aggregation. Note this trades against SEC-9's audit-trail concern \u2014 the abuse log line still needs to identify the link, so use the UUID there too rather than dropping the field.",
+      "summary": "Short codes are logged at INFO on create, expiry change, delete and abuse report. The design treats codes as secrets (AC16 \u2014 unguessable and non-enumerable), and this puts every issued code into the application log, whose audience is much wider than the audience for the link itself."
     },
     {
       "confidence": "high",
@@ -445,7 +408,7 @@
       "line": 153,
       "severity": "nit",
       "suggestion": "Keep one test named for the decision but make its assertions load-bearing \u2014 assert 302 and that the response carries the no-store headers a 301 would make pointless \u2014 and move the 'never 301' reasoning into the javadoc where it already is.",
-      "summary": "theRedirectIsTemporaryAndNeverPermanent contains two assertions that cannot fail: after assertEquals(302, status), assertNotEquals(301, status) and assertNotEquals(308, status) are implied. The same shape appears at line 247 (assertNotEquals(400, ...) after assertEquals(404, ...)) and at LinkPerformanceTest:149. They document intent, which is useful, but a reader counting assertions overestimates what is checked \u2014 and this suite's headline strength is that its assertions are load-bearing, so the exceptions are worth removing."
+      "summary": "theRedirectIsTemporaryAndNeverPermanent contains two assertions that cannot fail: after assertEquals(302, status), assertNotEquals(301, ...) and assertNotEquals(308, ...) are implied. The same shape appears at line 247 and at LinkPerformanceTest:149. They read as documentation of intent, which is useful, but a reader counting assertions overestimates what is checked \u2014 and this suite's assertion count is otherwise a reliable signal, which is why it is worth tidying."
     },
     {
       "confidence": "medium",
@@ -454,20 +417,47 @@
       "lens": "review-test-adequacy",
       "line": 197,
       "severity": "nit",
-      "suggestion": "Decide it, then pin it in its own test \u2014 aHeadRequestIsCountedLikeAGet (or ...IsNotCountedAsAClick) \u2014 reading the count before and after a single HEAD. Do not bolt the assertion onto headAnswersLikeGetWithNoBody: that test is about response shape, and a count assertion appended to it would be masked by any earlier header failure.",
-      "summary": "Whether a HEAD request counts as a click is neither specified nor pinned. headAnswersLikeGetWithNoBody asserts status, Location, cache headers and empty body but says nothing about the counter, and the implementation counts HEAD exactly like GET because Spring dispatches it to the same handler. Under AC3 ('count every click ... as a measured number') a link checker polling HEAD hourly silently inflates a customer's reported figure. This is a contract gap as much as a test gap \u2014 and the API-contract lens listed HEAD dispatch among the things it assumed rather than verified, so no lens has confirmed the behaviour it describes."
+      "suggestion": "Decide it, then pin it in its own test \u2014 aHeadRequestIsCountedLikeAGet or ...IsNotCountedAsAClick \u2014 reading the count before and after a single HEAD. Do not bolt the assertion onto headAnswersLikeGetWithNoBody: that test is about response shape and a count assertion there would be masked by any earlier header failure.",
+      "summary": "Whether a HEAD request counts as a click is neither specified nor pinned: headAnswersLikeGetWithNoBody asserts status, Location, cache headers and empty body but says nothing about the counter, and the implementation counts HEAD exactly like GET because Spring dispatches it to the same handler. Under AC3 a link checker polling HEAD hourly silently inflates a customer's reported figure. This is a contract gap as much as a test gap \u2014 the api-contract lens separately recorded that HEAD dispatch was assumed framework behaviour and not verified."
+    },
+    {
+      "confidence": "medium",
+      "file": "service/src/test/java/com/example/urlshortener/behaviour/SignInBehaviourTest.java",
+      "id": "TEST-8",
+      "lens": "review-test-adequacy",
+      "line": 74,
+      "severity": "nit",
+      "suggestion": "Either add signInCostsTheSameWhetherOrNotTheAccountExists with a deliberately coarse bound (median of 5 unknown-account attempts within 3x the median of 5 wrong-password attempts, tolerant enough not to flake on a loaded CI box), or record the timing half as knowingly untested. A coarse test that catches an early return is worth more than none; a tight one is worth less.",
+      "summary": "unknownAccountAndWrongPasswordAreRefusedIdentically pins the body half of the anti-enumeration promise but not the timing half. SignInService deliberately hashes against a dummy Argon2 digest when the email is unknown precisely so the two paths cost the same; a refactor to an early return on 'no such customer' passes every test in the suite and reinstates the oracle in the one channel identical JSON cannot hide. Note that SEC-4/PERF-8's suggested concurrency bound on hashing must preserve this property."
+    },
+    {
+      "confidence": "medium",
+      "file": "service/src/main/java/com/example/urlshortener/link/UrlValidator.java",
+      "id": "CLEAN-7",
+      "lens": "review-cleanliness",
+      "line": 66,
+      "severity": "nit",
+      "suggestion": "Either drop the ones with no caller, or add a single line to each saying it is contract surface retained for future callers, so a later reader does not have to grep the repo to find out.",
+      "summary": "A handful of members exist for tests that never call them: UrlValidator.ownHost() and its no-arg constructor, ShortCodeGenerator.random() and its SecureRandom constructor, RateLimitDecision.remaining(), LinkEntity.getDomain()/getCustomerId(). They were plausibly frozen into the contract before the tests were written, which is a real reason, but as shipped they are surface nobody exercises. CLEAN-4's LinkEntity.isResolvableAt belongs to the same set."
+    },
+    {
+      "confidence": "high",
+      "file": "service/src/main/java/com/example/urlshortener/redirect/RedirectController.java",
+      "id": "API-8",
+      "lens": "review-api-contract",
+      "line": 86,
+      "severity": "nit",
+      "suggestion": "No code change implied by the contract. Consider a sentence in the /{code} 404 description recording that an internal failure is also answered this way, so the 404 is not read as a positive assertion that the code was never issued. An alert on the catch-block log line is the operational half of this.",
+      "summary": "The click path catches every RuntimeException and answers the documented 404, which honours 'this operation never returns 5xx' (openapi.yaml:601) with a byte-exact body and cache headers \u2014 but it means a PostgreSQL outage renders every live link as 'does not resolve', indistinguishable to a caller from mass deletion. The contract offers no other status, so the code is following it; the lens filed this as a consequence for a reviewer's eye rather than a defect, and I agree \u2014 it is last because no change is implied, not because it is unimportant. It is also the counterpart to API-2: the click path decided this deliberately and the management path did not."
     }
   ],
-  "summary": "A strong, security-literate, unusually clean change with one release-stopping defect and a cluster of failure-path gaps around it. Look first at SEC-1: two customer accounts whose plaintext passwords are published in openapi.yaml are installed by an unconditional Flyway migration, so they exist in production, and because there is no registration endpoint they are the only accounts \u2014 combined with SEC-5 (any account can irreversibly take down any link it has seen the code for) that is full control of the service from a credential printed in the spec. That is the one blocker and it pauses the pipeline for a human. Behind it sit three live defects worth fixing before release: a denylist bypass by trailing-dot FQDN that defeats AC21 with one character (SEC-2), an unvalidated {code} path variable that three lenses found independently and that turns untrusted input into an undocumented 500 (SEC-7/API-1/PERF-6), and the absence of any fallback exception handler, which is why that 500 is shaped by Spring Boot rather than by the contract (API-2). The most interesting convergence is the click-counting subsystem: performance found the drain cannot keep up by construction and stalls the shared Redis while trying (PERF-1, PERF-2), and test adequacy found, from an entirely different direction, that no test would fail if the durable flush never ran at all (TEST-1) \u2014 the highest-risk component is also the one nobody can currently observe.",
+  "summary": "Strong, security-literate change: contract conformance is near-exact on all eight operations, the single-404 rule and tenant isolation hold, the redirect hot path is a well-built cache-plus-index lookup, and the test suite is unusually good (129 behaviour methods, almost all named for one behaviour and asserting something that can fail). Look first at SEC-1, the only blocker and the only finding that should pause shipping: two customer accounts whose plaintext passwords are published in openapi.yaml are installed in every environment by an unconditional Flyway migration, and since there is no registration endpoint they are the accounts \u2014 which SEC-5 (any account can irreversibly take down any link) turns from an embarrassment into a live takeover path. After that, three clusters cost real time: string normalisation as identity (SEC-2's trailing-dot denylist bypass is a working AC21 defeat with a contained fix, SEC-6 the same mistake on address literals), unvalidated input reaching the framework floor (SEC-7/API-1/PERF-6 converged on the unvalidated {code}, and API-2 shows there is no fallback exception handler behind it), and the click-counting subsystem, where PERF-1's ~100 links/sec drain ceiling, PERF-2's unbounded HGETALL and TEST-1's finding that no test would fail if the durable write were deleted all describe one under-verified path carrying AC3's exactness claim. Everything else is minors and nits, several of which are one-line fixes worth batching.",
   "top_risks": [
-    "No lens executed anything. All five reports are source reading; the only runtime evidence anywhere is a small standalone JDK probe the security lens wrote to confirm SEC-2/SEC-6. Nobody built the service, ran the suite, ran a query, or observed a response on the wire. Every severity above is a mechanism argument, not a measurement.",
-    "Build and suite state is unverified since the last repair. triage.json recorded a RedirectTest failure and a downstream coverage_floor failure against the pre-repair tree; commit 6df7986 applies the adjudicated repair but no verify has run since, so the coverage_floor outcome and the JaCoCo figure are unknown to the review as a whole. The release gate should treat 'suite green' as unconfirmed, not assumed.",
-    "The click-counting flush/settle invariant is trusted by everyone and examined by no one. Security read it for injection only, performance took RedisClickCounter's javadoc on trust for multi-replica interleavings, cleanliness checked call sites only, and the test lens found no test covers the durable path. Even with PERF-1, PERF-2 and TEST-1 all fixed, AC3's 'exact for the life of the link' rests on an unaudited concurrency argument across replicas.",
-    "Everything outside this repository decides how bad several findings actually are, and none of it is reviewable here: whether the edge proxy blocks /actuator (SEC-8/API-5), whether it overwrites X-Forwarded-For (SEC-3), Redis authentication and network exposure, and \u2014 most consequentially \u2014 Redis maxmemory and eviction policy. Redis eviction silently deletes un-flushed click deltas; design.json already flags this as unresolved, and PERF-1's growing pending hash makes eviction more likely, not less. No document in docs/ states any of these assumptions.",
-    "No supply-chain review happened. No SCA tool or advisory feed was reachable, so jjwt 0.12.6, bcprov-jdk18on 1.81, Spring Boot 3.5.16 and their transitives are unchecked against known CVEs, and the cleanliness lens explicitly scoped pom.xml out as someone else's concern. That gap belongs to no lens, which is exactly how it stays open.",
-    "The service is designed against a load nobody has run. 100M clicks/day is reasoned about in the design and contradicted by a ~100 links/second flush ceiling, and AC22's 'fast' half has no published number, so there is no threshold any test or gate could fail. Until a load test exists, the performance findings cannot be closed by evidence \u2014 only by argument.",
-    "Redis is a single shared dependency for the resolution cache, all four rate-limit buckets and the click counters, and the fail-open decisions compound rather than isolate. One slow Redis produces, simultaneously: cache misses hitting an unsized 10-connection pool (PERF-5), unlimited sign-in attempts driving unbounded Argon2 (SEC-4 + PERF-8), unbounded abuse-report takedowns (SEC-5), and up to ~3s added to every redirect (PERF-9). No test exercises that combined state; DegradedDependencyTest covers it one behaviour at a time and asserts the create half disjunctively (TEST-3).",
-    "redis/token_bucket.lua was read by no lens end to end, and read_click_deltas.lua only by performance. The Retry-After values the contract promises, and the atomicity the rate limiter's whole security argument depends on, live in files this review did not read.",
-    "Operational recovery does not exist and is not in scope of any finding's fix. There is no unblock path, no moderation console, no admin surface, and the audit trail the takedown mechanism relies on is a forgeable application log (SEC-9). Even with every finding above fixed, the first incorrect takedown in production requires a DBA."
+    "Nothing in this review was executed. All five lenses read source only: no build, no test run, no query plan, no wire capture (security ran a small standalone JDK probe for SEC-2/SEC-6, and that is the extent of observed behaviour anywhere). The test lens further notes the suite's greenness is unknown to it \u2014 triage.json records a failure against the pre-repair tree and a downstream coverage_floor failure, commit 6df7986 applies the adjudicated repair, and no verify has run since. A green verify is a precondition for reading any of this as a review of working software.",
+    "The click-counting subsystem is unverified from every direction at once and stays risky even after each individual finding is fixed. No lens read redis/token_bucket.lua or audited read_click_deltas.lua for atomicity (performance read it for cost, security for injection only, cleanliness for existence); no lens reasoned through the flush/settle invariant under more than one replica (performance took RedisClickCounter's javadoc on trust); and Redis maxmemory and eviction policy are outside the repository and were examined by nobody, which is what actually decides whether a growing pending hash loses counts or stalls the hot path. AC3's 'exact for the life of the link' currently rests on an unread script, an unexercised durable write and an unknown eviction policy.",
+    "The service's behaviour behind its edge proxy is assumed, not specified. SEC-3 shows the three IP-keyed buckets are keyed by the TCP peer with no forwarded-headers strategy; SEC-8/API-5 shows /actuator/metrics and /actuator/prometheus are unauthenticated and whether they reach the internet depends on edge config not in this repository and not in docs/; the security lens also did not examine TLS termination, HSTS or HTTP parser differentials between Tomcat and the edge. Fixing the findings does not produce a reviewable statement of what the edge is responsible for \u2014 and the test lens confirms per-source rate-limit isolation (half of AC19) cannot be demonstrated at all while every test runs from loopback.",
+    "No supply-chain check was performed by anyone. Security could not reach an SCA tool or advisory feed, so jjwt 0.12.6, bcprov-jdk18on 1.81, Spring Boot 3.5.16 and their transitives are unchecked for known CVEs; cleanliness explicitly deferred pom.xml dependency and version choices to that lens. A dependency scan should run before release regardless of the findings above.",
+    "Two acceptance criteria are shipping without a definition rather than without a test. AC22's 'fast' half has no published latency number in openapi.yaml or design.json, so TEST-4 has nothing to assert against and PERF-9's three sequential Redis round trips per redirect have no budget to violate; and design.json's threat-check fail-open reading is recorded as a blocking ambiguity a human never answered, with TEST-6 confirming no test exercises either branch. Both need a decision from a person, not a code change.",
+    "Operational visibility is thin exactly where the structural risks are. PERF-1 notes HLEN clicks:pending \u2014 the one signal that would show the drain falling behind \u2014 is not exposed; no alert exists on RedirectController's catch-all, so API-8's 'a database outage renders every link as not-found' would be silent; and SEC-5's takedown audit trail is a log the SEC-9 log-injection defect lets an attacker forge. Even a fully fixed version of this change would be hard to diagnose in production."
   ]
 }
