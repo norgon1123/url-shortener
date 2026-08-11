@@ -421,10 +421,29 @@ tricks walk past, add self-service sign-up, add anonymous links that expire afte
 a month. That mixture is a better exercise than the original — a defect, a
 feature, and a feature that changes the security posture of an existing one.
 
-**3. Ambiguous — planned as its own run, and it is not one.** The intent was
-"make it reliable and add analytics", with `clarify` refusing to proceed. What
-happened instead is that *both* runs escalated at `clarify` on their own terms,
-which is the behaviour the scenario was meant to demonstrate:
+**3. Ambiguous — run as a differential pair, and it was worth it.**
+`orchestrator/fixtures/runs/ambiguous-1` and `-2`. This plan originally argued
+the scenario was redundant, because both earlier runs escalated at `clarify` on
+their own terms. **That argument was wrong, and the run proved it wrong in the
+most useful way available:** run twice from the same commit with opposite
+answers to the same questions, the two plans came back the same, because the
+human's answers never reached any node. The gate checked an answer *existed*;
+nothing read what it said.
+
+Two runs had already "demonstrated" this control while being structurally
+incapable of detecting its absence — the human agreed with the model's proposal
+both times. The general lesson is worth more than the fix: **a control tested
+only by agreement is not tested.** Design the test so the machine and the human
+disagree, or the test cannot fail.
+
+After the fix (`f4258e4`) the same three nodes, re-run against the same answers,
+produced a materially different plan: 14 tasks against 21, a `Referer` rollup
+against a licensed geo database with a retention policy, probe surgery against a
+circuit breaker — and a task asserting the health endpoints are *unchanged*,
+because that is what the second answer asked for.
+
+The escalation behaviour the scenario was originally meant to show was real in
+both earlier runs too:
 
 - `greenfield-3` — two blocking ambiguities, resolved by a human before design.
 - `brownfield-1` — two blocking ambiguities out of eleven questions, and the
@@ -434,8 +453,9 @@ which is the behaviour the scenario was meant to demonstrate:
   elsewhere to avoid being one. The node would not decide it, and said why.
 
 A synthetic ambiguity run would have proved the node can escalate when handed
-something obviously vague. Two real runs proved it escalates on the thing a
-careful engineer would have escalated on, which is the claim worth making.
+something obviously vague. Those two proved it escalates on the thing a careful
+engineer would have escalated on, which is the better claim — and the pair
+proved that until `f4258e4`, escalating was *all* it did.
 
 **Fault injection** was likewise not staged: two provider session limits, a
 Spring context startup failure, a Testcontainers capacity exhaustion and a

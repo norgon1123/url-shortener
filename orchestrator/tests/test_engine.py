@@ -25,6 +25,7 @@ from sdlc.engine import Engine
 from sdlc.graph import load_pipeline
 from sdlc.mock import MockBackend, ScriptedAttempt
 from sdlc.model import Approval, ApprovalDecision, Budget, NodeStatus, RunStatus
+from sdlc.nodes import NodeInvocation, render_prompt
 from sdlc.state import RunStore
 
 RUN_ID = "run-1"
@@ -1047,6 +1048,79 @@ class TestTriageEscalates:
         assert h.status("verify") is NodeStatus.PENDING_APPROVAL
         assert not h.events("repair_routed")
         assert "low confidence" in h.events("triage_verdict")[0].payload["reason"]
+
+
+class TestHumanAnswersReachTheNodes:
+    """An answer the gate accepts but no node ever reads is a pause button.
+
+    Found by running one ambiguous requirement twice with opposite answers. The
+    two plans came back the same, both citing the model's own `proposed_answer`,
+    because nothing carried the human's text past the gate that checked it
+    existed. Two earlier runs had missed it entirely — the human had agreed with
+    the proposal both times, so the right answer and no answer looked identical.
+    """
+
+    def _harness(self, tmp_path: Path) -> Harness:
+        return Harness(tmp_path, TRIAGE_NODES, triage_script(IMPL_VERDICT))
+
+    def test_an_answer_reaches_a_later_node(self, tmp_path: Path) -> None:
+        h = self._harness(tmp_path)
+        h.store.record_approval(
+            RUN_ID,
+            Approval(
+                "plan",
+                ApprovalDecision.APPROVED,
+                "neil",
+                answers={"Q1": "country from IP, not the referrer"},
+            ),
+        )
+        answers = h.engine()._human_answers(h.pipeline.node("implement"))
+        assert answers == (("plan", "neil", "Q1", "country from IP, not the referrer"),)
+
+        rendered = render_prompt(
+            NodeInvocation(
+                node=h.pipeline.node("implement"),
+                run_id=RUN_ID,
+                workspace=tmp_path,
+                human_answers=answers,
+            ),
+            h.prompts,
+        )
+        assert "country from IP, not the referrer" in rendered
+        assert "answered by neil" in rendered
+        assert "do not re-derive" in rendered
+
+    def test_a_node_is_not_handed_its_own_answers(self, tmp_path: Path) -> None:
+        """`plan` already knows what it asked; repeating it back is noise."""
+        h = self._harness(tmp_path)
+        h.store.record_approval(
+            RUN_ID,
+            Approval("plan", ApprovalDecision.APPROVED, "neil", answers={"Q1": "x"}),
+        )
+        assert h.engine()._human_answers(h.pipeline.node("plan")) == ()
+
+    def test_a_rejection_carries_no_answers(self, tmp_path: Path) -> None:
+        h = self._harness(tmp_path)
+        h.store.record_approval(
+            RUN_ID,
+            Approval("plan", ApprovalDecision.REJECTED, "neil", answers={"Q1": "x"}),
+        )
+        assert h.engine()._human_answers(h.pipeline.node("implement")) == ()
+
+    def test_the_routing_key_is_not_an_answer(self, tmp_path: Path) -> None:
+        """`route` names a branch for the engine; a node has nothing to do with it."""
+        h = self._harness(tmp_path)
+        h.store.record_approval(
+            RUN_ID,
+            Approval(
+                "plan",
+                ApprovalDecision.APPROVED,
+                "neil",
+                answers={"route": "author-tests", "Q1": "real answer"},
+            ),
+        )
+        answers = h.engine()._human_answers(h.pipeline.node("implement"))
+        assert [a[2] for a in answers] == ["Q1"]
 
 
 class TestHandlersDoNotBlockCompletion:

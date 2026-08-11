@@ -557,8 +557,29 @@ class Engine:
             gate_failures=gate_failures,
             rejection_note=rejection_note,
             autonomy=autonomy,
+            human_answers=self._human_answers(node),
         )
         return self.backend.run(invocation)
+
+    def _human_answers(self, node: NodeSpec) -> tuple[tuple[str, str, str, str], ...]:
+        """Every answer a human has given this run, for any node but this one.
+
+        Run-scoped on purpose. An answer given at `clarify` is a fact about what
+        is being built, and the node it changes most is `decompose` or
+        `implement`, four stages later.
+
+        `route` is excluded: it names a branch for the engine, not an answer to
+        a question, and a node has nothing to do with it.
+        """
+        answers: list[tuple[str, str, str, str]] = []
+        for node_id, approval in sorted(self.store.approvals(self.run_id).items()):
+            if node_id == node.id or not approval.approved:
+                continue
+            for qid, text in sorted(approval.answers.items()):
+                if qid == "route" or not text:
+                    continue
+                answers.append((node_id, approval.approver, qid, text))
+        return tuple(answers)
 
     def _run_barrier(self, node: NodeSpec) -> NodeResult:
         """Join the parallel branches by merging their worktrees."""
