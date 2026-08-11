@@ -409,6 +409,33 @@ class TestRetry:
         assert harness.run() is RunStatus.FAILED
         assert len(harness.events("node_attempt_failed")) == 2  # max_attempts, not forever
 
+    def test_a_wall_is_not_retried(self, tmp_path: Path) -> None:
+        """A provider quota reset hours from now is not a transient failure.
+
+        The run that motivated this spent three attempts and $7.42 discovering
+        the same session limit three times. Retrying a deterministic external
+        limit is superstition; the attempts are better kept for failures a
+        second try could plausibly clear.
+        """
+        harness = Harness(
+            tmp_path,
+            failure_nodes("retry"),
+            {
+                **SETUP_OK,
+                "work": [
+                    ScriptedAttempt(
+                        fail="success; You've hit your session limit · resets 6:50pm"
+                    )
+                ],
+            },
+        )
+        assert harness.run() is RunStatus.FAILED
+        assert len(harness.events("node_attempt_failed")) == 1  # not 2
+        abandoned = harness.events("retries_abandoned")
+        assert len(abandoned) == 1
+        assert abandoned[0].payload["reason"] == "provider quota exhausted"
+        assert abandoned[0].payload["attempts_remaining"] == 1
+
     def test_a_retry_waits_out_the_declared_backoff(
         self, tmp_path: Path, recorded_sleeps: list[float]
     ) -> None:

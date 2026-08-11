@@ -66,6 +66,30 @@ def new_run_id(prefix: str = "run") -> str:
     return f"{prefix}-{stamp}-{uuid.uuid4().hex[:6]}"
 
 
+# Failures a retry cannot change, matched against the error text a backend
+# reports. Each is deterministic given the same inputs: a provider quota that
+# resets at a fixed hour, a turn ceiling the next attempt hits identically, an
+# empty account. A bounded retry policy is for flaky failures; spending it here
+# buys nothing and costs a full attempt each time.
+_TERMINAL_ERRORS: tuple[tuple[str, str], ...] = (
+    ("session limit", "provider quota exhausted"),
+    ("usage limit", "provider quota exhausted"),
+    ("credit balance", "provider credit exhausted"),
+    ("error_max_turns", "turn ceiling reached"),
+)
+
+
+def terminal_failure(error: str | None) -> str | None:
+    """Name the wall if this error is one, else None."""
+    if not error:
+        return None
+    lowered = error.lower()
+    for needle, reason in _TERMINAL_ERRORS:
+        if needle in lowered:
+            return reason
+    return None
+
+
 @dataclass
 class NodeExecution:
     """What happened to one node on one pass, for the journal and the caller."""
@@ -427,6 +451,22 @@ class Engine:
                     error=result.error,
                     cost_usd=result.cost_usd,
                 )
+                if reason := terminal_failure(result.error):
+                    # Some failures are walls, not weather. A provider quota
+                    # that resets at a fixed hour, or a turn ceiling the next
+                    # attempt would hit identically, does not become passable
+                    # because we tried twice more -- it just costs twice more.
+                    # Spend the remaining attempts on failures a retry can
+                    # actually change, and leave this node resumable.
+                    self._record(
+                        "retries_abandoned",
+                        node_id=node.id,
+                        attempt=attempt,
+                        parent_ids=self._parents(node.id),
+                        reason=reason,
+                        attempts_remaining=total - attempt - 1,
+                    )
+                    return self._fail(node, [], f"{reason}: {result.error}")
                 gate_failures = ()
                 continue
 
