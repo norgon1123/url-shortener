@@ -1,60 +1,84 @@
 {
   "evidence": [
     {
-      "claim": "Adding a Redis CacheManager does NOT create a duplicate-bean failure by itself: Spring Boot's CacheAutoConfiguration is annotated @ConditionalOnMissingBean(value=CacheManager.class, name=\"cacheResolver\") at class level and @AutoConfiguration(after=RedisAutoConfiguration), so the existing CacheConfig.cacheManager bean suppresses all auto-configured cache managers. The break only happens if a node adds a *second* explicit CacheManager bean. Replacing the body of CacheConfig.cacheManager is therefore the safe move.",
-      "source": "javap -v on org/springframework/boot/autoconfigure/cache/CacheAutoConfiguration.class extracted from ~/.m2/.../spring-boot-autoconfigure-3.5.16.jar \u2014 class-level RuntimeVisibleAnnotations show ConditionalOnClass(CacheManager), ConditionalOnBean(CacheAspectSupport), ConditionalOnMissingBean(value=[CacheManager], name=[\"cacheResolver\"])"
+      "claim": "AC2's bypass is real: http://2130706433/ is ACCEPTED by the current validator (isIpLiteral's regex only matches 1-3-digit dotted quads, so InetAddress is never consulted).",
+      "source": "Ran the compiled UrlValidator from service/target/classes: new UrlValidator(\"localhost\").parseOrThrow+requireShortenable(\"http://2130706433/\") -> ACCEPTED (host=2130706433). Code at UrlValidator.java:47,152-154."
     },
     {
-      "claim": "spring-boot-starter-data-redis:3.5.16 resolves from Maven Central and pulls only spring-boot-starter, lettuce-core and spring-data-redis; versions are managed by the spring-boot-starter-parent already in the pom, so no version pin is needed for it (lettuce 6.6.0.RELEASE, per the BOM).",
-      "source": "HTTP 200 for repo1.maven.org/.../spring-boot-starter-data-redis-3.5.16.pom; its <artifactId> list is [spring-boot-starter-data-redis, spring-boot-starter, lettuce-core, spring-data-redis]; ~/.m2/.../spring-boot-dependencies-3.5.16.pom line 121 <lettuce.version>6.6.0.RELEASE</lettuce.version>"
+      "claim": "AC1's bypass is real: https://malware.example.com./x is ACCEPTED \u2014 URI.getHost() keeps the trailing dot and DenylistThreatCheck's parentOf walk (\"malware.example.com.\" -> \"example.com.\" -> \"com.\") never equals the seeded row 'malware.example.com'.",
+      "source": "Same probe -> ACCEPTED (host=malware.example.com.); DenylistThreatCheck.java:49-62; V2__seed_customers_and_denylist.sql:29-32."
     },
     {
-      "claim": "Spring Boot 3.5.16's dependency BOM manages NO version for nimbus-jose-jwt, jjwt or BouncyCastle \u2014 case-insensitive grep for 'nimbus' and 'bouncycastle|bcprov' both return 0 matches. Any JWT or Argon2 dependency the design node freezes must carry a literal <version>, since implement and author-tests cannot add one later.",
-      "source": "grep -icE 'nimbus' and grep -icE 'bouncycastle|bcprov' against ~/.m2/repository/org/springframework/boot/spring-boot-dependencies/3.5.16/spring-boot-dependencies-3.5.16.pom \u2192 both printed 0"
+      "claim": "The trailing dot also defeats the internal-host check, not just the denylist: http://LOCALHOST./ is ACCEPTED today while http://localhost/ is 422. Normalisation therefore closes two holes, and lower-casing alone closes neither.",
+      "source": "Probe output: 'http://LOCALHOST./ ACCEPTED' vs 'http://localhost/ URL_REJECTED 422'; UrlValidator.java:104-123."
     },
     {
-      "claim": "Argon2id via spring-security-crypto needs BouncyCastle added explicitly: Argon2PasswordEncoder.class in spring-security-crypto-6.5.11.jar contains the string 'org/bouncycastle', yet that artifact's published pom declares no BouncyCastle dependency (only an optional runtime assertj). BCryptPasswordEncoder and BCrypt ship self-contained in the same jar. bcprov-jdk18on:1.81 is available on Central (HTTP 200).",
-      "source": "python3 zipfile read of spring-security-crypto-6.5.11.jar: 'bouncycastle referenced: True' for org/springframework/security/crypto/argon2/Argon2PasswordEncoder.class; dependency list from spring-security-crypto-6.5.11.pom; HTTP 200 for bcprov-jdk18on-1.81.jar"
+      "claim": "Three forms the impact analysis lists as 'accepted today' are in fact already refused, with 400 invalid_request rather than 201: http://127.1/, http://0x7f.0.0.1/ and http://\u4f8b\u3048.\u30c6\u30b9\u30c8/ (java.net.URI returns a null host for each, so parseOrThrow throws at the syntax stage).",
+      "source": "Probe output: each -> INVALID_REQUEST 400 {longUrl=must be an absolute http or https URL}; UrlValidator.java:93-95."
     },
     {
-      "claim": "spring-boot-starter-security pulls spring-security-config and spring-security-web, which activate Spring Security's default filter chain over every mapping including the root-level /{code} redirect and /actuator. spring-security-crypto is a standalone jar with neither, so taking only the crypto artifact gives password hashing without any auto-configured authentication that would have to be re-opened for AC14 (clicks need no credentials).",
-      "source": "spring-boot-starter-security-3.5.16.pom <artifactId> list: [spring-boot-starter-security, spring-boot-starter, spring-aop, spring-security-config, spring-security-web]; spring-security-crypto-6.5.11.pom lists no spring-security-config/web"
+      "claim": "IPv4-mapped IPv6 is NOT a bypass \u2014 it is already refused: http://[::ffff:127.0.0.1]/ and http://[::ffff:7f00:1]/ both answer 422 today, because isIpLiteral matches '[' and InetAddress unwraps the mapping.",
+      "source": "Probe output: both -> URL_REJECTED 422; UrlValidator.java:114,152-154."
     },
     {
-      "claim": "A Redis Testcontainer needs no new test dependency: spring-boot-testcontainers 3.5.16 already ships RedisContainerConnectionDetailsFactory, and org.testcontainers:testcontainers 1.21.4 (GenericContainer) is already in the local repository as a transitive of the postgresql/junit-jupiter modules the pom declares. A GenericContainer(\"redis:7-alpine\") with @ServiceConnection wires spring.data.redis.* automatically.",
-      "source": "unzip -l on ~/.m2/.../spring-boot-testcontainers-3.5.16.jar \u2192 org/springframework/boot/testcontainers/service/connection/redis/RedisContainerConnectionDetailsFactory.class; ls ~/.m2/repository/org/testcontainers/testcontainers/ \u2192 1.21.4"
+      "claim": "Two further live bypasses exist beyond AC2's example: http://0x7f000001/ and http://017700000001/ and http://0177.0.0.1/ are all ACCEPTED today, and glibc resolves all three to 127.0.0.1.",
+      "source": "Probe output (all ACCEPTED) plus python3 socket.getaddrinfo: '0177.0.0.1'->127.0.0.1, '0x7f000001'->127.0.0.1, '017700000001'->127.0.0.1."
     },
     {
-      "claim": "The stale migration is real and is a build artifact of the abandoned greenfield-2/implement branch, not of anything on HEAD: service/target/classes/db/migration/V1__create_links.sql (mtime Aug 10 10:30) is byte-for-byte the file at greenfield-2/implement:service/src/main/resources/db/migration/V1__create_links.sql (columns hit_count, last_accessed_at, index ux_links_code) and is ignored via .gitignore line 14 'service/target/'. Only .gitkeep is tracked under src/main/resources/db/migration. A first build of this run must be `clean`.",
-      "source": "ls -l service/target/classes/db/migration/; git show greenfield-2/implement:service/src/main/resources/db/migration/V1__create_links.sql; git check-ignore -v \u2192 .gitignore:14; git ls-files service/src/main/resources/db/migration/ \u2192 only .gitkeep"
+      "claim": "A normaliser built on InetAddress.getByName will not work on JDK 21: getByName('0x7f000001') and ('017700000001') throw UnknownHostException, and getByName('0177.0.0.1') returns 177.0.0.1 \u2014 a public address \u2014 where curl reaches 127.0.0.1. The IPv4 forms must be parsed by hand.",
+      "source": "Direct probe on openjdk 21.0.12: 0177.0.0.1 -> 177.0.0.1 loopback=false; 0x7f000001 and 017700000001 -> UnknownHostException; 2130706433 and 127.1 -> 127.0.0.1."
     },
     {
-      "claim": "The shipped cache TTL exceeds the takedown bound Q1 committed to: application.yml sets app.cache.spec: maximumSize=10000,expireAfterWrite=5m, and CacheConfig hard-codes the same 5m as its @Value default. Both have to move to <=60s, or a missed invalidation breaches AC9 by up to five minutes.",
-      "source": "service/src/main/resources/application.yml (app.cache.spec); CacheConfig.java constructor @Value(\"${app.cache.spec:maximumSize=10000,expireAfterWrite=5m}\")"
+      "claim": "The servlet filter mapping claim holds: '/api/v1/*' is a prefix mapping that covers /api/v1/public/links and /api/v1/customers, so both new endpoints ARE filtered unless explicitly exempted. Trailing-slash ('/api/v1/sessions/') and double-slash ('/api/v1//public/links') variants also stay filtered, i.e. shouldNotFilter's exact-equality comparison fails closed.",
+      "source": "Ran an embedded Tomcat 10.1.55 (from ~/.m2) with a servlet at '/' and a filter mapped '/api/v1/*': /api/v1/public/links filtered=true, /api/v1/customers filtered=true, /api/v1/sessions/ filtered=true, /api/v1//public/links filtered=true, /abc123 filtered=false. Matches WebConfig.java:28,36 and SessionAuthenticationFilter.java:52-54."
     },
     {
-      "claim": "application.yml today carries datasource, JPA (ddl-auto: validate), Flyway, server, actuator exposure and app.cache.spec only \u2014 no Redis connection, no JWT key or TTL, no rate-limit buckets, no default expiry, no public base URL. Every one of those is configuration under A5/A7/A13/A15 and Q7/Q8, and only the implement node can write this file.",
-      "source": "full read of service/src/main/resources/application.yml"
+      "claim": "IP-keyed limiting for the two new endpoints needs no new plumbing: RateLimitGuard.requireByAddress(bucket, address) already exists and SignInController already calls it with httpRequest.getRemoteAddr().",
+      "source": "RateLimitGuard.java:27-29; SignInController.java:36-42."
     },
     {
-      "claim": "The test harness starts PostgreSQL only, in a static initialiser deliberately not managed by the @Testcontainers extension (the javadoc records a thirty-minute build caused by getting that wrong). Any Redis container must follow the same singleton pattern, and it is added by test-contract/author-tests, not by implement.",
-      "source": "service/src/test/java/com/example/urlshortener/support/AbstractIntegrationTest.java \u2014 static { POSTGRES.start(); } plus the javadoc paragraph on @Testcontainers/@Container"
+      "claim": "Adding a bucket is compile-safe: capacityOf() is an exhaustive switch over RateLimitBucket, so a new value fails the build until it is mapped to a property; keys are namespaced 'ratelimit:<bucket>:<key>', so a new bucket cannot spend WRITE tokens.",
+      "source": "RedisTokenBucketRateLimiter.java capacityOf switch and keyFor()."
     },
     {
-      "claim": "Toolchain preconditions are fine: java 21.0.12 is on PATH matching <java.version>21</java.version>, the Docker daemon is reachable (docker ps exits 0, user is in the docker group), and Maven Central answers 200. The local image cache holds postgres:17-alpine and testcontainers/ryuk:0.12.0 but no redis image.",
-      "source": "java -version; docker ps (outside sandbox, exit 0); docker images --format '{{.Repository}}:{{.Tag}}'; HTTP 200 from repo1.maven.org"
+      "claim": "The limiter fails open on a Redis fault (logs a WARN and returns ALLOWED), so during a Redis outage the anonymous create path and sign-up are unmetered; a sign-up costs a measured 25.6 ms and 16 MiB of Argon2id work per request on this machine (m=16384,t=2,p=1).",
+      "source": "RedisTokenBucketRateLimiter.java catch(RuntimeException) -> RateLimitDecision.ALLOWED; timed Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8() from spring-security-crypto 6.5.11: hash avg 25.6 ms, verify avg 24.1 ms; Argon2PasswordHasher.java:22."
     },
     {
-      "claim": "Maven cannot run from inside the agent sandbox once new dependencies are involved: ~/.m2 is read-only ('resolver-status.properties (Read-only file system)') and DNS for repo.maven.apache.org fails ('Temporary failure in name resolution'), while plain HTTPS to repo1.maven.org succeeds. Every current dependency is already cached, so this only bites when the pom gains the Redis/JWT/BC artifacts.",
-      "source": "./mvnw -B dependency:get output; ./mvnw -o dependency:tree failure for maven-dependency-plugin:3.8.1"
+      "claim": "No existing test fixture uses any evasion form (numeric IPv4, hex/octal, trailing dot), so the AC3 tests are net-new and no current expectation contradicts the fix.",
+      "source": "ripgrep over service/src for 2130706433|0x7f|127\\.1|example\\.com\\. \u2014 zero matches in src/test; Fixtures.java:54-78 lists the only target constants."
     },
     {
-      "claim": "No schema, no entities and no application code exist beyond the scaffold: the whole of service/src is UrlShortenerApplication, CacheConfig, application.yml, an empty migration directory and AbstractIntegrationTest. There is no existing links table, unique index or customer table on this branch to preserve or migrate.",
-      "source": "find service -type f -not -path '*/target/*' \u2192 5 source files plus mvnw/pom; git ls-files on the migration directory"
+      "claim": "No test pins the size or contents of the ErrorCode enum, so adding a value (Q2's 409 account_unavailable) breaks no existing assertion; only openapi.yaml's closed catalogue table and info.version need to move with it.",
+      "source": "ripgrep 'ErrorCode|values\\(\\)|catalogue' over service/src/test -> one prose mention in DegradedDependencyTest.java:226; artifacts/openapi.yaml:5 (version 1.0.0), :47-59 (catalogue table)."
     },
     {
-      "claim": "docker-compose.yml defines postgres only, with a pg_isready healthcheck and the ${DB_PASSWORD:-shortener} env placeholder style. Any redis service added by a human should follow the same placeholder convention so local defaults stay non-secret.",
-      "source": "full read of docker-compose.yml"
+      "claim": "Hibernate's schema validation checks column existence and type only \u2014 not nullability. An old instance whose LinkEntity still declares customer_id nullable=false will start against the migrated (nullable) schema, so schema-first rollout is safe.",
+      "source": "javap -c on org.hibernate.tool.schema.internal.AbstractSchemaValidator (hibernate-core 6.6.53.Final): validateColumnType calls only ColumnDefinitions.hasMatchingType and raises 'wrong column type encountered'; no nullability branch. LinkEntity.java:165."
+    },
+    {
+      "claim": "AC8/AC13 hold by construction with a NULL owner: every owner-scoped query is an equality match on customerId and nothing joins links to customers, so NULL rows match no customer's reads.",
+      "source": "LinkRepository.java:28 (findByDomainAndCodeAndCustomerId) and :38-39 (findOwnedBy JPQL 'where l.customerId = :customerId'); the click path uses findByDomainAndCode (:25), which is unscoped."
+    },
+    {
+      "claim": "The shared normaliser can be added without touching the ThreatCheck port: check(URI) already receives the URL and DenylistThreatCheck does its own lower-casing internally, so it can call the same normaliser; NoOpThreatCheck and ThreatCheckConfig stay untouched.",
+      "source": "ThreatCheck.java (interface method check(URI)); DenylistThreatCheck.java:33-39; ThreatCheckConfig.java:12-15."
+    },
+    {
+      "claim": "A11's 'alias/expiresAt answer 400' requires a NEW request record: CreateLinkRequest declares alias and expiresAt as known properties, so reusing it on the anonymous endpoint would silently accept both rather than triggering the strict-body 400.",
+      "source": "CreateLinkRequest.java:24-27; spring.jackson.deserialization.fail-on-unknown-properties: true in application.yml:46-51."
+    },
+    {
+      "claim": "customers today has a plain case-sensitive UNIQUE(email) and no functional index, and CustomerEntity exposes only a protected no-arg constructor \u2014 so sign-up needs both a migration and a real constructor.",
+      "source": "V1__initial_schema.sql:11-19 (CONSTRAINT ux_customers_email UNIQUE (email)); CustomerEntity.java:231-233; CustomerRepository.findByEmailIgnoreCase."
+    },
+    {
+      "claim": "The test suite never truncates PostgreSQL \u2014 only Redis is flushed, and only when a test calls resetSharedTierState(). Sign-up rows therefore accumulate across the whole JVM-wide suite, so duplicate/uniqueness tests must mint unique emails or they collide with earlier tests rather than with the code under test.",
+      "source": "AbstractIntegrationTest.java:295-299 (flushDb only); TestInfrastructure.java:45-59 (JVM-wide singleton containers); ripgrep for truncate/deleteAll over service/src -> no matches."
+    },
+    {
+      "claim": "Limitation of this spike: the Docker socket is not reachable from here (permission denied), so nothing requiring a live PostgreSQL/Redis was executed \u2014 the migration behaviour, the lower(email) index and the full suite are unverified by run and rest on code reading plus the bytecode/servlet probes above.",
+      "source": "docker images / docker ps -> 'permission denied while trying to connect to the docker API at unix:///var/run/docker.sock'."
     }
   ],
   "options": [
@@ -62,92 +86,54 @@
       "cost": "low",
       "recommended": true,
       "risk": "low",
-      "summary": "Cache: replace the body of CacheConfig.cacheManager with a RedisCacheManager (keeping the method name and the LINKS_CACHE constant), rather than adding a second cache configuration class. Verified to be conflict-free because Boot's cache auto-config backs off entirely when one CacheManager bean exists."
-    },
-    {
-      "cost": "medium",
-      "risk": "medium",
-      "summary": "Cache: two-tier \u2014 a small Caffeine near-cache in front of Redis, one bean marked @Primary. Buys a few hundred microseconds on the hottest link (AC22) but reintroduces a per-instance layer that active invalidation cannot reach, so the 60s bound would rest on the near-cache TTL as well."
-    },
-    {
-      "cost": "low",
-      "recommended": true,
-      "risk": "low",
-      "summary": "Auth libraries: take spring-security-crypto (for the KDF) plus jjwt-api/impl/jackson with literal versions, and do NOT take spring-boot-starter-security. Session verification is a plain filter/interceptor, so nothing auto-secures the click path or actuator."
+      "summary": "Normalise inside UrlValidator.requireShortenable and DenylistThreatCheck only (one shared HostNormalizer, hand-rolled IPv4 parsing, trailing-dot strip, lower-case, IDN ToASCII). parseOrThrow is untouched, so the current 400s for hosts java.net.URI cannot parse stay 400. Fixes both AC1 and AC2 examples plus the hex/octal/short-decimal forms that do parse."
     },
     {
       "cost": "medium",
       "risk": "high",
-      "summary": "Auth libraries: take spring-boot-starter-security and configure a permitAll SecurityFilterChain for /{code} and /actuator. More idiomatic, but a single missing matcher 401s the public redirect path and breaks AC14, and the failure is a passing build with failing tests."
-    },
-    {
-      "cost": "medium",
-      "recommended": true,
-      "risk": "low",
-      "summary": "Rate limiting: hand-roll the token bucket as a Lua script evaluated through the RedisTemplate the Redis starter already provides. No extra dependency, no second supply-chain approval, and single-key operations stay Cluster-safe."
+      "summary": "Extract the host from URI.getAuthority() ahead of the syntax gate so every equivalent form \u2014 including 127.1, 0x7f.0.0.1 and unicode IDN \u2014 reaches host policy and answers 422 url_rejected."
     },
     {
       "cost": "low",
       "risk": "medium",
-      "summary": "Rate limiting: add a third-party bucket library. Saves writing the script but adds an unmanaged, explicitly versioned artifact to the frozen pom (the bucket4j coordinate guessed here did not resolve at the version tried, so coordinates need verifying before freezing)."
+      "summary": "Option 1 plus a narrow rule: when an authority is present but URI.getHost() is null, answer 422 rather than 400 (fail closed on unparseable hosts without re-deriving the host ourselves)."
     }
   ],
   "unknowns": [
     {
-      "current_best_answer": "Single instance or Sentinel, AOF appendfsync everysec, noeviction \u2014 this is exactly what Q5's approved answer assumes. Design should keep every Redis operation single-key or hash-tagged so a later Cluster move is additive.",
-      "how_to_settle": "Ask whoever runs the shared Redis, or run `redis-cli INFO persistence`, `redis-cli CONFIG GET maxmemory-policy` and `redis-cli INFO replication` against the target instance. One sentence from the platform owner settles it.",
+      "current_best_answer": "Keep them 400. They are already refused, no AC needs 422, and leaving parseOrThrow untouched keeps the blast radius to the two forms the ACs name.",
+      "how_to_settle": "One sentence from the requester or architect: 'refused with 400 is good enough for forms the URL parser cannot read' vs 'every equivalent form must be 422'. Reproduce the current behaviour with: javac/java against service/target/classes calling new UrlValidator(\"localhost\").parseOrThrow(\"http://127.1/\") \u2014 prints INVALID_REQUEST 400.",
       "id": "U1",
-      "question": "Is the in-house Redis a single instance/Sentinel with AOF persistence and no key eviction, or a Cluster and/or a cache-only deployment with maxmemory-policy allkeys-lru?",
-      "why_it_matters": "A9/Q5 make Redis the durable buffer for click counts and A13 keys rate limits there. Under allkeys-lru a counter key can be silently evicted before flush, which loses clicks against AC3 with no error anywhere. Cluster mode additionally forbids multi-key Lua without hash tags and changes the Spring connection config, so getting it wrong is a rewrite of the counter and rate-limit code, not an edit."
+      "question": "Must target forms that java.net.URI cannot parse as a host (http://127.1/, http://0x7f.0.0.1/, http://\u4f8b\u3048.\u30c6\u30b9\u30c8/, http://malware.example.com../) answer 422 url_rejected, or is today's 400 invalid_request refusal acceptable for them?",
+      "why_it_matters": "I ran the real UrlValidator: those forms are already refused today, but at the syntax stage with 400 (URI.getHost() returns null). Assumption A1 lists 'short forms 127.1' and IDN as in scope and A3 says an unnormalisable host must be 422 \u2014 honouring that literally means moving host extraction ahead of parseOrThrow's null-host check, which changes a documented 400 into a 422 on the frozen contract and touches the exact 400-vs-422 split the regression surface pins. Neither AC1 nor AC2 requires it: both of their examples parse fine and are fixed by normalising inside requireShortenable/DenylistThreatCheck alone."
     },
     {
-      "current_best_answer": "Yes \u2014 repo1.maven.org returns 200 from here and every current dependency is already cached, so the restriction is the agent sandbox rather than the machine.",
-      "how_to_settle": "Run `./mvnw -B clean verify` in the same environment the gates run in, before the design node writes the pom. If it downloads anything at all, resolution works.",
+      "current_best_answer": "Yes \u2014 hand-parse decimal/octal/hex/short IPv4 per the WHATWG host parser and never delegate canonicalisation to InetAddress.getByName; feed the resulting 4 bytes to the existing isInternalAddress predicate.",
+      "how_to_settle": "Confirm with the requester that the threat model is 'what the client will actually connect to'. Verified divergence: python3 -c \"import socket; print(socket.getaddrinfo('0177.0.0.1',80)[0][4])\" -> 127.0.0.1, while Java InetAddress.getByName(\"0177.0.0.1\") -> 177.0.0.1 and getByName(\"0x7f000001\") -> UnknownHostException.",
       "id": "U2",
-      "question": "Does the environment that runs the Maven gates have a writable ~/.m2 and outbound access to Maven Central, given that none of the new dependencies are in the local cache?",
-      "why_it_matters": "spring-boot-starter-data-redis, the JWT artifacts and bouncycastle are all absent from ~/.m2. The first build after the design node freezes the pom must download them. Inside the agent sandbox that build fails for reasons unrelated to the code (~/.m2 is read-only and DNS for repo.maven.apache.org does not resolve), which would surface at the compile gate as an opaque resolution error."
+      "question": "Does 'equivalent form' mean the browser/curl reading of numeric IPv4 (0177.0.0.1, 0x7f000001, 017700000001 all = 127.0.0.1), even though JDK 21 reads 0177.0.0.1 as the public address 177.0.0.1 and refuses the other two outright?",
+      "why_it_matters": "Getting this wrong in either direction is expensive. Building the normaliser on InetAddress.getByName (the obvious implementation) silently leaves hex and long-octal loopback forms accepted, and actively mis-canonicalises 0177.0.0.1 to a public address \u2014 so the fix looks done and the bypass is still open. Hand-parsing all four forms is the only way to match what a click actually reaches, and it must be specified before the test author (blind branch) writes AC2 assertions."
     },
     {
-      "current_best_answer": "Reachable \u2014 registry-1.docker.io answered (401, i.e. up and requiring the normal token) even from the sandbox. Pre-pulling is cheap insurance, not a blocker.",
-      "how_to_settle": "`docker pull redis:7-alpine` on the machine that runs verify, before the run needs it.",
+      "current_best_answer": "Unknown. In-repo there are exactly two customers (V2__seed_customers_and_denylist.sql:13-21), alice@ and bob@, no case variants.",
+      "how_to_settle": "Run SELECT lower(email), count(*) FROM customers GROUP BY 1 HAVING count(*) > 1 against a production copy and attach the result to the migration approval (Q11 already routes this to a human).",
       "id": "U3",
-      "question": "Will the first Redis-using test run be allowed to pull a redis image from Docker Hub, or should the image be pre-pulled?",
-      "why_it_matters": "postgres:17-alpine and testcontainers/ryuk are in the local image cache; no redis image is. A cold pull inside a restricted network turns into a Testcontainers timeout in AbstractIntegrationTest's static initialiser, which fails every test class at once and reads like a broken harness."
+      "question": "Does the live customers table contain two addresses that differ only in case?",
+      "why_it_matters": "The lower(email) unique index (A6) fails outright on apply if any exist, which stops the deploy mid-migration; and if none exist, the migration also silently closes a live latent 500 on the frozen sign-in endpoint. This cannot be checked from the repository \u2014 only the two seeded rows exist here."
     },
     {
-      "current_best_answer": "Add bcprov-jdk18on:1.81 (confirmed present on Central) and keep Argon2id as A6 specifies; BCrypt cost 12 only if the approver rejects the extra supply-chain entry.",
-      "how_to_settle": "The approver answers yes/no at the existing pom approval. If yes, the pom must carry bcprov-jdk18on with a literal version \u2014 Spring Boot's BOM manages no BouncyCastle version.",
+      "current_best_answer": "Keep 10/min as the default (an order of magnitude under write-per-minute, per Q4), freeze the property name in AppProperties so the blind test branch can lower/raise it, and record the shared-bucket consequence in the runbook.",
+      "how_to_settle": "One sentence from whoever owns the deployment: is the service behind a proxy that preserves the client address? If not, agree the number is a global rate and pick it accordingly.",
       "id": "U4",
-      "question": "Is adding BouncyCastle (org.bouncycastle:bcprov-jdk18on, explicitly versioned) acceptable at the pom approval, or should the build use the BCrypt cost-12 fallback that A6 already sanctions?",
-      "why_it_matters": "Argon2PasswordEncoder in spring-security-crypto references org/bouncycastle but the artifact's published pom declares no BouncyCastle dependency, so Argon2id without an explicit bcprov pin compiles fine and throws NoClassDefFoundError at the first sign-in. BCrypt in the same jar is self-contained. Since pom.xml is frozen before the fan-out, a missing pin cannot be fixed by implement or author-tests."
+      "question": "Is 10/min per client IP the intended production default for anonymous creation, knowing it is a single shared bucket behind any proxy that does not preserve the source address?",
+      "why_it_matters": "Q5 settled that getRemoteAddr stays, so behind an LB the default is a global ceiling, not a per-caller one \u2014 the anonymous endpoint is then effectively closed under real traffic. It also interacts with the suite: every test hits from 127.0.0.1, one Redis is shared JVM-wide and only tests that call resetSharedTierState() flush it, so a default this tight makes anonymous-creation tests cross-couple unless they override the property."
     },
     {
-      "current_best_answer": "Env placeholder in the same ${VAR:default} style application.yml already uses for DB credentials, with a generated dev key when the variable is absent, so no key material is ever literal in the repo.",
-      "how_to_settle": "One sentence from whoever owns deployment config: 'JWT_PRIVATE_KEY is injected from the vault' or 'generate at boot for this build'.",
+      "current_best_answer": "Keep it \u2014 it identifies the created resource and costs nothing \u2014 but document explicitly in openapi.yaml that no GET exists for it, so nobody writes a client that follows it.",
+      "how_to_settle": "Yes/no from the API owner: keep the Location as a pure identifier, or omit it and return {customerId, email, createdAt} only.",
       "id": "U5",
-      "question": "Where does the JWT signing key come from \u2014 an environment-supplied PEM in every environment, or may the service generate a keypair at startup for this build?",
-      "why_it_matters": "A5 fixes stateless asymmetric JWTs but not key provisioning. A startup-generated key invalidates every session on restart and makes a token issued by one instance unverifiable by another, which quietly breaks AC18's intent at more than one replica. It also decides whether application.yml carries key material at all."
-    },
-    {
-      "current_best_answer": "Start and serve. Lettuce connects lazily, so the context loads without Redis; redirects fall through to PostgreSQL and counting degrades to best-effort. /actuator/health will report DOWN, which is the honest signal.",
-      "how_to_settle": "A one-line answer from the requirement owner; then assert it with a test that stops the Redis container and re-clicks a live code.",
-      "id": "U6",
-      "question": "If Redis is unavailable at startup, should the service start and serve redirects from PostgreSQL in a degraded mode, or refuse to start?",
-      "why_it_matters": "AC20 prefers serving clicks over accepting links, but nothing states what happens when the cache/counter tier is the thing that is down. The answer determines whether the redirect path may depend on Redis at all and whether every integration test needs a Redis container to load the context \u2014 a harness decision the test-contract node makes before implement runs."
-    },
-    {
-      "current_best_answer": "No admin API \u2014 denylist rows are seeded by migration and takedown of already-issued links happens through the report path, exactly as Q2 describes.",
-      "how_to_settle": "Ask the requirement owner whether an admin/denylist endpoint is expected, or whether abuse reports plus DB access are considered sufficient for this build.",
-      "id": "U7",
-      "question": "Besides a seeded migration fixture and the abuse-report endpoint, is there any way to add a URL/domain to the threat denylist in this build?",
-      "why_it_matters": "Q2 settled the ThreatCheck port, but AC21's second half ('an existing link found to point at one stops redirecting') needs some operator path to mark a target bad. If a migration is the only write path, marking a URL bad in production is a schema change under an approval gate rather than an operation."
-    },
-    {
-      "current_best_answer": "Yes \u2014 it is a five-line addition and the same reviewer is already in the pom approval.",
-      "how_to_settle": "Add a redis:7-alpine service with a healthcheck alongside the existing postgres service when approving the dependency change.",
-      "id": "U8",
-      "question": "Will a redis service be added to docker-compose.yml in the same human review that approves the pom change?",
-      "why_it_matters": "docker-compose.yml appears in no node's write paths, so no agent can fix it. Tests use Testcontainers and are unaffected, but `docker compose up` yields a service that cannot serve a click, and the gap is invisible to every mechanical gate."
+      "question": "Sign-up returns Location: /api/v1/customers/{id} (Q7) \u2014 should it, given that path has no GET handler and is inside the session filter, so every caller including the new owner gets 401 or 405 from it?",
+      "why_it_matters": "It is the same objection Q9 used to drop the Location header from anonymous creation. A Location that never resolves is a contract statement that will be documented in openapi.yaml and asserted by a blind test author, and removing it later is a contract change rather than an edit."
     }
   ],
   "verdict": "feasible_with_risk"
