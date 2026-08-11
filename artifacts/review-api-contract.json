@@ -1,0 +1,91 @@
+{
+  "findings": [
+    {
+      "confidence": "medium",
+      "file": "service/src/main/java/com/example/urlshortener/abuse/AbuseReportService.java",
+      "id": "API-1",
+      "line": 65,
+      "severity": "major",
+      "suggestion": "The code is wrong. Either reject a code longer than the CodePath maxLength of 64 with the documented 400 (invalid_request) before the insert, or truncate/store it as text; do not let a database constraint decide the status. Keep answering 202 for any code within the documented length so the endpoint stays a non-oracle.",
+      "summary": "POST /api/v1/links/{code}/abuse-reports accepts a path code of any length and inserts it into abuse_reports.code, declared VARCHAR(64) in V1__initial_schema.sql:47. A code longer than 64 characters makes Postgres raise a length error, Hibernate wraps it as DataIntegrityViolationException, and nothing handles it: the caller gets 500 with Spring Boot's default error body ({\"timestamp\",\"status\",\"error\",\"path\"}). The spec (openapi.yaml:563-573) documents only 202/400/401/429 for this operation, and openapi.yaml:47 says every non-2xx body has the ApiError shape. This is the one endpoint that takes an unvalidated code from an untrusted caller and writes it, so it is the reachable case."
+    },
+    {
+      "confidence": "high",
+      "file": "service/src/main/java/com/example/urlshortener/error/ApiExceptionHandler.java",
+      "id": "API-2",
+      "line": 36,
+      "severity": "major",
+      "suggestion": "The code is wrong. Add a fallback @ExceptionHandler(Exception.class) that logs and returns a fixed ApiError body; then either document a 500 entry in the error catalogue or map the reachable dependency failures onto the statuses that are documented (see API-3). The click path already does this deliberately (RedirectController:86) - the management path does not.",
+      "summary": "ApiExceptionHandler covers ApiException, MethodArgumentNotValid, HttpMessageNotReadable, MethodArgumentTypeMismatch and MissingServletRequestParameter, and nothing else. Any other RuntimeException on the management surface (a Postgres outage mid-request, a Jackson serialization failure, the DataIntegrityViolation of API-1) falls through to Boot's BasicErrorController, which answers 500 with {\"timestamp\",\"status\",\"error\",\"path\"} - not ApiError. openapi.yaml:47 states the catalogue is closed and every non-2xx body has the ApiError shape; 500 appears nowhere in the document. This is the framework default leaking through at the one point nobody decided."
+    },
+    {
+      "confidence": "medium",
+      "file": "service/src/main/java/com/example/urlshortener/link/LinkService.java",
+      "id": "API-3",
+      "line": 81,
+      "severity": "major",
+      "suggestion": "The code is wrong. Map DataAccessResourceFailureException/CannotCreateTransactionException on the create path onto ApiException.dependencyUnavailable so the documented 503 is what a caller actually sees; alternatively document that 503 covers only the cache and threat tiers, which would be a weaker promise than openapi.yaml:325 currently makes.",
+      "summary": "openapi.yaml:324-337 documents 503 service_unavailable on POST /api/v1/links for \"a dependency the create path needs is unavailable\". In the code, 503 is produced in exactly three places: short-code exhaustion (LinkService:182), the threat checker being unavailable with fail-open disabled (LinkService:198, and fail-open is true by default), and the resolution cache being unreachable before issuing (ResolutionCache:91). The dependency most likely to be unavailable - PostgreSQL - is not one of them: saveAndFlush throws a DataAccessException, which reaches no handler and answers 500 with the framework body. The documented degradation story for AC20 therefore does not hold for the most probable outage."
+    },
+    {
+      "confidence": "medium",
+      "file": "service/src/main/java/com/example/urlshortener/error/ApiExceptionHandler.java",
+      "id": "API-4",
+      "line": 36,
+      "severity": "minor",
+      "suggestion": "Decide and record which side moves. Either set spring.mvc.throw-exception-if-no-handler-found and handle NoResourceFoundException/HttpRequestMethodNotSupportedException into ApiError, or state in the spec that dispatcher-level 404/405 responses carry the container's body and are outside the closed catalogue.",
+      "summary": "Dispatcher-level refusals on the management surface return the framework error body rather than ApiError: an unknown path under /api/v1 with a valid token (NoResourceFoundException -> 404) and a wrong method on a documented path (e.g. PUT /api/v1/links/{code} -> 405). openapi.yaml:29-43 promises the not-found body byte for byte \"on both surfaces\", and openapi.yaml:47 promises the ApiError shape for every non-2xx. Note 2 (openapi.yaml:123) exempts only the /{code} 405 status, not the body shape, and says nothing about the management surface."
+    },
+    {
+      "confidence": "high",
+      "file": "service/src/main/resources/application.yml",
+      "id": "API-5",
+      "line": 63,
+      "severity": "minor",
+      "suggestion": "Document the actuator surface in the spec (or a note stating it is operational and not part of the public contract), and consider narrowing exposure to health,info - metrics and prometheus unauthenticated is a decision the release gate should take knowingly rather than inherit from a config line.",
+      "summary": "management.endpoints.web.exposure.include exposes /actuator/health, /actuator/info, /actuator/metrics and /actuator/prometheus. These are outside the session filter (WebConfig:28 registers it for /api/v1/* only), so they are unauthenticated, and they appear nowhere in openapi.yaml, whose \"Two surfaces\" table (openapi.yaml:18-21) lists only the management API and the click path. The spec acknowledges actuator exists only obliquely, in the reserved-alias rationale. Undocumented surface becomes a de facto contract as soon as a caller or a probe depends on it - and metrics/prometheus is more than a liveness probe."
+    },
+    {
+      "confidence": "medium",
+      "file": "service/src/main/java/com/example/urlshortener/domain/LinkEntity.java",
+      "id": "API-6",
+      "line": 130,
+      "severity": "minor",
+      "suggestion": "Decide which side is right and write it down. If BLOCKED must survive a delete, make markDeleted conditional the way markBlocked is and keep answering 204 (idempotent, no new status). If an owner may relabel their blocked link, say so in the DELETE description, because a reader of the PATCH 409 rationale will assume the opposite.",
+      "summary": "DELETE on the caller's own BLOCKED link answers 204 and overwrites the status to DELETED (LinkService:141 -> markDeleted, which is unconditional, unlike markBlocked at LinkEntity:139 which deliberately refuses to overwrite). The spec documents 409 link_not_modifiable for PATCH on a deleted or blocked link (openapi.yaml:487-498) on the reasoning that a link taken down for abuse is no longer the owner's to change, but DELETE documents no 409 (openapi.yaml:518-528), so 204 conforms on status. The divergence is in the representation: after this, GET /api/v1/links/{code} reports status DELETED for a link that was taken down for abuse, and the takedown is invisible in the API."
+    },
+    {
+      "confidence": "medium",
+      "file": "service/src/main/resources/application.yml",
+      "id": "API-7",
+      "line": 46,
+      "severity": "nit",
+      "suggestion": "Add spring.jackson.serialization.write-dates-as-timestamps: false explicitly, next to the deserialization block that is already pinned for the same reason.",
+      "summary": "The spec freezes the timestamp format (openapi.yaml:67, ISO-8601 instants in UTC) and the config pins fail-on-unknown-properties for the strict-body rule right beside it, but nothing pins serialization.write-dates-as-timestamps. The contract-correct rendering of createdAt/expiresAt therefore rests on Spring Boot's default of disabling that feature. The default is currently right - Instant renders as 2026-08-10T12:00:00Z - so this is not a live divergence, only an unpinned one on a value the spec calls frozen."
+    },
+    {
+      "confidence": "high",
+      "file": "service/src/main/java/com/example/urlshortener/redirect/RedirectController.java",
+      "id": "API-8",
+      "line": 86,
+      "severity": "nit",
+      "suggestion": "No code change implied by the contract. Consider a sentence in the /{code} 404 description recording that an internal failure is also answered this way, so the 404 is not read as a positive assertion that the code was never issued.",
+      "summary": "The click path catches every RuntimeException and answers the documented 404 not_found. That honours \"this operation never returns 5xx\" (openapi.yaml:601), and the 404 body and cache headers match the spec exactly - but it means a PostgreSQL outage renders every live link as \"does not resolve\", which is indistinguishable to a caller from mass deletion. The contract offers no other status, so the code is following it; the consequence is worth a reviewer's eye rather than a change."
+    }
+  ],
+  "lens": "review-api-contract",
+  "not_examined": [
+    "Nothing was executed - every finding is from reading source, not from observing a response on the wire",
+    "JwtVerifier / JwtSessionService internals: the 401 for an expired, forged or wrong-key token was traced only as far as the filter's Optional.empty() branch",
+    "Argon2PasswordHasher parameters versus the seeded hashes in V2 - whether the plaintexts published in the spec actually verify cannot be checked statically",
+    "redis/token_bucket.lua and read_click_deltas.lua were not read; the retry-after millis the limiter converts to Retry-After come from that script",
+    "ClickFlushJob / ClickFlushWriter, so the exactness of clickCount (durable total plus un-flushed delta) is asserted from LinkService.toResponse only",
+    "DenylistThreatCheck: the 422 for the seeded malware.example.com / phishing.example.net hosts was not traced end to end",
+    "HEAD on /{code} - that Spring MVC dispatches it to the GET mapping and strips the body is assumed framework behaviour, not verified",
+    "Content negotiation: behaviour under a non-JSON Accept header, or a request body with the wrong Content-Type, on any endpoint",
+    "The 429 path on POST /api/v1/sessions and on the abuse-report bucket (only the shared RateLimitGuard/ApiExceptionHandler code path was read)",
+    "Exact JSON rendering of the fields map on invalid_request (Jakarta default messages were read but not rendered)",
+    "The test sources under service/src/test - deliberately, since agreement between tests and implementation is another lens's brief"
+  ],
+  "summary": "The implementation honours the contract on every happy path and on almost every documented error. All eight routes match the spec's eight operations exactly, with no undocumented controller mapping. Statuses are right where they matter most: 302 (not 301) on the redirect with Location set verbatim and the pinned no-store/Pragma/Expires headers; 201 with a relative Location of /api/v1/links/{code}; 204 with no body on delete; 202 with no body and no existence signal on abuse report; 200 on sign-in. The single-404 rule holds - unknown, expired, deleted, blocked and other-customer codes all reach ApiException.notFound() or ApiError.NOT_FOUND, with fields omitted via @JsonInclude(NON_NULL), so the body is byte-identical on both surfaces, and there is no 403 or 410 anywhere. Response DTOs carry exactly the documented fields with the documented names and types (no extras, nothing renamed), the strict-body rule is genuinely enforced (spring.jackson.deserialization.fail-on-unknown-properties: true, so PATCH {\"longUrl\":...} is a 400), the 400/422 split between URL syntax and host policy is implemented as described, reserved aliases are 400 and taken aliases 409, Retry-After is rounded up and floored at 1, and the seeded fixtures match the freeze. Where it diverges is the failure paths nobody decided. There is no fallback exception handler, so any unexpected RuntimeException on the management surface answers 500 with Spring Boot's default error body rather than the ApiError shape the spec calls closed (API-2). That is concretely reachable: an abuse report against a code longer than 64 characters violates a VARCHAR(64) column and returns that 500 instead of a documented status (API-1). And the create path's documented 503 covers the cache, the threat checker and code exhaustion but not a database outage, which is the dependency failure the AC20 sentence most obviously means (API-3). Those three are where the contract breaks; the rest are documentation gaps (undocumented actuator surface, dispatcher-level 404/405 bodies) and one behavioural question about deleting a blocked link."
+}
