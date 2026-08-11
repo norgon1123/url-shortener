@@ -54,10 +54,23 @@ public record AppProperties(
      * @param maxUrlLength ceiling on a submitted long URL (A14); 2048 is the
      *                     pragmatic browser-compatible limit and bounds the
      *                     storage burn from junk-link attacks.
+     * @param anonymousTtl how long a link created through
+     *                     {@code POST /api/v1/public/links} lives, applied at
+     *                     creation as an absolute instant and never supplied by
+     *                     the caller (A9). "One month" is read as 30 days,
+     *                     matching the reading {@code defaultTtl} already
+     *                     takes, so the two agree unless somebody deliberately
+     *                     separates them. It is a <em>separate</em> property
+     *                     precisely so that it can be tuned down for abuse
+     *                     reasons without changing what paying customers get,
+     *                     and so that the rollback plan for anonymous links is
+     *                     "stop creating them and let 30 days drain" rather
+     *                     than a data deletion.
      */
     public record Links(
             @DefaultValue("P30D") Duration defaultTtl,
-            @DefaultValue("2048") int maxUrlLength) {}
+            @DefaultValue("2048") int maxUrlLength,
+            @DefaultValue("P30D") Duration anonymousTtl) {}
 
     /**
      * Redirect resolution cache (A10).
@@ -126,7 +139,7 @@ public record AppProperties(
             @DefaultValue("true") boolean failOpen) {}
 
     /**
-     * Token buckets (A13). One window, five buckets, all of them numbers rather
+     * Token buckets (A13). One window, seven buckets, all of them numbers rather
      * than code.
      *
      * <p>The buckets are separate because AC19 names three different attacks with
@@ -140,7 +153,38 @@ public record AppProperties(
      * integration test never trips them from a single source address. A test that
      * wants to observe a 429 lowers the relevant number.
      *
-     * @param window the refill period; capacity equals the per-minute figure.
+     * <p>The two newest buckets are both keyed by {@code getRemoteAddr()},
+     * because an unauthenticated caller has no customer id and the service does
+     * not trust {@code X-Forwarded-For} (Q5 - trusting a client-supplied header
+     * with no configured trusted-proxy list would make every IP-keyed bucket in
+     * the service spoofable, including the click and not-found buckets that
+     * already exist). The operational consequence is real and is documented in
+     * the runbook rather than fixed here: behind a proxy that does not preserve
+     * the source address, every anonymous caller shares one bucket and these
+     * numbers become global ceilings rather than per-caller ones.
+     *
+     * @param window                  the refill period; capacity equals the
+     *                                per-minute figure.
+     * @param signUpPerMinute         {@code POST /api/v1/customers}, keyed by
+     *                                client IP (A14). Sign-up is the second
+     *                                unauthenticated endpoint that writes to
+     *                                PostgreSQL, and it does a 25 ms, 16 MiB
+     *                                Argon2id hash before it gets there, so it
+     *                                is a CPU and memory vector as much as a
+     *                                storage one. 60 matches the sign-in bucket
+     *                                on the same reasoning and the same key.
+     * @param anonymousCreatePerMinute {@code POST /api/v1/public/links}, keyed
+     *                                by client IP. 30 is an order of magnitude
+     *                                under {@code writePerMinute}, which is the
+     *                                concrete meaning given to AC14's "the
+     *                                anonymous path cannot be used to bypass
+     *                                the limits on authenticated creation": the
+     *                                unauthenticated route is never the cheaper
+     *                                way to mint links. It is the tightest
+     *                                bucket in the service after not-found,
+     *                                because an anonymous link occupies the
+     *                                shared code namespace permanently and no
+     *                                owner can ever delete it.
      */
     public record RateLimit(
             @DefaultValue("true") boolean enabled,
@@ -149,5 +193,7 @@ public record AppProperties(
             @DefaultValue("300") int writePerMinute,
             @DefaultValue("60") int abuseReportPerMinute,
             @DefaultValue("60") int signInPerMinute,
+            @DefaultValue("60") int signUpPerMinute,
+            @DefaultValue("30") int anonymousCreatePerMinute,
             @DefaultValue("PT1M") Duration window) {}
 }

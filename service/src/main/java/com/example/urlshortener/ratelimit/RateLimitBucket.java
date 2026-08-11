@@ -42,5 +42,39 @@ public enum RateLimitBucket {
      * promise about stolen databases is worth little if the passwords can be
      * guessed at the front door.
      */
-    SIGN_IN
+    SIGN_IN,
+
+    /**
+     * Account creation, keyed by client IP (A14).
+     *
+     * <p>The requirement asks for rate limiting on anonymous link creation and
+     * says nothing about sign-up, but sign-up is the other unauthenticated
+     * endpoint that writes to PostgreSQL, and it is the more expensive one: a
+     * memory-hard Argon2id hash at m=16384,t=2 runs before the insert, so an
+     * unmetered sign-up is a CPU and memory exhaustion vector as well as a
+     * storage burn. It is also the only thing blunting the account-existence
+     * disclosure that {@code ACCOUNT_UNAVAILABLE} necessarily carries, which
+     * makes this bucket load-bearing rather than defensive tidiness.
+     */
+    SIGN_UP,
+
+    /**
+     * Anonymous link creation, keyed by client IP.
+     *
+     * <p>Client IP because there is no customer id to key on, and a separate
+     * bucket rather than a share of {@link #WRITE} because the keys are
+     * different in kind: WRITE meters one identified customer, this meters one
+     * address. Keeping them apart is also what makes AC14's "cannot be used to
+     * bypass" mechanical rather than argued - Redis keys are namespaced
+     * {@code ratelimit:<bucket>:<key>}, so neither path can spend the other's
+     * tokens even if both are exercised by the same caller.
+     *
+     * <p>Note what this bucket cannot do: the limiter fails open when Redis is
+     * unreachable, so during a Redis outage this endpoint is unmetered. That is
+     * the existing, deliberate limiter behaviour (a limiter that 429s the click
+     * path when its store is down is a self-inflicted outage) and this change
+     * does not alter it - but it does add an unauthenticated database write
+     * behind it, which is worth an operator knowing.
+     */
+    ANONYMOUS_CREATE
 }

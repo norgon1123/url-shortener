@@ -82,6 +82,8 @@ public class RedisTokenBucketRateLimiter implements RateLimiter {
             case WRITE -> settings.writePerMinute();
             case ABUSE_REPORT -> settings.abuseReportPerMinute();
             case SIGN_IN -> settings.signInPerMinute();
+            case SIGN_UP -> settings.signUpPerMinute();
+            case ANONYMOUS_CREATE -> settings.anonymousCreatePerMinute();
         };
     }
 

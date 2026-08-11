@@ -6,8 +6,11 @@ import jakarta.validation.constraints.Size;
 /**
  * Body of {@code POST /api/v1/sessions}.
  *
- * <p>Accounts are seeded by migration for this build; there is no registration
- * endpoint, because provisioning was never asked for (A18).
+ * <p>Unchanged by the addition of sign-up, and deliberately so: {@link SignUpRequest}
+ * carries the same two fields, so the account created there signs in here with
+ * no translation, and this frozen schema does not move (A5). Accounts now reach
+ * the table two ways - the two seeded rows by migration, everyone else through
+ * {@code POST /api/v1/customers} - and this endpoint cannot tell the difference.
  *
  * @param email    the customer's login identity. One customer is one identity
  *                 (A16); roles, teams and multiple users per customer are out of
