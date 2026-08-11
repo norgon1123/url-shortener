@@ -1,107 +1,78 @@
 {
   "findings": [
     {
-      "confidence": "high",
-      "file": "service/src/main/java/com/example/urlshortener/click/ClickFlushJob.java",
+      "confidence": "medium",
+      "file": "service/src/main/resources/db/migration/V3__unique_lower_email.sql",
       "id": "PERF-1",
-      "line": 45,
+      "line": 27,
       "severity": "major",
-      "suggestion": "Batch the durable writes: one transaction per pass with a multi-row update (or a JDBC batch of `update links set click_count = click_count + ? where id = ?`) instead of one transaction per link, and pipeline the settle decrements. Then raise flush-batch-size and measure drain rate against arrival rate. To confirm before shipping: expose `HLEN clicks:pending` as a gauge and alert if it trends upward \u2014 a monotonically growing pending hash is the signal that the drain is behind, and it is currently invisible.",
-      "summary": "The click drain has a hard throughput ceiling of 500 distinct links per 5s pass (app.click.flush-batch-size=500, flush-interval=PT5S), and each link costs one JPA transaction plus one Redis settle round trip, executed sequentially on a single scheduler thread. That is ~100 links/second per instance. Above that arrival rate of *distinct* clicked links, the Redis pending hash grows without bound: nothing ever removes fields faster than they are added, and the backlog is what feeds PERF-2. The service's stated scale (A2 reasons about 100M links/day) is three to four orders of magnitude above this ceiling. Every instance runs the same unsharded schedule, so adding replicas multiplies the read of the same hash rather than dividing the work."
+      "suggestion": "Make the constraint and the query agree: either add `CREATE INDEX ix_customers_upper_email ON customers (upper(email))`, or change the finder to an explicit JPQL `where lower(c.email) = lower(:email)` so the lower(email) index serves both roles. Confirm before shipping by turning on `spring.jpa.properties.hibernate.show_sql` in a test run to capture the generated predicate, then EXPLAIN it against a customers table seeded with ~100k rows and check for Index Scan rather than Seq Scan.",
+      "summary": "The new unique index is on lower(email), but the only query that reads by email is CustomerRepository.findByEmailIgnoreCase, which Spring Data renders as `where upper(c.email) = upper(?)`. A functional index on lower(email) cannot serve an upper() predicate, and ux_customers_email (plain email) cannot serve it either, so sign-in seq-scans customers on every attempt. That was cheap while customers held two seeded rows; this change makes the table grow without bound from an unauthenticated endpoint, so sign-in latency now grows linearly with sign-up volume, and sign-in is already the slowest endpoint in the service (an Argon2 verify runs on every attempt, including unknown accounts). The index is correct as a constraint; it is just not the index the read path needs."
     },
     {
       "confidence": "medium",
-      "file": "service/src/main/resources/redis/read_click_deltas.lua",
+      "file": "service/src/main/java/com/example/urlshortener/auth/SignUpService.java",
       "id": "PERF-2",
-      "line": 32,
+      "line": 60,
       "severity": "major",
-      "suggestion": "Replace HGETALL with a cursor: `HSCAN key cursor COUNT n` in a loop inside the script until `limit` fields are collected, persisting the cursor (or using a per-pass random start) so passes make progress across the hash. The zero-field sweep can stay on the scanned window. To confirm: `redis-cli --latency` and the `latency history command` event, or SLOWLOG, during a pass with a synthetically large pending hash.",
-      "summary": "readPending bounds what it *returns* (limit) but not what it *reads*: the script calls HGETALL on the entire pending hash and then discards everything past the limit. The batch is therefore not bounded at all in cost \u2014 it is O(total pending links) in Redis CPU and in Lua-side memory, every 5 seconds, on every instance. Redis executes scripts single-threaded, so a pass over a hash that has grown to hundreds of thousands of fields (see PERF-1) blocks the same Redis instance that serves the resolution cache and the rate limiter on the redirect hot path. The failure couples: a click-counting backlog becomes redirect latency, and the 1s command timeout then converts it into cache misses and fail-open rate limiting rather than an outage \u2014 but it is the hot path degrading because of a background job."
+      "suggestion": "Bound the hashing work rather than only metering the callers: put sign-up (and ideally sign-in) hashing behind a Semaphore or a fixed executor sized to the available cores, refusing with 429/503 past the queue rather than accumulating threads. Measure by running N concurrent sign-ups (N = 2x cores and 10x cores) while sampling redirect p99 in the same process; the number that matters is redirect latency under sign-up load, not sign-up throughput. Also record the JVM heap/container memory headroom against 200 x 16 MiB in the runbook.",
+      "summary": "POST /api/v1/customers puts an Argon2id hash (m=16384 KiB, t=2, ~25 ms, 16 MiB transient per call) on an unauthenticated path with no global concurrency bound. Tomcat's default 200 request threads means a worst case of ~200 concurrent hashes, i.e. ~3.2 GiB of transient allocation and full CPU saturation in the same JVM that serves the redirect path, which has no CPU isolation from it. The only defence is the per-IP SIGN_UP bucket at 60/min, which (a) does not bound aggregate concurrency across many source addresses and (b) fails open by design when Redis is unreachable (RedisTokenBucketRateLimiter line 67-ish), so the vector is fully open in exactly the degraded state where the service is least able to absorb it. The duplicate-sign-up path pays the full hash before the constraint refuses it, so a repeat flood against one known address costs the same as real sign-ups. Sign-in already has this shape, so this is a second equal entry point rather than a new class of problem \u2014 but it doubles it, and it is the one being added."
     },
     {
-      "confidence": "high",
+      "confidence": "medium",
       "file": "service/src/main/java/com/example/urlshortener/link/LinkService.java",
       "id": "PERF-3",
-      "line": 116,
+      "line": 137,
       "severity": "major",
-      "suggestion": "Fetch all pending deltas for the page in one call: `opsForHash().multiGet(pendingKey, codes)` (HMGET is single-key, so it keeps the Cluster-safety property the class documents), and do it after the transaction returns rather than inside it. The same fix applies to reading the delta once per page instead of once per row.",
-      "summary": "GET /api/v1/links maps every row through toResponse, which calls clickCounter.pendingDelta per link \u2014 one Redis HGET per item, sequential, up to 100 per request (MAX_PAGE_SIZE). This is a textbook N+1 against the cache tier, and it happens inside a readOnly @Transactional that has already acquired a Hibernate connection for the page query, so a Hikari connection is pinned for the whole\u4e32 of Redis round trips. With the configured 1s Redis timeout, a degraded-but-alive Redis makes one list request occupy a database connection for up to 100 seconds; ten such requests exhaust the default pool of 10 and stall every other endpoint, including a redirect that missed cache."
+      "suggestion": "Take the cache invalidation off the open transaction \u2014 commit the insert, then invalidate before returning (the pre-issue ordering still holds relative to the response) \u2014 or at minimum set spring.datasource.hikari.maximum-pool-size explicitly against expected concurrency and document the interaction. Confirm by running the existing AnonymousCreateDegradationTest variant with Redis latency injected (e.g. a proxy adding 800 ms) while watching hikaricp_connections_pending and redirect p99 on /actuator/prometheus.",
+      "summary": "createAnonymous holds an open database transaction across a Redis round trip: saveAndFlush inserts the row, then resolutionCache.invalidateBeforeIssuing does a network call to Redis with a 1s timeout, all inside @Transactional. The connection pool is Hikari at its default maximum of 10 (nothing in application.yml sizes it). When Redis is slow rather than down \u2014 the common failure \u2014 each create pins a pooled connection for up to ~1s in the evict alone, plus up to ~1s more in the rate-limit call before the handler is entered; ten concurrent creates exhaust the pool and the redirect path's cache-miss fallback to PostgreSQL then queues behind them. The failure is self-amplifying: a degraded Redis makes the limiter fail open, so the anonymous endpoint becomes unmetered at precisely the moment each request is holding a connection for a second. The shape is pre-existing in create(), but create() is authenticated and customer-bucketed; this replicates it on an unauthenticated, IP-bucketed path."
     },
     {
-      "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/redirect/LinkResolver.java",
+      "confidence": "high",
+      "file": "service/src/main/java/com/example/urlshortener/threat/DenylistThreatCheck.java",
       "id": "PERF-4",
-      "line": 35,
+      "line": 76,
       "severity": "minor",
-      "suggestion": "Drop @Transactional from resolve() and let the repository call use its own transaction, then perform cache.put after it returns. Confirm with a connection-hold histogram (Hikari `hikaricp.connections.usage` is already exported via the Prometheus registry) comparing hit and miss requests.",
-      "summary": "resolve() is @Transactional(readOnly = true) and the cache write (cache.put, a Redis round trip) happens inside that transaction, after the JDBC statement has acquired a connection. Hibernate's delayed acquisition means a cache *hit* costs no connection \u2014 good \u2014 but every *miss* holds a pooled connection across a Redis PUT with a 1s timeout. Under a miss storm (see PERF-5) that is connection-hold time proportional to Redis latency rather than to database latency, on the one path that must not queue. The transaction also buys nothing here: it wraps a single read."
+      "suggestion": "Replace the loop with a single `boolean existsByHostIn(Collection<String> candidates)` over the pre-computed parent chain (at most ~6 entries, bounded by label count), turning N round trips into one. Nothing about the label-based matching semantics changes.",
+      "summary": "isListed issues one existsByHost query per label of the host: a.b.c.example.com costs five sequential database round trips, and each create pays this before it inserts. The rows are index-hits so each is cheap, but the round trips are serialised inside the create transaction and this change puts the same loop on an unauthenticated endpoint at 30/min/IP. Creates are not the hot path, so this is latency on a low-volume route rather than a capacity problem \u2014 filed because the fix is one line and the loop is now reachable without a credential."
     },
     {
       "confidence": "medium",
-      "file": "service/src/main/resources/application.yml",
+      "file": "service/src/main/resources/db/migration/V4__links_customer_id_nullable.sql",
       "id": "PERF-5",
-      "line": 15,
+      "line": 24,
       "severity": "minor",
-      "suggestion": "Set spring.datasource.hikari.maximum-pool-size explicitly with a comment tying it to expected concurrency and PostgreSQL max_connections, and consider per-code single-flight (a striped lock or Caffeine-style loading wrapper around the miss path) so a hot link's TTL expiry produces one database read rather than one per in-flight click. Measure: hikaricp.connections.pending and the redirect miss ratio under a sustained load test.",
-      "summary": "No connection pool sizing is configured, so Hikari runs at its default maximum of 10 connections, and nothing configures the Lettuce or Tomcat side either. That interacts with a structural property of the design: app.cache.ttl is pinned at 60s to floor the takedown bound, so every actively-clicked link must be re-read from PostgreSQL at least once per minute per replica, and there is no single-flight \u2014 N concurrent clicks arriving on a link whose entry has just expired all miss and all issue the same lookup. The redirect's database read rate therefore has a floor of (distinct active links)/60s, served through 10 connections. It is an indexed unique lookup on ux_links_domain_code so each is cheap, but the pool, not the query, is the ceiling, and nobody has picked the number deliberately."
+      "suggestion": "Make it a partial index: `CREATE INDEX CONCURRENTLY ix_links_owner_listing_owned ON links (customer_id, created_at DESC, code ASC) WHERE customer_id IS NOT NULL`, then drop the old one, in a follow-up migration (CONCURRENTLY cannot run inside Flyway's transaction \u2014 needs the mixed/non-transactional setting). Worth doing only once anonymous rows are a measurable fraction of the table; check with `SELECT count(*) FILTER (WHERE customer_id IS NULL), count(*) FROM links` and pg_relation_size on the index.",
+      "summary": "ix_links_owner_listing (customer_id, created_at DESC, code ASC) will now index anonymous rows it can never serve: every owner-scoped query is an equality match on customer_id and SQL equality never matches NULL, so each anonymous link adds an index entry that no query can read. On the busiest table in the system, at a permitted 30 creates/min/IP with no reaper, that is monotonic index growth for zero read benefit \u2014 larger index, slower vacuum, more buffer cache spent on unreachable tuples. Impact is proportional to anonymous adoption, which nobody can estimate yet; at low volume it is invisible."
     },
     {
       "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/redirect/RedirectController.java",
+      "file": "service/src/main/resources/db/migration/V4__links_customer_id_nullable.sql",
       "id": "PERF-6",
-      "line": 63,
+      "line": 24,
       "severity": "minor",
-      "suggestion": "Reject anything failing `^[A-Za-z0-9_-]{3,64}$` at the top of follow() with the same notFound() response (identical body and headers, so it stays indistinguishable), before touching the cache or the database. This costs nothing and removes both the Redis key-space and the database round trip for malformed codes.",
-      "summary": "The redirect accepts any path segment as a code with no length or charset bound before spending work on it. AliasPolicy caps codes at 64 characters and the column is VARCHAR(64), yet a multi-kilobyte path still becomes a Redis GET key, a PostgreSQL query parameter, and \u2014 on a miss \u2014 a negatively-cached Redis entry keyed by the full garbage string. Cost per request is small and 60s TTLs bound the memory, but it is work and cache space an attacker chooses the size of, on the one endpoint that is unauthenticated and rate-limited only per-IP."
+      "suggestion": "Prepend `SET lock_timeout = '3s';` to V4 (and to V3) so the migration fails fast and retryably rather than queueing readers behind it, and note in the deploy runbook that the retry is expected behaviour. Confirm the lock class with `SELECT mode FROM pg_locks` during a rehearsal on a copy carrying production-sized links.",
+      "summary": "ALTER TABLE links ALTER COLUMN customer_id DROP NOT NULL is a catalogue-only change and rewrites nothing, but it still needs an ACCESS EXCLUSIVE lock on links. Flyway runs it at application startup with no lock_timeout, so if any in-flight statement holds even a weak lock on links, the ALTER waits \u2014 and while it waits, every subsequent query on links queues behind it, including the redirect path's cache-miss fallback. The blast is bounded by the cache absorbing most reads for 60 seconds, but the mechanism turns a fast DDL into a stall on the hot table with no ceiling. V3's CREATE UNIQUE INDEX (not CONCURRENTLY) has the same shape against customers: it blocks writes on customers for the duration of the build, which is trivial today at two rows and stops being trivial once sign-up has been live a while."
     },
     {
-      "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/repository/LinkRepository.java",
+      "confidence": "low",
+      "file": "service/src/main/resources/db/migration/V4__links_customer_id_nullable.sql",
       "id": "PERF-7",
-      "line": 39,
+      "line": 18,
       "severity": "minor",
-      "suggestion": "If the totals must stay in the contract, at least bound `page` (or cap offset) the way `size` is capped in requireValidPaging. Longer term, keyset pagination on (created_at desc, code asc) removes both the count and the offset walk. Confirm with EXPLAIN ANALYZE of the count query against a customer with ~1M links.",
-      "summary": "findOwnedBy returns Page, so Spring Data issues a `select count(...)` alongside every list request, and LinkPage exposes totalElements/totalPages so it cannot be dropped without an API change. The count scans the whole customer_id range of ix_links_owner_listing on every page request \u2014 for a customer with a large link inventory that is the expensive half of the request, repeated for each page. Offset paging compounds it: `page` is unbounded, so page=100000 makes PostgreSQL walk and discard the offset rows. This is a management endpoint, not the hot path, so the blast radius is one caller's latency and the connection they hold."
-    },
-    {
-      "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/auth/SignInService.java",
-      "id": "PERF-8",
-      "line": 54,
-      "severity": "minor",
-      "suggestion": "Bound password hashing with a semaphore (or a small dedicated executor) sized to available cores, returning 503/429 when saturated, so credential-stuffing load cannot displace the redirect path. Measure: heap allocation rate and p99 redirect latency while replaying concurrent sign-in failures.",
-      "summary": "Every sign-in attempt \u2014 including every failed one, deliberately, for timing-equality \u2014 runs Argon2id at m=16384 KiB, t=2. Nothing bounds how many run concurrently: Tomcat's default 200 request threads means up to 200 simultaneous hashes, ~3.2 GiB of transient heap allocation and full CPU saturation, from unauthenticated requests. The sign-in bucket (60/min/IP) is the only brake and it fails open when Redis is unreachable, which is precisely when the service is already unhappy. Cost of being wrong is a GC-thrashing JVM that also stops serving redirects, since they share the same thread pool and heap."
-    },
-    {
-      "confidence": "high",
-      "file": "service/src/main/java/com/example/urlshortener/redirect/RedirectController.java",
-      "id": "PERF-9",
-      "line": 73,
-      "severity": "minor",
-      "suggestion": "Two cheap options that keep the exactness guarantee: pipeline the rate-limit and cache-GET into one round trip (both are needed unconditionally), and/or issue the HINCRBY asynchronously on the Lettuce connection without awaiting the reply, so the 302 is not gated on it \u2014 this differs from the executor-with-a-queue the javadoc rightly rejects, since it drops nothing. At minimum, lower the Redis command timeout for the increment specifically, and measure the redirect p99 with a latency-injected Redis (`CLIENT PAUSE` or a toxiproxy) to see the tail the current arrangement produces.",
-      "summary": "The analytics write is on the critical path, and this is a documented deliberate trade (ClickCounter's javadoc, AC3) rather than an oversight \u2014 but the shape is worth stating plainly: a served redirect makes three *sequential* Redis round trips (rate-limit script, cache GET, click HINCRBY) before the 302 is written, four on a not-found. Each carries the 1s command timeout, so a Redis that is slow rather than down can add up to ~3s to a redirect that would otherwise be served entirely from cached data. The increment in particular delays the response purely to record a statistic."
-    },
-    {
-      "confidence": "high",
-      "file": "service/src/main/java/com/example/urlshortener/repository/CustomerRepository.java",
-      "id": "PERF-10",
-      "line": 16,
-      "severity": "nit",
-      "suggestion": "Either store and query email lower-cased (as threat_denylist.host already does, with the comment explaining exactly this reasoning), or add `CREATE UNIQUE INDEX ux_customers_email_lower ON customers (lower(email))` and query with a matching predicate. Confirm with EXPLAIN on the generated statement.",
-      "summary": "findByEmailIgnoreCase generates `upper(email) = upper(?)`, which cannot use the ux_customers_email btree index in V1__initial_schema.sql \u2014 every sign-in is a sequential scan of customers. Today that is two seeded rows and there is no registration endpoint, so the cost is nil; it is filed only because the index exists and reads as if it serves this lookup, and the day accounts arrive the scan arrives with them."
+      "suggestion": "Ship a metric before the endpoint gets traffic: gauge `links` row count split by customer_id IS NULL, and total relation size, on the existing Prometheus endpoint. Decide a retention policy for expired anonymous rows (archive-then-delete keeping the code reserved) if the anonymous share passes some agreed fraction of the table.",
+      "summary": "Anonymous links expire after 30 days but are never removed: V1 states 'nothing is ever deleted' and there is no reaper, so an anonymous row occupies the links table, the ux_links_domain_code index and the (domain, code) namespace permanently while being unredirectable after a month and undeletable by anyone (no owner, no admin endpoint). The migration comment names 'let the TTL drain' as the rollback plan, which is true of redirect behaviour but not of storage. I cannot size this from the code \u2014 it depends entirely on adoption of an endpoint that has never been exposed \u2014 so this is flagged as something to watch rather than something to fix now."
     }
   ],
   "lens": "review-performance",
   "not_examined": [
-    "Actual query plans \u2014 no database was available to me, so index usability is inferred from the migration DDL and the derived-query naming, not from EXPLAIN output.",
-    "JVM heap sizing, GC behaviour and allocation rates; the Argon2 memory arithmetic in PERF-8 is from the encoder's documented parameters, not measured.",
-    "Ed25519 JWT verification cost per management request (JwtVerifier/jjwt+BouncyCastle) \u2014 it is off the redirect path and I did not benchmark it.",
-    "Lettuce connection multiplexing behaviour under saturation: I assumed the shared non-pooled connection the Redis starter configures by default and did not verify how it queues commands when Redis is slow.",
-    "Tomcat thread pool, request body size caps and max-http-request-header sizes \u2014 all left at Spring Boot defaults, none configured in application.yml, and I did not trace what those defaults are in Boot 3.5.16.",
-    "Redis deployment topology, memory limits and eviction policy (docker-compose.yml read only for pool/limit settings) \u2014 whether the cache tier is allowed to evict under pressure decides what PERF-2's growing hash actually does.",
-    "The test suite's own runtime and Testcontainers behaviour; the build is reported green and I did not run it.",
-    "Behaviour of the flush job with more than one replica beyond what RedisClickCounter's javadoc asserts \u2014 I took the non-destructive read/settle invariant on trust rather than reasoning through every interleaving.",
-    "Anything requiring a profiler: allocation hot spots, serialization cost of Jackson2JsonRedisSerializer per cache read on the redirect path, and actual per-request CPU."
+    "Nothing was run: no load test, no profiler, no query plans. Every claim about index usage is read from the generated-query shape and the migration text, not from EXPLAIN output.",
+    "Hibernate's physical connection handling mode was assumed to be the Spring Boot default (delayed acquisition, release after transaction). If it acquires eagerly at transaction start, the Argon2 hash in SignUpService also runs while holding a pooled connection, which would upgrade PERF-2/PERF-3 into one worse finding.",
+    "Lettuce/Spring Data Redis retry and connection-pool behaviour under partial failure was assumed from the 1s timeout in application.yml; I did not verify whether a call can exceed that (e.g. connect plus command, or reconnection attempts).",
+    "The test sources under service/src/test were read only for what they imply about production behaviour; test runtime, container reuse and suite duration were not assessed (test-adequacy's lane).",
+    "Actual Postgres lock classes for the two DDL statements were reasoned from the statement type, not observed on a real instance.",
+    "JWT verification cost per authenticated request, the click flush job's behaviour at high link cardinality, and the abuse-report path were left alone as unchanged by this diff.",
+    "No production or staging traffic figures were available, so every 'how often does this run' answer for the two new endpoints is a guess bounded by the configured rate limits (30/min and 60/min per source address) rather than a measurement."
   ],
-  "summary": "The core hot path is well built: the redirect is a single indexed (domain, code) lookup behind a Redis cache that also caches misses, clicks never touch PostgreSQL synchronously, the rate limiter is one atomic single-key Lua call that fails open, and both the unique constraint and the concurrent-alias race are handled correctly. At the load this service will plausibly see on day one, the redirect is fine. The problems are all in the machinery around it, and two are structural rather than micro. First, the click drain cannot keep up by construction: 500 links per 5s pass, one transaction and one Redis round trip each, means ~100 distinct links/second per instance against a design that reasons about 100M links/day \u2014 the pending hash only grows. Second, the drain reads that hash with HGETALL and discards everything past the limit, so the batch bounds output but not cost; a backlog therefore turns into a single-threaded Redis stall every 5 seconds, on the same Redis the redirect depends on. Those two compound each other and are the findings worth acting on. Third and independent: the list endpoint does one Redis HGET per row inside a transaction holding a database connection, which is an N+1 that pins a pool connection for up to 100 sequential Redis timeouts. The remainder are smaller \u2014 an unsized connection pool under a cache TTL that is pinned at 60s by the takedown bound (so database read rate has a floor and there is no single-flight on a miss), an unbounded code length reaching the cache and database, count-plus-offset paging, unbounded concurrent Argon2 hashing, and a non-indexable email lookup that costs nothing today. I could not measure any of this; the severities reflect mechanisms I can read in the code, and I have said where I am extrapolating to load nobody has run."
+  "summary": "The change does not touch the redirect hot path, and that is the most important thing to say: LinkResolver, ResolutionCache, RedirectController and the Redis click counter are byte-identical, the anonymous link resolves through the same (domain, code) unique index, and no per-click work is added. Nothing in this diff makes a redirect slower. The risk has moved onto the two new unauthenticated write endpoints and onto the schema. Three findings are worth a decision before ship: the new lower(email) unique index does not serve findByEmailIgnoreCase (which Spring Data renders with upper()), so sign-in seq-scans a table that this change makes grow without bound (PERF-1); sign-up puts a 16 MiB, ~25 ms memory-hard hash on an unauthenticated path with no global concurrency ceiling, defended only by a per-IP bucket that fails open when Redis is unreachable (PERF-2); and anonymous create holds a pooled connection (Hikari default 10, unsized) across a Redis call inside its transaction, which under a slow Redis is exactly when the limiter stops metering it (PERF-3). The rest is proportionate housekeeping: an N-round-trip denylist walk, an index that will carry rows it can never serve, two migrations without lock_timeout, and unbounded row growth I cannot size. At the traffic this service plausibly sees on creation endpoints \u2014 orders of magnitude below the click path \u2014 none of PERF-4 through PERF-7 will be felt for a long time; PERF-1 and PERF-2 are the ones whose cost lands on an existing endpoint (sign-in) and on shared CPU with the redirect path."
 }
