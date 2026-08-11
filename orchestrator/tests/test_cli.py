@@ -251,3 +251,12 @@ class TestReporting:
         target = journal.by_event("node_passed")[-1]
         assert cli(env, "lineage", "run-cli", target.entry_id) == 0
         assert "node_passed" in capsys.readouterr().out
+
+
+class TestDuplicateRunId:
+    def test_reusing_a_run_id_says_what_to_do(self, env: dict) -> None:
+        """A raw IntegrityError reads as a bug in the orchestrator. It is
+        usually an operator re-using an id after a run died early."""
+        start(env)
+        with pytest.raises(SystemExit, match="already exists"):
+            start(env)

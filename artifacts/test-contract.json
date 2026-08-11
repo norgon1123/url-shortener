@@ -1,0 +1,1337 @@
+{
+  "behaviours": [
+    {
+      "criteria_ids": [
+        "AC19",
+        "AC21"
+      ],
+      "id": "B001",
+      "method": "reportsBeyondTheLimitAreRefusedAndTakeNothingDown",
+      "statement": "A reporter who exceeds the per-reporter bucket is refused with 429, and the links named in the refused reports are still redirecting.",
+      "test_class": "AbuseReportRateLimitTest"
+    },
+    {
+      "criteria_ids": [
+        "AC19",
+        "AC21"
+      ],
+      "id": "B002",
+      "method": "anotherReporterIsUnaffectedByOneReportersLimit",
+      "statement": "A second customer can still report while the first reporter is throttled: the bucket is per reporter, so one abuser does not disable reporting for everyone.",
+      "test_class": "AbuseReportRateLimitTest"
+    },
+    {
+      "criteria_ids": [
+        "AC21"
+      ],
+      "id": "B003",
+      "method": "aReportedLinkStopsRedirecting",
+      "statement": "A reported link is blocked immediately and the click path answers the single 404 instead of redirecting.",
+      "test_class": "AbuseReportTest"
+    },
+    {
+      "criteria_ids": [
+        "AC9",
+        "AC21"
+      ],
+      "id": "B004",
+      "method": "aReportTakesEffectWithinThePublishedBound",
+      "statement": "The link stops redirecting within the published 60-second bound measured from the report response.",
+      "test_class": "AbuseReportTest"
+    },
+    {
+      "criteria_ids": [
+        "AC15",
+        "AC21"
+      ],
+      "id": "B005",
+      "method": "aReportAgainstAnUnissuedCodeIsAcceptedLikeAnyOther",
+      "statement": "A report against a code that was never issued is accepted with the same 202 and the same empty body as one against a real link, so the endpoint is not an existence oracle.",
+      "test_class": "AbuseReportTest"
+    },
+    {
+      "criteria_ids": [
+        "AC21",
+        "AC9"
+      ],
+      "id": "B006",
+      "method": "aReportAgainstAnotherCustomersLinkTakesItDown",
+      "statement": "Any signed-in customer may report any link they can name, and that link is taken down.",
+      "test_class": "AbuseReportTest"
+    },
+    {
+      "criteria_ids": [
+        "AC21"
+      ],
+      "id": "B007",
+      "method": "aReportWithNoBodyIsAccepted",
+      "statement": "A report with no body at all is accepted; the reason is optional and the reporter and timestamp are what is recorded.",
+      "test_class": "AbuseReportTest"
+    },
+    {
+      "criteria_ids": [
+        "AC21"
+      ],
+      "id": "B008",
+      "method": "aMalformedReportBodyIsRejectedAndTakesNothingDown",
+      "statement": "An unknown property or an overlong reason is 400, and a refused report blocks nothing.",
+      "test_class": "AbuseReportTest"
+    },
+    {
+      "criteria_ids": [
+        "AC12",
+        "AC21"
+      ],
+      "id": "B009",
+      "method": "reportingWithoutASessionIsRefusedAndTakesNothingDown",
+      "statement": "Reporting without a session is 401 and the link keeps redirecting: an unauthenticated caller cannot take anything down.",
+      "test_class": "AbuseReportTest"
+    },
+    {
+      "criteria_ids": [
+        "AC7",
+        "AC21"
+      ],
+      "id": "B010",
+      "method": "theOwnerOfAReportedLinkStillSeesItAndItsCount",
+      "statement": "The owner of a reported link still sees it, reported as blocked, with its retained click count.",
+      "test_class": "AbuseReportTest"
+    },
+    {
+      "criteria_ids": [
+        "AC3",
+        "AC7"
+      ],
+      "id": "B011",
+      "method": "theReportedCountEqualsTheNumberOfClicksServed",
+      "statement": "After a known number of clicks the count shown to the owner equals that number exactly, not approximately.",
+      "test_class": "ClickCountingTest"
+    },
+    {
+      "criteria_ids": [
+        "AC3",
+        "AC4"
+      ],
+      "id": "B012",
+      "method": "repeatedClicksFromTheSameClientAllCount",
+      "statement": "Repeated clicks from the same client all count; there is no de-duplication by address, cookie or interval.",
+      "test_class": "ClickCountingTest"
+    },
+    {
+      "criteria_ids": [
+        "AC3",
+        "AC7"
+      ],
+      "id": "B013",
+      "method": "aClickIsVisibleInTheReportedCountImmediately",
+      "statement": "A click made a moment ago is already in the reported figure, without waiting for a flush interval.",
+      "test_class": "ClickCountingTest"
+    },
+    {
+      "criteria_ids": [
+        "AC3",
+        "AC7"
+      ],
+      "id": "B014",
+      "method": "requestsThatDoNotResolveAreNotCounted",
+      "statement": "Requests that do not resolve are not counted on any link, so hammering a dead code cannot inflate a reported figure.",
+      "test_class": "ClickCountingTest"
+    },
+    {
+      "criteria_ids": [
+        "AC3",
+        "AC22"
+      ],
+      "id": "B015",
+      "method": "concurrentClicksOnOneLinkAreAllCounted",
+      "statement": "A burst of concurrent clicks on one link is counted exactly, with none lost to a read-modify-write race.",
+      "test_class": "ClickCountingTest"
+    },
+    {
+      "criteria_ids": [
+        "AC3",
+        "AC7"
+      ],
+      "id": "B016",
+      "method": "twoLinksCountIndependently",
+      "statement": "Clicks on one link leave another link's figure untouched, including when both are clicked in the same burst.",
+      "test_class": "ClickCountingTest"
+    },
+    {
+      "criteria_ids": [
+        "AC22",
+        "AC3"
+      ],
+      "id": "B017",
+      "method": "aHotLinkKeepsBeingServedAndStaysExact",
+      "statement": "A link taking a long run of clicks in a few seconds keeps answering with redirects, and the total afterwards is exactly the number of redirects served.",
+      "test_class": "ClickCountingTest"
+    },
+    {
+      "criteria_ids": [
+        "AC3",
+        "AC7",
+        "AC8"
+      ],
+      "id": "B018",
+      "method": "theCountIsRetainedAfterTheLinkIsDeleted",
+      "statement": "The count a link accrued is retained after its owner deletes it and is still reported to them.",
+      "test_class": "ClickCountingTest"
+    },
+    {
+      "criteria_ids": [
+        "AC19",
+        "AC16"
+      ],
+      "id": "B019",
+      "method": "aSweepOfUnissuedCodesIsThrottled",
+      "statement": "A sweep of codes that do not resolve starts answering 429 once the tight not-found bucket is empty.",
+      "test_class": "ClickRateLimitTest"
+    },
+    {
+      "criteria_ids": [
+        "AC19"
+      ],
+      "id": "B020",
+      "method": "aThrottledClickCarriesRetryAfterInWholeSeconds",
+      "statement": "A throttled response carries Retry-After in whole seconds, at least one and never zero.",
+      "test_class": "ClickRateLimitTest"
+    },
+    {
+      "criteria_ids": [
+        "AC22",
+        "AC19",
+        "AC3"
+      ],
+      "id": "B021",
+      "method": "aRealLinkKeepsBeingServedWhileTheEnumerationBucketIsEmpty",
+      "statement": "With the not-found bucket exhausted, a real link on the same address keeps being served with 302s and keeps being counted.",
+      "test_class": "ClickRateLimitTest"
+    },
+    {
+      "criteria_ids": [
+        "AC3",
+        "AC19"
+      ],
+      "id": "B022",
+      "method": "aThrottledRequestIsNotCountedAsAClick",
+      "statement": "A request refused with 429 is not counted as a click on anything.",
+      "test_class": "ClickRateLimitTest"
+    },
+    {
+      "criteria_ids": [
+        "AC19",
+        "AC20"
+      ],
+      "id": "B023",
+      "method": "throttlingIsARefusalAndNeverAServerError",
+      "statement": "A throttled click answers 429 with the rate_limited body and never a 5xx.",
+      "test_class": "ClickRateLimitTest"
+    },
+    {
+      "criteria_ids": [
+        "AC11",
+        "AC10"
+      ],
+      "id": "B024",
+      "method": "theDefaultExpiryFollowsTheConfiguredInterval",
+      "statement": "A link created without an explicit expiry expires the configured interval after creation, so the default is data rather than code.",
+      "test_class": "ConfiguredDefaultExpiryTest"
+    },
+    {
+      "criteria_ids": [
+        "AC10",
+        "AC11"
+      ],
+      "id": "B025",
+      "method": "aLinkStopsRedirectingWhenTheConfiguredDefaultPasses",
+      "statement": "A link that reaches its configured default expiry stops redirecting, with nothing having to sweep for that to be true.",
+      "test_class": "ConfiguredDefaultExpiryTest"
+    },
+    {
+      "criteria_ids": [
+        "AC1"
+      ],
+      "id": "B026",
+      "method": "aSignedInCustomerReceivesAShortLinkForTheirLongUrl",
+      "statement": "A signed-in customer posting a long URL gets 201 with a code, a short URL, the unchanged target, ACTIVE status and a zero count.",
+      "test_class": "CreateLinkTest"
+    },
+    {
+      "criteria_ids": [
+        "AC1",
+        "AC7"
+      ],
+      "id": "B027",
+      "method": "createdLinkIsAddressableAtTheReturnedLocation",
+      "statement": "Location points at /api/v1/links/{code} and fetching it returns the same link.",
+      "test_class": "CreateLinkTest"
+    },
+    {
+      "criteria_ids": [
+        "AC1",
+        "AC2"
+      ],
+      "id": "B028",
+      "method": "theReturnedShortUrlIsTheOneThatRedirects",
+      "statement": "The short URL in the body is the configured origin plus the code, and that exact URL is what redirects.",
+      "test_class": "CreateLinkTest"
+    },
+    {
+      "criteria_ids": [
+        "AC1",
+        "AC3",
+        "AC13"
+      ],
+      "id": "B029",
+      "method": "theSameLongUrlSubmittedTwiceYieldsTwoIndependentLinks",
+      "statement": "The same long URL submitted twice produces two codes with independent counts; nothing is de-duplicated across customers.",
+      "test_class": "CreateLinkTest"
+    },
+    {
+      "criteria_ids": [
+        "AC12"
+      ],
+      "id": "B030",
+      "method": "creatingWithoutASessionIsRefused",
+      "statement": "Creating without a session is 401 unauthorized and no link is created.",
+      "test_class": "CreateLinkTest"
+    },
+    {
+      "criteria_ids": [
+        "AC1"
+      ],
+      "id": "B031",
+      "method": "aTargetThatIsNotAnAbsoluteHttpUrlIsRejected",
+      "statement": "A target that is not an absolute http(s) URL with a host is 400 invalid_request with the field named.",
+      "test_class": "CreateLinkTest"
+    },
+    {
+      "criteria_ids": [
+        "AC1",
+        "AC19"
+      ],
+      "id": "B032",
+      "method": "anOverlongTargetIsRejected",
+      "statement": "A target longer than the configured maximum is 400, bounding the storage a junk-link campaign can burn.",
+      "test_class": "CreateLinkTest"
+    },
+    {
+      "criteria_ids": [
+        "AC1"
+      ],
+      "id": "B033",
+      "method": "anUnknownPropertyInTheCreateBodyIsRejected",
+      "statement": "A create body carrying an undefined property is 400 rather than accepted with the field ignored.",
+      "test_class": "CreateLinkTest"
+    },
+    {
+      "criteria_ids": [
+        "AC10",
+        "AC11"
+      ],
+      "id": "B034",
+      "method": "anExpiryInThePastIsRejectedAtCreation",
+      "statement": "An explicit expiry that is not in the future is 400 and no link is created.",
+      "test_class": "CreateLinkTest"
+    },
+    {
+      "criteria_ids": [
+        "AC21"
+      ],
+      "id": "B035",
+      "method": "aTargetKnownForPhishingOrMalwareNeverBecomesALink",
+      "statement": "A denylisted target is refused with 422 url_rejected and no code resolves to it afterwards.",
+      "test_class": "CreateLinkTest"
+    },
+    {
+      "criteria_ids": [
+        "AC21",
+        "AC13"
+      ],
+      "id": "B036",
+      "method": "anInternalTargetIsRefusedWithTheSameMessageAsADenylistedOne",
+      "statement": "A loopback, private or link-local target gets the same 422 and byte-identical message as a denylisted one, so the response maps neither the network nor the denylist.",
+      "test_class": "CreateLinkTest"
+    },
+    {
+      "criteria_ids": [
+        "AC21",
+        "AC20"
+      ],
+      "id": "B037",
+      "method": "aTargetPointingBackAtThisServiceIsRefused",
+      "statement": "A target on this service's own origin is refused, so a short link cannot point at a short link.",
+      "test_class": "CreateLinkTest"
+    },
+    {
+      "criteria_ids": [
+        "AC16"
+      ],
+      "id": "B038",
+      "method": "generatedCodesAreAllDifferentAndShareNoStructure",
+      "statement": "Codes issued in a batch are all of the contracted length and alphabet, all different, and share no prefix or other derivable structure.",
+      "test_class": "CreateLinkTest"
+    },
+    {
+      "criteria_ids": [
+        "AC5"
+      ],
+      "id": "B039",
+      "method": "anAvailableAliasBecomesTheShortCodeExactly",
+      "statement": "A customer who asks for an available alias gets that exact code, not a variant or a suffixed version.",
+      "test_class": "CustomAliasTest"
+    },
+    {
+      "criteria_ids": [
+        "AC5",
+        "AC2"
+      ],
+      "id": "B040",
+      "method": "aLinkCreatedWithAnAliasRedirectsLikeAnyOther",
+      "statement": "An aliased link redirects with the same status, headers and target as a generated one.",
+      "test_class": "CustomAliasTest"
+    },
+    {
+      "criteria_ids": [
+        "AC6"
+      ],
+      "id": "B041",
+      "method": "anAliasAlreadyInUseIsRejectedRatherThanReassigned",
+      "statement": "A taken alias is 409 alias_unavailable and the existing link is untouched; the request is not silently satisfied with another code.",
+      "test_class": "CustomAliasTest"
+    },
+    {
+      "criteria_ids": [
+        "AC6",
+        "AC13"
+      ],
+      "id": "B042",
+      "method": "aConflictDisclosesNothingAboutTheExistingLink",
+      "statement": "The conflict body names no owner, target or creation time, whether the alias belongs to the caller or to another customer.",
+      "test_class": "CustomAliasTest"
+    },
+    {
+      "criteria_ids": [
+        "AC6",
+        "AC8"
+      ],
+      "id": "B043",
+      "method": "theCodeOfADeletedLinkIsNeverReissued",
+      "statement": "The code of a deleted link remains unavailable, so an old link's audience is never handed to a new owner's target.",
+      "test_class": "CustomAliasTest"
+    },
+    {
+      "criteria_ids": [
+        "AC5",
+        "AC6"
+      ],
+      "id": "B044",
+      "method": "aReservedAliasIsRejectedAsInvalidRatherThanAsAConflict",
+      "statement": "A reserved word is 400 invalid_request, not 409, and the reserved route still works afterwards.",
+      "test_class": "CustomAliasTest"
+    },
+    {
+      "criteria_ids": [
+        "AC5",
+        "AC6"
+      ],
+      "id": "B045",
+      "method": "aReservedAliasIsRejectedWhateverItsCase",
+      "statement": "Reserved words are matched case-insensitively, so a differently-cased spelling cannot shadow a route.",
+      "test_class": "CustomAliasTest"
+    },
+    {
+      "criteria_ids": [
+        "AC5"
+      ],
+      "id": "B046",
+      "method": "anAliasOutsideTheAllowedShapeIsRejected",
+      "statement": "An alias outside the charset or the length bounds is 400 with the field named and no link is created.",
+      "test_class": "CustomAliasTest"
+    },
+    {
+      "criteria_ids": [
+        "AC5",
+        "AC16"
+      ],
+      "id": "B047",
+      "method": "codesAreCaseSensitive",
+      "statement": "An alias differing only in case from an existing code is available, and the two resolve independently.",
+      "test_class": "CustomAliasTest"
+    },
+    {
+      "criteria_ids": [
+        "AC20",
+        "AC2"
+      ],
+      "id": "B048",
+      "method": "clicksAreStillServedWhileTheCountingTierIsUnavailable",
+      "statement": "With Redis unreachable, a click on a live link still answers 302 with the right target; the count degrades, not the click.",
+      "test_class": "DegradedDependencyTest"
+    },
+    {
+      "criteria_ids": [
+        "AC20",
+        "AC15"
+      ],
+      "id": "B049",
+      "method": "theClickPathNeverAnswersWithAServerError",
+      "statement": "Nothing on the click path answers 5xx while a dependency is down, for a live code or an unknown one.",
+      "test_class": "DegradedDependencyTest"
+    },
+    {
+      "criteria_ids": [
+        "AC20",
+        "AC19"
+      ],
+      "id": "B050",
+      "method": "throttlingFailsOpenRatherThanRefusingEveryClick",
+      "statement": "Requests are not refused as throttled because the limiter cannot reach its store; the limiter fails open.",
+      "test_class": "DegradedDependencyTest"
+    },
+    {
+      "criteria_ids": [
+        "AC20",
+        "AC3"
+      ],
+      "id": "B051",
+      "method": "countingResumesWhenTheTierReturnsWithoutLosingEarlierClicks",
+      "statement": "When the tier returns, clicks are counted again and everything counted before the outage is still in the total.",
+      "test_class": "DegradedDependencyTest"
+    },
+    {
+      "criteria_ids": [
+        "AC20"
+      ],
+      "id": "B052",
+      "method": "degradationIsSpentOnAcceptingLinksRatherThanOnServingClicks",
+      "statement": "If anything is refused during the outage it is link creation with 503 service_unavailable, never a click.",
+      "test_class": "DegradedDependencyTest"
+    },
+    {
+      "criteria_ids": [
+        "AC8"
+      ],
+      "id": "B053",
+      "method": "aDeletedLinkNoLongerRedirects",
+      "statement": "After its owner deletes it, clicking the link no longer redirects to the original address.",
+      "test_class": "DeleteLinkTest"
+    },
+    {
+      "criteria_ids": [
+        "AC9",
+        "AC8"
+      ],
+      "id": "B054",
+      "method": "aDeleteTakesEffectWithinThePublishedBound",
+      "statement": "The link stops redirecting within the published 60-second bound measured from the delete response.",
+      "test_class": "DeleteLinkTest"
+    },
+    {
+      "criteria_ids": [
+        "AC8",
+        "AC9"
+      ],
+      "id": "B055",
+      "method": "aLinkThatWasAlreadyBeingClickedStopsToo",
+      "statement": "A link that had already been resolved and cached stops redirecting as well: the cache is invalidated, not left to age out.",
+      "test_class": "DeleteLinkTest"
+    },
+    {
+      "criteria_ids": [
+        "AC8"
+      ],
+      "id": "B056",
+      "method": "deletingAnAlreadyDeletedLinkIsAcceptedAgain",
+      "statement": "Deleting an already-deleted link of the caller's is another 204; the operation is idempotent.",
+      "test_class": "DeleteLinkTest"
+    },
+    {
+      "criteria_ids": [
+        "AC8",
+        "AC13"
+      ],
+      "id": "B057",
+      "method": "aDeleteReturnsNoBody",
+      "statement": "The delete response carries no body, so nothing about it confirms what existed.",
+      "test_class": "DeleteLinkTest"
+    },
+    {
+      "criteria_ids": [
+        "AC8",
+        "AC15",
+        "AC3"
+      ],
+      "id": "B058",
+      "method": "aDeletedCodeAnswersExactlyLikeAnUnissuedOne",
+      "statement": "On the click path a deleted code answers with the same status, body and headers as one never issued, and is not counted.",
+      "test_class": "DeleteLinkTest"
+    },
+    {
+      "criteria_ids": [
+        "AC13",
+        "AC15"
+      ],
+      "id": "B059",
+      "method": "deletingAnotherCustomersLinkIsNotFoundAndLeavesItWorking",
+      "statement": "Deleting another customer's link is 404, identical to an unissued code, and their link keeps redirecting.",
+      "test_class": "DeleteLinkTest"
+    },
+    {
+      "criteria_ids": [
+        "AC12"
+      ],
+      "id": "B060",
+      "method": "deletingWithoutASessionIsRefused",
+      "statement": "Deleting without a session is 401 unauthorized and the link is untouched.",
+      "test_class": "DeleteLinkTest"
+    },
+    {
+      "criteria_ids": [
+        "AC2",
+        "AC1"
+      ],
+      "id": "B061",
+      "method": "aLinkSurvivesARestartAndKeepsRedirecting",
+      "statement": "A link created before an application restart still exists afterwards and still redirects to the same target with the same code.",
+      "test_class": "DurabilityAcrossRestartTest"
+    },
+    {
+      "criteria_ids": [
+        "AC3",
+        "AC7"
+      ],
+      "id": "B062",
+      "method": "aClickCountSurvivesARestart",
+      "statement": "Clicks counted before a restart are still in the total afterwards, so counting does not depend on anything that dies with the process.",
+      "test_class": "DurabilityAcrossRestartTest"
+    },
+    {
+      "criteria_ids": [
+        "AC3",
+        "AC7"
+      ],
+      "id": "B063",
+      "method": "clicksAfterARestartAddToTheRetainedTotal",
+      "statement": "Clicks made after a restart add to the retained total rather than starting again from zero.",
+      "test_class": "DurabilityAcrossRestartTest"
+    },
+    {
+      "criteria_ids": [
+        "AC8",
+        "AC9"
+      ],
+      "id": "B064",
+      "method": "aDeletedLinkStaysDownAcrossARestart",
+      "statement": "A link deleted before a restart is still not redirecting after it: a takedown is durable, not a cached fact.",
+      "test_class": "DurabilityAcrossRestartTest"
+    },
+    {
+      "criteria_ids": [
+        "AC10",
+        "AC11"
+      ],
+      "id": "B065",
+      "method": "aLinkCreatedWithoutAnExpiryGetsTheDefaultOne",
+      "statement": "A link created without an expiry gets one about a month out, from configuration rather than from a literal in the code.",
+      "test_class": "LinkExpiryTest"
+    },
+    {
+      "criteria_ids": [
+        "AC10"
+      ],
+      "id": "B066",
+      "method": "anExpiredLinkNoLongerRedirects",
+      "statement": "Once its expiry has passed a link answers the single 404 on the click path, and its owner sees it as expired.",
+      "test_class": "LinkExpiryTest"
+    },
+    {
+      "criteria_ids": [
+        "AC11"
+      ],
+      "id": "B067",
+      "method": "theExpiryOfAnIndividualLinkCanBeChanged",
+      "statement": "An individual link's expiry can be set to a new future instant, and both the response and a later fetch carry the new value.",
+      "test_class": "LinkExpiryTest"
+    },
+    {
+      "criteria_ids": [
+        "AC10",
+        "AC11",
+        "AC9"
+      ],
+      "id": "B068",
+      "method": "bringingTheExpiryForwardStopsTheRedirectWhenItPasses",
+      "statement": "Bringing the expiry forward stops the redirect once the new time passes, without waiting out the old expiry or a cache TTL.",
+      "test_class": "LinkExpiryTest"
+    },
+    {
+      "criteria_ids": [
+        "AC11",
+        "AC10"
+      ],
+      "id": "B069",
+      "method": "pushingTheExpiryOutKeepsALinkRedirecting",
+      "statement": "Pushing a soon-to-expire link's expiry further out keeps it redirecting past the original time.",
+      "test_class": "LinkExpiryTest"
+    },
+    {
+      "criteria_ids": [
+        "AC11",
+        "AC9"
+      ],
+      "id": "B070",
+      "method": "anExpiryInThePastIsRejectedAndChangesNothing",
+      "statement": "A past expiry is 400 and changes nothing: a backdated timestamp is not a takedown, because it would not invalidate the caches.",
+      "test_class": "LinkExpiryTest"
+    },
+    {
+      "criteria_ids": [
+        "AC11"
+      ],
+      "id": "B071",
+      "method": "aPatchWithoutAnExpiryIsRejected",
+      "statement": "A patch with no expiry in it is 400 with the field named, rather than a successful no-op.",
+      "test_class": "LinkExpiryTest"
+    },
+    {
+      "criteria_ids": [
+        "AC11",
+        "AC21"
+      ],
+      "id": "B072",
+      "method": "aPatchCarryingTheTargetUrlIsRejectedRatherThanIgnored",
+      "statement": "A patch carrying longUrl or any other property is 400 and the target is unchanged: immutability fails loudly instead of silently.",
+      "test_class": "LinkExpiryTest"
+    },
+    {
+      "criteria_ids": [
+        "AC13",
+        "AC15"
+      ],
+      "id": "B073",
+      "method": "patchingAnotherCustomersLinkIsNotFoundAndChangesNothing",
+      "statement": "Patching another customer's link is 404, identical to an unissued code, and that link's expiry and behaviour are unchanged.",
+      "test_class": "LinkExpiryTest"
+    },
+    {
+      "criteria_ids": [
+        "AC8",
+        "AC11"
+      ],
+      "id": "B074",
+      "method": "patchingOnesOwnDeletedLinkIsRefusedAsNotModifiable",
+      "statement": "Patching one's own deleted link is 409 link_not_modifiable rather than 404, because the caller does own it.",
+      "test_class": "LinkExpiryTest"
+    },
+    {
+      "criteria_ids": [
+        "AC21",
+        "AC9"
+      ],
+      "id": "B075",
+      "method": "patchingOnesOwnBlockedLinkCannotUndoTheTakedown",
+      "statement": "Patching one's own blocked link is 409 and the link stays down: an abuse takedown is not reversible by its owner.",
+      "test_class": "LinkExpiryTest"
+    },
+    {
+      "criteria_ids": [
+        "AC12"
+      ],
+      "id": "B076",
+      "method": "patchingWithoutASessionIsRefused",
+      "statement": "Patching without a session is 401 unauthorized whether or not the code exists.",
+      "test_class": "LinkExpiryTest"
+    },
+    {
+      "criteria_ids": [
+        "AC7"
+      ],
+      "id": "B077",
+      "method": "anOwnerSeesTheirLinkAndItsClickCount",
+      "statement": "The owner is shown the link's code, short URL, target, status, times and the exact number of clicks served.",
+      "test_class": "LinkPerformanceTest"
+    },
+    {
+      "criteria_ids": [
+        "AC7",
+        "AC10"
+      ],
+      "id": "B078",
+      "method": "anOwnerSeesTheirOwnExpiredLinkWithItsRetainedCount",
+      "statement": "An owner still sees their own expired link, reported as expired, with the count it accrued while live.",
+      "test_class": "LinkPerformanceTest"
+    },
+    {
+      "criteria_ids": [
+        "AC7",
+        "AC8"
+      ],
+      "id": "B079",
+      "method": "anOwnerSeesTheirOwnDeletedLinkWithItsRetainedCount",
+      "statement": "An owner still sees their own deleted link, reported as deleted, with its retained count.",
+      "test_class": "LinkPerformanceTest"
+    },
+    {
+      "criteria_ids": [
+        "AC7",
+        "AC21"
+      ],
+      "id": "B080",
+      "method": "anOwnerSeesTheirOwnBlockedLinkWithItsRetainedCount",
+      "statement": "An owner still sees their own blocked link, reported as blocked, so a takedown is visible rather than silent.",
+      "test_class": "LinkPerformanceTest"
+    },
+    {
+      "criteria_ids": [
+        "AC13"
+      ],
+      "id": "B081",
+      "method": "anotherCustomersLinkIsNotFound",
+      "statement": "Another customer's link is 404 and never 403, and the attempt leaves its count and its redirect untouched.",
+      "test_class": "LinkPerformanceTest"
+    },
+    {
+      "criteria_ids": [
+        "AC13",
+        "AC15"
+      ],
+      "id": "B082",
+      "method": "anotherCustomersLinkAndAnUnissuedCodeAnswerIdentically",
+      "statement": "Asking about another customer's link and about a never-issued code produce the same status and byte-identical body.",
+      "test_class": "LinkPerformanceTest"
+    },
+    {
+      "criteria_ids": [
+        "AC12",
+        "AC15"
+      ],
+      "id": "B083",
+      "method": "fetchingALinkWithoutASessionIsRefused",
+      "statement": "Fetching without a session is 401 unauthorized, the same answer for a code that exists and one that does not.",
+      "test_class": "LinkPerformanceTest"
+    },
+    {
+      "criteria_ids": [
+        "AC13",
+        "AC7"
+      ],
+      "id": "B084",
+      "method": "theListContainsOnlyTheCallersOwnLinks",
+      "statement": "The page contains the caller's links and no link belonging to anyone else, whatever the other customer has created.",
+      "test_class": "ListLinksTest"
+    },
+    {
+      "criteria_ids": [
+        "AC7"
+      ],
+      "id": "B085",
+      "method": "theListIsOrderedNewestFirstWithCodeAsTheTiebreak",
+      "statement": "Links come back createdAt descending with code ascending as the tiebreak, and the same request twice gives the same order.",
+      "test_class": "ListLinksTest"
+    },
+    {
+      "criteria_ids": [
+        "AC7",
+        "AC8",
+        "AC10",
+        "AC21"
+      ],
+      "id": "B086",
+      "method": "theListIncludesTheCallersExpiredDeletedAndBlockedLinks",
+      "statement": "The caller's expired, deleted and blocked links appear in their list with their statuses and retained counts.",
+      "test_class": "ListLinksTest"
+    },
+    {
+      "criteria_ids": [
+        "AC7"
+      ],
+      "id": "B087",
+      "method": "pagingWalksTheCollectionWithoutRepeatingOrSkipping",
+      "statement": "Consecutive pages of a given size repeat nothing and skip nothing, and the reported totals agree with what was returned.",
+      "test_class": "ListLinksTest"
+    },
+    {
+      "criteria_ids": [
+        "AC7"
+      ],
+      "id": "B088",
+      "method": "anOutOfRangePageOrSizeIsRejected",
+      "statement": "A negative page, a size below one and a size above the maximum are each 400 with the parameter named, not silently clamped.",
+      "test_class": "ListLinksTest"
+    },
+    {
+      "criteria_ids": [
+        "AC12"
+      ],
+      "id": "B089",
+      "method": "listingWithoutASessionIsRefused",
+      "statement": "Listing without a session is 401 unauthorized.",
+      "test_class": "ListLinksTest"
+    },
+    {
+      "criteria_ids": [
+        "AC17"
+      ],
+      "id": "B090",
+      "method": "theStoredFormIsNotThePasswordAndDoesNotContainIt",
+      "statement": "The stored form neither is nor contains the original password and is not a bare digest: it carries an algorithm identifier and parameters.",
+      "test_class": "PasswordStorageTest"
+    },
+    {
+      "criteria_ids": [
+        "AC17"
+      ],
+      "id": "B091",
+      "method": "theSamePasswordIsStoredDifferentlyEachTime",
+      "statement": "Hashing the same password twice gives different stored forms, so equal passwords are not visibly equal in the database.",
+      "test_class": "PasswordStorageTest"
+    },
+    {
+      "criteria_ids": [
+        "AC17"
+      ],
+      "id": "B092",
+      "method": "aStoredFormRecognisesOnlyTheOriginalPassword",
+      "statement": "A stored form still recognises the password it was made from and rejects every other candidate.",
+      "test_class": "PasswordStorageTest"
+    },
+    {
+      "criteria_ids": [
+        "AC17",
+        "AC12"
+      ],
+      "id": "B093",
+      "method": "theSeededAccountsSignInAgainstTheirStoredForm",
+      "statement": "The seeded accounts sign in successfully, so the migration stored the same form this component produces.",
+      "test_class": "PasswordStorageTest"
+    },
+    {
+      "criteria_ids": [
+        "AC2"
+      ],
+      "id": "B094",
+      "method": "aLiveShortLinkRedirectsToItsTarget",
+      "statement": "Clicking a live short link answers 302 with Location exactly the URL the link was created from.",
+      "test_class": "RedirectTest"
+    },
+    {
+      "criteria_ids": [
+        "AC14"
+      ],
+      "id": "B095",
+      "method": "aClickNeedsNoCredentials",
+      "statement": "A click carrying no credential of any kind still redirects.",
+      "test_class": "RedirectTest"
+    },
+    {
+      "criteria_ids": [
+        "AC14"
+      ],
+      "id": "B096",
+      "method": "presentingACredentialOnTheClickPathChangesNothing",
+      "statement": "A click carrying a valid or a nonsense credential gets exactly the same response as one with none.",
+      "test_class": "RedirectTest"
+    },
+    {
+      "criteria_ids": [
+        "AC14",
+        "AC2"
+      ],
+      "id": "B097",
+      "method": "anyoneMayClickAnyLiveLink",
+      "statement": "A link created by one customer is clickable by anyone: ownership governs management, never clicking.",
+      "test_class": "RedirectTest"
+    },
+    {
+      "criteria_ids": [
+        "AC4",
+        "AC3"
+      ],
+      "id": "B098",
+      "method": "theRedirectForbidsCachingByBrowsersAndIntermediaries",
+      "statement": "The redirect carries Cache-Control no-store/no-cache/must-revalidate/max-age=0, Pragma no-cache and Expires 0.",
+      "test_class": "RedirectTest"
+    },
+    {
+      "criteria_ids": [
+        "AC4",
+        "AC8",
+        "AC9"
+      ],
+      "id": "B099",
+      "method": "theRedirectIsTemporaryAndNeverPermanent",
+      "statement": "The status is a temporary redirect and never a permanent one, so no client is entitled to skip us on later clicks.",
+      "test_class": "RedirectTest"
+    },
+    {
+      "criteria_ids": [
+        "AC4",
+        "AC3"
+      ],
+      "id": "B100",
+      "method": "everyRepeatedClickReachesTheServiceAndRedirects",
+      "statement": "The second and every later click reaches the service and gets its own 302 with the same target.",
+      "test_class": "RedirectTest"
+    },
+    {
+      "criteria_ids": [
+        "AC2",
+        "AC4"
+      ],
+      "id": "B101",
+      "method": "headAnswersLikeGetWithNoBody",
+      "statement": "HEAD on a short code answers with the same status and headers as GET and no body.",
+      "test_class": "RedirectTest"
+    },
+    {
+      "criteria_ids": [
+        "AC15"
+      ],
+      "id": "B102",
+      "method": "aCodeThatWasNeverIssuedDoesNotRedirect",
+      "statement": "A code that was never issued answers 404 with the single not-found body and no Location.",
+      "test_class": "RedirectTest"
+    },
+    {
+      "criteria_ids": [
+        "AC15",
+        "AC16"
+      ],
+      "id": "B103",
+      "method": "aMalformedCodeAnswersExactlyLikeAnUnissuedOne",
+      "statement": "A code that could not possibly have been issued answers exactly like one that simply does not exist, never 400.",
+      "test_class": "RedirectTest"
+    },
+    {
+      "criteria_ids": [
+        "AC15",
+        "AC13",
+        "AC8",
+        "AC10",
+        "AC21"
+      ],
+      "id": "B104",
+      "method": "everyUnusableCodeAnswersIndistinguishably",
+      "statement": "Expired, deleted, blocked, another customer's and never-issued codes produce the same status, the same body byte for byte, and the same headers.",
+      "test_class": "RedirectTest"
+    },
+    {
+      "criteria_ids": [
+        "AC15",
+        "AC4"
+      ],
+      "id": "B105",
+      "method": "aNotFoundCarriesTheSameCacheHeadersAsARedirect",
+      "statement": "A 404 on the click path carries the same no-store headers as a redirect, so the two cannot be told apart by cacheability.",
+      "test_class": "RedirectTest"
+    },
+    {
+      "criteria_ids": [
+        "AC15"
+      ],
+      "id": "B106",
+      "method": "aMethodOtherThanGetOrHeadIsRefusedWithoutRevealingWhetherTheCodeExists",
+      "statement": "Another method on a short code is refused identically whether or not the code resolves.",
+      "test_class": "RedirectTest"
+    },
+    {
+      "criteria_ids": [
+        "AC12",
+        "AC18"
+      ],
+      "id": "B107",
+      "method": "anExpiredSessionIsRefusedLikeAnAbsentOne",
+      "statement": "A session past its expiry is refused with the same 401 and the same body as no session at all.",
+      "test_class": "SessionExpiryTest"
+    },
+    {
+      "criteria_ids": [
+        "AC18"
+      ],
+      "id": "B108",
+      "method": "theAdvertisedExpiryFollowsTheConfiguredLifetime",
+      "statement": "The expiry in the sign-in response is the configured lifetime from now, so a client need not decode the credential and the lifetime is configuration.",
+      "test_class": "SessionExpiryTest"
+    },
+    {
+      "criteria_ids": [
+        "AC16"
+      ],
+      "id": "B109",
+      "method": "everyCodeHasTheContractedLengthAndAlphabet",
+      "statement": "Every generated code is exactly the contracted length over the contracted alphabet, so the code space is the size the entropy claim assumes.",
+      "test_class": "ShortCodeUnguessabilityTest"
+    },
+    {
+      "criteria_ids": [
+        "AC16"
+      ],
+      "id": "B110",
+      "method": "codesInALargeSampleNeitherRepeatNorShareStructure",
+      "statement": "A large sample contains no repeat and no two codes sharing a long prefix: codes derive from nothing about the row, the time or each other.",
+      "test_class": "ShortCodeUnguessabilityTest"
+    },
+    {
+      "criteria_ids": [
+        "AC16"
+      ],
+      "id": "B111",
+      "method": "everyPositionDrawsFromTheWholeAlphabetWithoutBias",
+      "statement": "Each position draws from the whole alphabet rather than favouring its first characters, as a modulo of a random integer would.",
+      "test_class": "ShortCodeUnguessabilityTest"
+    },
+    {
+      "criteria_ids": [
+        "AC16"
+      ],
+      "id": "B112",
+      "method": "theSequenceIsNotReproducibleFromWhatAnAttackerCanSee",
+      "statement": "The source is a cryptographic one: the sequence is not reproducible from anything an attacker can observe.",
+      "test_class": "ShortCodeUnguessabilityTest"
+    },
+    {
+      "criteria_ids": [
+        "AC16"
+      ],
+      "id": "B113",
+      "method": "theCodeLengthCarriesTheStatedEntropy",
+      "statement": "The frozen constants agree: the code length is enough to carry the stated entropy over the stated alphabet.",
+      "test_class": "ShortCodeUnguessabilityTest"
+    },
+    {
+      "criteria_ids": [
+        "AC12",
+        "AC18"
+      ],
+      "id": "B114",
+      "method": "validCredentialsIssueASession",
+      "statement": "A seeded customer signing in correctly gets 200 with a bearer credential, the Bearer type, an absolute expiry and their own customer id.",
+      "test_class": "SignInBehaviourTest"
+    },
+    {
+      "criteria_ids": [
+        "AC17"
+      ],
+      "id": "B115",
+      "method": "unknownAccountAndWrongPasswordAreRefusedIdentically",
+      "statement": "A wrong password and an account that does not exist both answer 401 with the identical invalid_credentials body.",
+      "test_class": "SignInBehaviourTest"
+    },
+    {
+      "criteria_ids": [
+        "AC12"
+      ],
+      "id": "B116",
+      "method": "malformedSignInBodyIsRejectedAsAnInvalidRequest",
+      "statement": "A missing field or an unknown property in the sign-in body is 400 invalid_request, never 401.",
+      "test_class": "SignInBehaviourTest"
+    },
+    {
+      "criteria_ids": [
+        "AC18"
+      ],
+      "id": "B117",
+      "method": "oneSessionServesManyLaterRequests",
+      "statement": "One sign-in is enough: the credential is accepted on several subsequent management calls without signing in again.",
+      "test_class": "SignInBehaviourTest"
+    },
+    {
+      "criteria_ids": [
+        "AC18"
+      ],
+      "id": "B118",
+      "method": "aSessionIsCheckedAgainstTheKeyRatherThanTheLoginSystem",
+      "statement": "The issued credential yields its customer when checked locally against the key, with no database read and no call back to the sign-in endpoint.",
+      "test_class": "SignInBehaviourTest"
+    },
+    {
+      "criteria_ids": [
+        "AC12"
+      ],
+      "id": "B119",
+      "method": "absentMalformedAndForgedCredentialsAreRefusedIdentically",
+      "statement": "No credential, a non-JWS credential and a well-shaped credential this service did not sign all answer 401 with the identical unauthorized body.",
+      "test_class": "SignInBehaviourTest"
+    },
+    {
+      "criteria_ids": [
+        "AC19",
+        "AC17"
+      ],
+      "id": "B120",
+      "method": "repeatedSignInAttemptsFromOneSourceAreThrottled",
+      "statement": "Repeated failed sign-ins from one address are refused with 429 once the bucket is empty.",
+      "test_class": "SignInRateLimitTest"
+    },
+    {
+      "criteria_ids": [
+        "AC19",
+        "AC17"
+      ],
+      "id": "B121",
+      "method": "aThrottledSignInDisclosesNothingAboutTheCredentials",
+      "statement": "A throttled sign-in answers 429 with Retry-After and says nothing about whether the credentials would have been accepted.",
+      "test_class": "SignInRateLimitTest"
+    },
+    {
+      "criteria_ids": [
+        "AC13",
+        "AC15"
+      ],
+      "id": "B122",
+      "method": "everyOwnerScopedEndpointAnswersTheSameForAnotherCustomersLinkAsForAnUnissuedCode",
+      "statement": "Fetch, patch, delete and report aimed at another customer's link give the same answers as the same requests aimed at a never-issued code.",
+      "test_class": "TenantIsolationTest"
+    },
+    {
+      "criteria_ids": [
+        "AC13"
+      ],
+      "id": "B123",
+      "method": "anotherCustomersLinkIsUnchangedByEveryAttemptOnIt",
+      "statement": "After every attempt, the other customer's link has the same target, expiry, status and count, and still redirects.",
+      "test_class": "TenantIsolationTest"
+    },
+    {
+      "criteria_ids": [
+        "AC13",
+        "AC12"
+      ],
+      "id": "B124",
+      "method": "theOwnersOwnSessionSucceedsWhereTheOtherCustomersWasRefused",
+      "statement": "The same requests with the owner's session succeed, so the refusals are isolation rather than a broken code.",
+      "test_class": "TenantIsolationTest"
+    },
+    {
+      "criteria_ids": [
+        "AC13",
+        "AC7"
+      ],
+      "id": "B125",
+      "method": "aCustomersOwnTotalsAreUnaffectedByAnotherCustomersLinks",
+      "statement": "A customer's list and its reported totals count only their own links however many the other customer creates.",
+      "test_class": "TenantIsolationTest"
+    },
+    {
+      "criteria_ids": [
+        "AC19"
+      ],
+      "id": "B126",
+      "method": "bulkLinkCreationByOneCustomerIsThrottled",
+      "statement": "A customer creating links faster than the limit starts being refused with 429, and the refused links do not exist afterwards.",
+      "test_class": "WriteRateLimitTest"
+    },
+    {
+      "criteria_ids": [
+        "AC19",
+        "AC13"
+      ],
+      "id": "B127",
+      "method": "anotherCustomerKeepsBeingServedWhileOneIsThrottled",
+      "statement": "While one customer is throttled, the other customer's creates, fetches and deletes all succeed.",
+      "test_class": "WriteRateLimitTest"
+    },
+    {
+      "criteria_ids": [
+        "AC19"
+      ],
+      "id": "B128",
+      "method": "aThrottledWriteCarriesRetryAfterInWholeSeconds",
+      "statement": "A throttled write carries Retry-After in whole seconds, at least one, with the rate_limited body.",
+      "test_class": "WriteRateLimitTest"
+    },
+    {
+      "criteria_ids": [
+        "AC19",
+        "AC20",
+        "AC22"
+      ],
+      "id": "B129",
+      "method": "clicksAreUnaffectedWhileACustomersWriteBucketIsEmpty",
+      "statement": "Clicks keep being served and counted while a customer's write bucket is empty: the two paths do not share a bucket.",
+      "test_class": "WriteRateLimitTest"
+    }
+  ],
+  "contract_files": [
+    "service/src/test/java/com/example/urlshortener/support/TestInfrastructure.java",
+    "service/src/test/java/com/example/urlshortener/support/Fixtures.java",
+    "service/src/test/java/com/example/urlshortener/support/ApiClient.java",
+    "service/src/test/java/com/example/urlshortener/support/AbstractIntegrationTest.java",
+    "service/src/test/java/com/example/urlshortener/support/AbstractRestartIntegrationTest.java",
+    "service/src/test/java/com/example/urlshortener/behaviour/SignInBehaviourTest.java",
+    "service/src/test/java/com/example/urlshortener/behaviour/SessionExpiryTest.java",
+    "service/src/test/java/com/example/urlshortener/behaviour/PasswordStorageTest.java",
+    "service/src/test/java/com/example/urlshortener/behaviour/CreateLinkTest.java",
+    "service/src/test/java/com/example/urlshortener/behaviour/CustomAliasTest.java",
+    "service/src/test/java/com/example/urlshortener/behaviour/RedirectTest.java",
+    "service/src/test/java/com/example/urlshortener/behaviour/ClickCountingTest.java",
+    "service/src/test/java/com/example/urlshortener/behaviour/DurabilityAcrossRestartTest.java",
+    "service/src/test/java/com/example/urlshortener/behaviour/LinkPerformanceTest.java",
+    "service/src/test/java/com/example/urlshortener/behaviour/ListLinksTest.java",
+    "service/src/test/java/com/example/urlshortener/behaviour/LinkExpiryTest.java",
+    "service/src/test/java/com/example/urlshortener/behaviour/ConfiguredDefaultExpiryTest.java",
+    "service/src/test/java/com/example/urlshortener/behaviour/DeleteLinkTest.java",
+    "service/src/test/java/com/example/urlshortener/behaviour/AbuseReportTest.java",
+    "service/src/test/java/com/example/urlshortener/behaviour/ClickRateLimitTest.java",
+    "service/src/test/java/com/example/urlshortener/behaviour/WriteRateLimitTest.java",
+    "service/src/test/java/com/example/urlshortener/behaviour/AbuseReportRateLimitTest.java",
+    "service/src/test/java/com/example/urlshortener/behaviour/SignInRateLimitTest.java",
+    "service/src/test/java/com/example/urlshortener/behaviour/DegradedDependencyTest.java",
+    "service/src/test/java/com/example/urlshortener/behaviour/ShortCodeUnguessabilityTest.java",
+    "service/src/test/java/com/example/urlshortener/behaviour/TenantIsolationTest.java"
+  ],
+  "contract_hash": "96600660b56101c9e699e0ab3c8f47b3f319badc0812f1d3b402087cdc60826c",
+  "harness": [
+    {
+      "concern": "How a test reaches the service at all",
+      "mechanism": "One client, `support/ApiClient`, built on java.net.http with `Redirect.NEVER` and no error handler, returning the raw `HttpResponse<String>` for every call. It owns every path in the frozen API (`SESSIONS_PATH`, `LINKS_PATH`, `/{code}`), so no test spells a URL. The scaffold's `TestRestTemplate` was removed: two clients means two answers to the only two questions this contract turns on - whether a 302 is followed and whether a 404 throws."
+    },
+    {
+      "concern": "How a test creates a link it can then act on",
+      "mechanism": "`AbstractIntegrationTest.givenLink(bearer)` / `givenLink(bearer, longUrl)` / `givenLinkWithAlias` / `givenLinkExpiringIn` return a parsed `LinkResponse` for use as a precondition; `givenDeletedLink`, `givenBlockedLink(owner, reporter)` and `givenExpiredLink` produce each non-ACTIVE state. Tests whose subject *is* creation call `api.createLink(...)` and keep the raw response instead."
+    },
+    {
+      "concern": "How a test gets a session, and which accounts exist",
+      "mechanism": "`alice()` and `bob()` sign in through the API with `Fixtures.ALICE` / `Fixtures.BOB` - the two seeded customers, fixed UUIDs and plaintexts quoted from openapi.yaml. Two accounts because tenant isolation cannot be shown with one. There is no registration endpoint, so the migration must write exactly these rows."
+    },
+    {
+      "concern": "How a test observes an expired link without waiting for real time to pass",
+      "mechanism": "Two mechanisms, no database access (the schema is not part of the freeze) and no backdating (a past expiry is a 400 by design). (1) `givenExpiredLink` sets `expiresAt` three seconds out through the API and `awaitExpiry(link)` sits through it and then clears the resolution cache; EXPIRED is derived from `expires_at` at read time, so nothing has to sweep. (2) `ConfiguredDefaultExpiryTest` turns `app.links.default-ttl` down to PT3S via `@SpringBootTest(properties = ...)`, which also proves the default is configuration. Total real-time cost across the suite is about fifteen seconds."
+    },
+    {
+      "concern": "How a test measures the published takedown bound instead of assuming it",
+      "mechanism": "`observeUntil(BooleanSupplier, Duration)` polls and returns how long the condition took to hold, or empty if it never did within the limit; `Fixtures.TAKEDOWN_BOUND` is the published 60 seconds. The harness reports the elapsed time, the test decides what it must be under. `evictResolutionCache()` exists to remove a cache as an *explanation* for a result and must never be used to make a takedown take effect - that would pass against an implementation that never invalidates anything."
+    },
+    {
+      "concern": "How a test restarts or re-boots the application",
+      "mechanism": "`AbstractRestartIntegrationTest` deliberately does not extend the `@SpringBootTest` base: closing a TestContext-managed context poisons the cached context for every later class, and `@DirtiesContext` only acts between tests. It boots the application itself with `SpringApplicationBuilder`, reads the port from `ServletWebServerApplicationContext.getWebServer()`, and exposes `restartApplication()`. The containers are *not* restarted - they are passed in as ordinary properties from `TestInfrastructure.springProperties()` - so the restart changes the process and nothing else. Sessions are re-obtained after a restart because the signing key is ephemeral when none is configured."
+    },
+    {
+      "concern": "How a test asserts against the route at the root of the namespace",
+      "mechanism": "`api.click(code)`, `api.clickHead(code)`, `api.clickWithBearer(code, bearer)` and `api.rootRequest(method, rawPath, body)` build `/{code}` under the running origin with the path segment URL-encoded, send no credential by default and never follow the redirect. Nothing else in the suite constructs a root-level URL, which is the route a blind author is most likely to get wrong."
+    },
+    {
+      "concern": "How a test makes a dependency fail, for the availability criterion",
+      "mechanism": "`TestInfrastructure.withCounterTierUnavailable(body)` pauses the Redis container through the Docker API and unpauses it in a finally block; `resumeCounterTier()` is idempotent and `DegradedDependencyTest` also calls it in `@AfterEach`. Pause rather than stop, so the port mapping survives and the recovered half is observable. Every method in that class carries `@Timeout(90s)`: the failure being hunted is a click path that hangs on an unreachable dependency, and a hang without a timeout is a suite that never finishes."
+    },
+    {
+      "concern": "How a test gets a token bucket small enough to empty, and a known bucket state",
+      "mechanism": "Limits are properties on the frozen `AppProperties`, named as constants in `Fixtures` (`CLICK_LIMIT_KEY`, `NOT_FOUND_LIMIT_KEY`, `WRITE_LIMIT_KEY`, `ABUSE_REPORT_LIMIT_KEY`, `SIGN_IN_LIMIT_KEY`, `RATE_LIMIT_ENABLED_KEY`) and lowered per test class with `@SpringBootTest(properties = ...)`. One Redis is shared by every context in the JVM, so buckets outlive a context: `resetSharedTierState()` flushes it, and each rate-limit class calls it in `@BeforeEach`. It must never be called from a counting test - it discards exactly the un-flushed deltas AC3 says must not be lost."
+    },
+    {
+      "concern": "How a property override is spelled without silently losing the web environment",
+      "mechanism": "A subclass repeats the whole annotation: `@SpringBootTest(webEnvironment = RANDOM_PORT, properties = {...})`. The most specific `@SpringBootTest` wins outright rather than merging with the base class's, and dropping `RANDOM_PORT` yields a mock environment with nothing listening - a failure mode that reads like a broken service. Documented on `AbstractIntegrationTest` and used identically by all five overriding classes."
+    },
+    {
+      "concern": "How the backing services are started, and why not with @Testcontainers",
+      "mechanism": "`TestInfrastructure` holds PostgreSQL and Redis as JVM-wide singletons started in a static initialiser, wired into `@SpringBootTest` contexts by `@ServiceConnection` fields on the base class (Redis as a `GenericContainer` named `redis`, which the Boot-supplied connection-details factory matches - no third-party Testcontainers module, so the frozen pom is untouched). `@Container`/`@Testcontainers` would tie their lifetime to the first test class and leave every later class talking to a dead port behind connection timeouts."
+    },
+    {
+      "concern": "How exact counting is exercised under the traffic shape that breaks it",
+      "mechanism": "`clickConcurrently(code, times, threads)` drives a burst from a fixed thread pool and returns every response; `clickRepeatedly(code, times)` is the sequential form; `reportedClickCount(bearer, code)` reads the figure back through the API. A counter that is right one click at a time and lossy under concurrency is the defect worth catching and it is invisible sequentially."
+    }
+  ],
+  "rationale": "WHAT THIS IS. 26 files, 129 behaviour methods across 21 classes plus a five-class harness. `mvn test-compile` is green (26 test sources). Every method body is `org.junit.jupiter.api.Assertions.fail(\"not implemented\")` - fully qualified deliberately, because the `no_assertions` gate skips any line containing `fail(` but would flag an `import static ...Assertions.fail`. I ran the gate's own regex over the tree: zero assertions outside `support/`, and zero hits for the `no_secrets` pattern (the seeded plaintexts are constructor arguments in `Fixtures.SeededCustomer`, never `X_PASSWORD = \"...\"`, which would match).\n\nCOVERAGE. All 22 acceptance criteria have at least one behaviour. Per endpoint the success path, every documented status (400/401/404/409/422/429/503 as applicable) and the boundaries are pinned, and so is each thing design's rationale called out as a decision: 302 and never 301; 404 and never 403 or 410; the identical not-found body across five causes on two surfaces; 400 for a reserved alias against 409 for a taken one; one 422 message shared by denylist, internal and self-referential targets; 201 with Location on the API resource; 204 with no body; 202 for any well-formed code; 503 on create and never on the click path; Retry-After in whole seconds and never 0; strict bodies making longUrl immutability mechanical; HEAD served by the GET handler.\n\nTWO THINGS `implement` MUST PROVIDE THAT ARE NOT OTHERWISE OBVIOUS. `SignInBehaviourTest` injects `JwtVerifier` and `PasswordStorageTest` injects `PasswordHasher`; `AbstractIntegrationTest` injects `CacheManager` and `RedisConnectionFactory`. Those four must be beans or those classes fail context load rather than failing an assertion. All four are in the frozen contract already - the first two are design's own interfaces, the CacheManager is design's note 4, the connection factory is the Redis starter's - but a bean that exists only as an interface satisfies no injection point, so it is stated here rather than discovered at verify.\n\nWHAT I DELIBERATELY DID NOT COVER, AND WHY.\n1. Per-source isolation of the IP-keyed buckets. AC19's \"other customers' requests continue to be served\" is demonstrated on the WRITE and ABUSE_REPORT buckets, which are keyed by customer id, because two seeded accounts give two keys. The CLICK, NOT_FOUND and SIGN_IN buckets are keyed by client IP and every test runs from loopback; nothing in the contract says X-Forwarded-For is honoured, and inventing that here would have been a design decision smuggled in as a test. If a reviewer wants the IP-keyed case proven, the cheapest honest answer is to make the trusted-proxy header part of the contract, not to make the harness pretend.\n2. AC17 against a stolen database. The database schema is not in the frozen contract - migrations were not in design's write paths - so the harness does not read tables, and `PasswordStorageTest` examines the `PasswordHasher` port instead. That proves the stored form is salted, parameterised and non-reversible; it does not prove the migration writes what the port produces, which is why B093 (the seeded accounts actually sign in) is there as the join between the two halves.\n3. AC9 at sub-second resolution. The bound tested is the published 60 seconds, quoted from openapi.yaml. Design flagged Q1 as unanswered; if the business's real number is sub-second, these tests still pass against a design that breaches it, and the test to change is the bound constant in `Fixtures`, not the harness.\n4. AC22 at anything like production scale. A burst here is hundreds of clicks from one JVM, not a large fraction of a day's traffic in a few minutes. It catches lost counts under concurrency, which is the correctness half; it says nothing about latency under real spike load, which belongs to a load test outside this suite.\n5. AC4's intermediary behaviour. What is pinned is the headers and the 302 - what we send. Whether a particular CDN honours them is not testable against our own service, and the design's reasoning for 302 over 301 rests on exactly that.\n6. Redis eviction and Cluster topology (U1). If the shared Redis runs allkeys-lru, a counter key can be evicted before flush and clicks are lost with no error anywhere. No test in this harness can see that - the test Redis has default policy - and it remains a question for the platform owner.\n7. The alias existence oracle. Create-with-alias answers 409 for a taken code, so a caller can probe any code. B042 pins that the 409 discloses nothing further; the oracle itself cannot be closed without breaking AC5/AC6 and is accepted in design's rationale.\n\nONE HARNESS COST WORTH APPROVING KNOWINGLY. Four tests sit through a real three-second expiry, and `DegradedDependencyTest` pauses a container. That is roughly half a minute of wall clock plus context starts for five distinct property sets. The alternative for expiry was a controllable `Clock` bean, which would have imposed a structural requirement on production code from a node that may not write it, and which fails silently if `implement` reads `Instant.now()` anywhere. Sitting through three seconds cannot fail silently."
+}

@@ -44,6 +44,8 @@ from .checkpoint import CheckpointManager
 from .gates import GateContext
 from .graph import descendants
 from .model import (
+    Approval,
+    ApprovalDecision,
     Autonomy,
     FailureAction,
     GateOutcome,
@@ -64,6 +66,30 @@ def new_run_id(prefix: str = "run") -> str:
     """Sortable and unique: the timestamp is for humans, the suffix for collisions."""
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     return f"{prefix}-{stamp}-{uuid.uuid4().hex[:6]}"
+
+
+# Failures a retry cannot change, matched against the error text a backend
+# reports. Each is deterministic given the same inputs: a provider quota that
+# resets at a fixed hour, a turn ceiling the next attempt hits identically, an
+# empty account. A bounded retry policy is for flaky failures; spending it here
+# buys nothing and costs a full attempt each time.
+_TERMINAL_ERRORS: tuple[tuple[str, str], ...] = (
+    ("session limit", "provider quota exhausted"),
+    ("usage limit", "provider quota exhausted"),
+    ("credit balance", "provider credit exhausted"),
+    ("error_max_turns", "turn ceiling reached"),
+)
+
+
+def terminal_failure(error: str | None) -> str | None:
+    """Name the wall if this error is one, else None."""
+    if not error:
+        return None
+    lowered = error.lower()
+    for needle, reason in _TERMINAL_ERRORS:
+        if needle in lowered:
+            return reason
+    return None
 
 
 @dataclass
@@ -93,6 +119,12 @@ class Engine:
         run_id: str,
         budget: BudgetGuard | None = None,
         command_runner=gate_lib.subprocess_runner,
+        # Injected for the same reason the command runner is: a test that wants
+        # to assert on a backoff should not spend the wall-clock, and patching
+        # `time.sleep` globally to catch it also catches every other sleep in
+        # the process. That made one test intermittently fail on delays it
+        # never caused.
+        sleep=time.sleep,
         max_parallel: int = 4,
     ) -> None:
         self.pipeline = pipeline
@@ -105,6 +137,7 @@ class Engine:
         self.run_id = run_id
         self.budget = budget or BudgetGuard(pipeline.budget)
         self.command_runner = command_runner
+        self.sleep = sleep
         self.max_parallel = max_parallel
         # The parallel branch means two node runners finish at unpredictable
         # moments. The journal's hash chain and the store's counters are both
@@ -171,9 +204,18 @@ class Engine:
     def _finish(self) -> RunStatus:
         states = self.store.node_states(self.run_id)
         incomplete = [
-            nid
-            for nid in self.pipeline.node_ids
-            if states.get(nid) is None or states[nid].status is not NodeStatus.PASSED
+            node.id
+            for node in self.pipeline.nodes
+            # A handler is invoked by a failure and never scheduled, so it has
+            # no business being *required*. `_ready_nodes` has always skipped
+            # them; requiring them here meant a run where every scheduled node
+            # passed still reported FAILED -- because `triage` had never been
+            # asked to do anything, which is the good case.
+            if node.kind is not NodeKind.HANDLER
+            and (
+                states.get(node.id) is None
+                or states[node.id].status is not NodeStatus.PASSED
+            )
         ]
         if incomplete:
             self._record("run_failed", incomplete=incomplete)
@@ -331,7 +373,11 @@ class Engine:
         # Clear it so the node re-runs carrying the note and then faces a fresh
         # decision. The journal keeps both decisions; this table holds only the
         # live one.
-        rejection_note = ""
+        # A triage-routed repair carries its verdict the same way a human
+        # rejection carries its note: appended to the prompt, last and therefore
+        # most salient. A human rejection outranks it -- a person who has just
+        # looked at this node knows something the adjudicator did not.
+        rejection_note = self._repair_note(node.id)
         if approval is not None and not approval.approved:
             rejection_note = approval.note
             self.store.clear_approval(self.run_id, node.id)
@@ -416,6 +462,22 @@ class Engine:
                     error=result.error,
                     cost_usd=result.cost_usd,
                 )
+                if reason := terminal_failure(result.error):
+                    # Some failures are walls, not weather. A provider quota
+                    # that resets at a fixed hour, or a turn ceiling the next
+                    # attempt would hit identically, does not become passable
+                    # because we tried twice more -- it just costs twice more.
+                    # Spend the remaining attempts on failures a retry can
+                    # actually change, and leave this node resumable.
+                    self._record(
+                        "retries_abandoned",
+                        node_id=node.id,
+                        attempt=attempt,
+                        parent_ids=self._parents(node.id),
+                        reason=reason,
+                        attempts_remaining=total - attempt - 1,
+                    )
+                    return self._fail(node, [], f"{reason}: {result.error}")
                 gate_failures = ()
                 continue
 
@@ -469,7 +531,7 @@ class Engine:
             attempt=attempt,
             seconds=delay,
         )
-        time.sleep(delay)
+        self.sleep(delay)
 
     def _invoke(
         self,
@@ -712,81 +774,260 @@ class Engine:
                 )
             )
 
-        target, reason = self._triage_target(verdict.output)
+        approval = self.store.approvals(self.run_id).get(node.id)
+        targets, reason = self._triage_targets(verdict.output, approval)
+        route = self._adjudicated_route(approval if approval and approval.approved else None)
         self._record(
             "triage_verdict",
             node_id=handler.id,
             parent_ids=self._parents(node.id),
             triggered_by=node.id,
             verdict=(verdict.output or {}).get("verdict"),
-            target=target,
+            targets=targets,
             reason=reason,
             cost_usd=verdict.cost_usd,
         )
 
-        if target is None:
-            # Contract-implicated, mixed, or low confidence. None of those can be
-            # sent to one branch, and a contract both sides read differently is
-            # the case a person should see rather than the case to guess at.
+        if not targets:
             return self._pause_for_approval(
                 self._pending_approval(node, execution.gate_results, reason)
             )
 
-        spec = self.pipeline.node(target)
-        used = self.store.record_repair(self.run_id, target)
-        if used > spec.repair_attempts:
+        routed: list[str] = []
+        for target in targets:
+            spec = self.pipeline.node(target)
+            allowed = spec.repair_attempts + self._adjudicated_grants(target)
+            state = self.store.get_node(self.run_id, target)
+            used = (state.repairs if state else 0) + 1
+            if used > allowed:
+                self._record(
+                    "repair_budget_exhausted",
+                    node_id=target,
+                    parent_ids=self._parents(node.id),
+                    used=used,
+                    allowed=allowed,
+                )
+                continue
+            # Charged only once the routing is actually going to happen. The
+            # earlier version incremented first and checked after, so a refused
+            # routing still cost the branch a slot it never got to use -- and a
+            # later human grant then had to pay off that phantom debt before it
+            # bought anything.
+            self.store.record_repair(self.run_id, target)
+            affected = {target} | descendants(self.pipeline, target)
+            for nid in sorted(affected):
+                self.store.set_node(self.run_id, nid, NodeStatus.PENDING, attempt=0)
+            routed.append(target)
             self._record(
-                "repair_budget_exhausted",
+                "repair_routed",
                 node_id=target,
                 parent_ids=self._parents(node.id),
-                used=used,
-                allowed=spec.repair_attempts,
+                triggered_by=node.id,
+                attempt=used,
+                allowed=allowed,
+                reason=self._repair_brief(
+                    target,
+                    verdict.output,
+                    reason,
+                    routed_contract_to=route[0] if route else "",
+                    adjudication=approval.note if route and approval else "",
+                ),
+                reset_nodes=sorted(affected),
             )
-            return self._replan(node, execution)
 
-        affected = {target} | descendants(self.pipeline, target)
-        for nid in sorted(affected):
-            self.store.set_node(self.run_id, nid, NodeStatus.PENDING, attempt=0)
-        self._record(
-            "repair_routed",
-            node_id=target,
-            parent_ids=self._parents(node.id),
-            triggered_by=node.id,
-            attempt=used,
-            allowed=spec.repair_attempts,
-            reason=reason,
-            reset_nodes=sorted(affected),
-        )
+        # Every implicated branch is out of budget. The sledgehammer is what is
+        # left, and it is still bounded.
+        if not routed:
+            return self._replan(node, execution)
         return None
 
-    @staticmethod
-    def _triage_target(output: dict[str, Any] | None) -> tuple[str | None, str]:
-        """Map a triage verdict onto a node, or onto a human.
+    @classmethod
+    def _repair_brief(
+        cls,
+        target: str,
+        output: dict[str, Any] | None,
+        summary: str,
+        routed_contract_to: str = "",
+        adjudication: str = "",
+    ) -> str:
+        """What *this* branch is being asked to fix, itemised.
 
-        Low confidence escalates even when the classification is decisive. A
-        misrouted repair re-runs the innocent branch and leaves the defect in
-        place, which is worse than pausing: it burns an attempt *and* costs the
-        reviewer their trust in the verdict.
+        The overall summary is not enough and the first live repair proved it:
+        handed "23 failing methods across 7 classes, three root causes", the
+        node found nothing addressed to it, concluded nothing was broken, and
+        spent seven dollars verifying that. A branch needs the failures
+        attributed to it and the evidence for each, or the attempt is a re-roll
+        with extra steps.
         """
         output = output or {}
-        verdict = output.get("verdict")
+        mine = [
+            f
+            for f in (output.get("failures") or [])
+            if cls._target_for(str(f.get("classification")), routed_contract_to) == target
+        ]
+        if not mine:
+            return summary
+        verdict = ""
+        if adjudication:
+            # A human who adjudicated a contract question said *why*, and the
+            # why is the whole instruction: which side changes, and what must
+            # not change to make the failure go away. Handing the branch the
+            # routing without the reasoning invites it to fix the symptom.
+            verdict = (
+                "\n\n## Human adjudication\n\nA reviewer settled the contract "
+                "question. This is the ruling, not advice:\n\n"
+                f"> {adjudication}"
+            )
+        lines = [
+            f"`verify` failed and {len(mine)} of its failures were attributed to "
+            f"this node. Fix these and only these; another branch is repairing "
+            f"the rest in parallel.",
+            "",
+        ]
+        for f in mine:
+            lines.append(f"- **{f.get('test')}** ({f.get('confidence')} confidence)")
+            lines.append(f"  {f.get('evidence')}")
+        lines += ["", f"Adjudicator's overall summary: {summary}{verdict}"]
+        return "\n".join(lines)
+
+    def _adjudicated_grants(self, target: str) -> int:
+        """Extra repair attempts this branch has been granted by a human.
+
+        `repair_attempts` bounds the *machine*: an agent that keeps re-running
+        itself on its own judgment is the failure mode the bound exists for. A
+        human who adjudicates a contract question and names the branch has
+        supplied exactly the outside authority the bound was demanding, so the
+        decision buys one attempt -- once per decision, counted from the
+        journal, so it cannot be spent twice.
+
+        Without this the run does something much worse than stop: the routed
+        branch is refused, nothing routes, and the fallthrough replans from
+        `decompose` -- re-deriving the whole pipeline to fix one over-asserting
+        assertion, which is how a $2 repair becomes a $40 one.
+        """
+        grants = 0
+        for entry in self.journal.entries():
+            if entry.event != "human_decision":
+                continue
+            payload = entry.payload
+            if payload.get("decision") != ApprovalDecision.APPROVED.value:
+                continue
+            route = str((payload.get("answers") or {}).get("route", ""))
+            if target in [t.strip() for t in route.split(",") if t.strip()]:
+                grants += 1
+        return grants
+
+    def _repair_note(self, node_id: str) -> str:
+        """Why this node is being asked to run again, from the journal.
+
+        A repair with no account of what it is repairing is a re-roll of the
+        same dice, so the verdict has to reach the node. Copying the artifact
+        into the branch's checkout would be the obvious way and is wrong twice
+        over: it dirties the tree the barrier merges, and it puts a file in the
+        node's diff that the node was never permitted to write, which
+        `paths_confined` would rightly blame it for.
+
+        The journal already holds the reason, it already survives a restart, and
+        reading it back costs nothing.
+        """
+        for entry in reversed(self.journal.entries()):
+            if entry.event == "node_passed" and entry.node_id == node_id:
+                return ""  # repaired since; the note is spent
+            if entry.event == "repair_routed" and entry.node_id == node_id:
+                return str(entry.payload.get("reason") or "")
+        return ""
+
+    _TARGET_FOR = {"implementation": "implement", "test": "author-tests"}
+
+    @classmethod
+    def _target_for(cls, classification: str, routed_contract_to: str = "") -> str:
+        """Which branch owns a failure of this classification.
+
+        `contract` deliberately has no entry: it is the one classification the
+        machine cannot resolve, so it maps only to whatever branch a human named
+        when they adjudicated it.
+        """
+        if classification == "contract":
+            return routed_contract_to
+        return cls._TARGET_FOR.get(classification, "")
+
+    @staticmethod
+    def _adjudicated_route(approval: Approval | None) -> list[str]:
+        """The branch(es) a human named when clearing a contract question.
+
+        `--answer route=author-tests` on the approval. Deciding a contract
+        question *is* deciding which side has to change, so the approval is the
+        natural place to carry it, and it lands in the journal with the note
+        that justified it.
+        """
+        if not approval:
+            return []
+        raw = approval.answers.get("route", "")
+        return [t.strip() for t in raw.split(",") if t.strip()]
+
+    @classmethod
+    def _triage_targets(
+        cls, output: dict[str, Any] | None, approval: Approval | None = None
+    ) -> tuple[list[str], str]:
+        """Map a triage verdict onto the branches that should repair it.
+
+        A mixed verdict routes to *every* implicated branch rather than
+        stopping. The earlier version escalated on any mixture, on the grounds
+        that a mixture cannot be sent to one branch -- which is true, and was
+        the wrong conclusion. Choosing one branch would be wrong; asking each to
+        fix its own side is exactly what a team does, and the branches are
+        already isolated by path so they cannot tread on each other.
+
+        Two things still stop the run instead:
+
+        * a **contract** classification, because that is the two sides reading
+          one document differently and no amount of re-running settles it;
+        * **low confidence**, because a misrouted repair re-runs the innocent
+          branch, leaves the defect in place, and spends an attempt doing it.
+
+        Either can be released by a human: an approval on file for the failing
+        node *is* the adjudication, and the run proceeds with the classifications
+        the approver has now seen.
+        """
+        output = output or {}
         failures = output.get("failures") or []
         summary = output.get("summary", "")
+        cleared = bool(approval and approval.approved)
 
-        if verdict == "implementation":
-            target = "implement"
-        elif verdict == "test":
-            target = "author-tests"
-        else:
-            return None, f"triage verdict '{verdict}' requires a human: {summary}"
-
-        unsure = [f.get("test") for f in failures if f.get("confidence") == "low"]
-        if unsure:
-            return None, (
-                f"triage says '{verdict}' but is unsure about "
-                f"{', '.join(str(t) for t in unsure[:3])}; escalating rather than guessing"
+        contract = [f for f in failures if f.get("classification") == "contract"]
+        unsure = [f for f in failures if f.get("confidence") == "low"]
+        if (contract or unsure) and not cleared:
+            blocker = "a contract question" if contract else "low confidence"
+            named = [str(f.get("test")) for f in (contract or unsure)][:3]
+            return [], (
+                f"{blocker} requires a human ({', '.join(named)}): {summary}"
             )
-        return target, summary
+
+        route = cls._adjudicated_route(approval) if cleared else []
+        targets = [
+            t
+            for t in dict.fromkeys(
+                cls._target_for(str(f.get("classification")), route[0] if route else "")
+                for f in failures
+            )
+            if t
+        ]
+        if not targets:
+            # Clearing the block is only half a decision. A contract question
+            # resolves to "one of these two sides has to change", and nothing in
+            # the classification says which -- so an approval that names no
+            # branch leaves the run exactly where it was, and saying so is more
+            # use than escalating again with the same words.
+            if cleared and contract:
+                return [], (
+                    "the contract question was adjudicated but names no branch to "
+                    "repair it; re-approve with `--answer route=implement` or "
+                    f"`--answer route=author-tests`: {summary}"
+                )
+            return [], f"triage attributed nothing to a repairable branch: {summary}"
+        if cleared:
+            summary = f"{summary} [contract question adjudicated by {approval.approver}]"
+        return targets, summary
 
     def _replan(self, node: NodeSpec, execution: NodeExecution) -> RunStatus | None:
         """Send work back upstream with the failure attached.

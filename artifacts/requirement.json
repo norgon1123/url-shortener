@@ -1,0 +1,163 @@
+{
+  "acceptance_criteria": [
+    {
+      "id": "AC1",
+      "statement": "A signed-in customer who submits a long URL receives a short link in the response."
+    },
+    {
+      "id": "AC2",
+      "statement": "Requesting a live short link redirects the requester to the long URL it was created from."
+    },
+    {
+      "id": "AC3",
+      "statement": "The click count reported for a link equals the number of clicks made on it, including repeated clicks from the same client, with no clicks missing."
+    },
+    {
+      "id": "AC4",
+      "statement": "A second and subsequent click on the same short link still reaches the service and is counted; the redirect response does not permit a browser or intermediary to go straight to the target without us seeing it."
+    },
+    {
+      "id": "AC5",
+      "statement": "A customer who asks for a specific short link gets that exact short link when it is available."
+    },
+    {
+      "id": "AC6",
+      "statement": "A request for a specific short link that is already taken is rejected rather than silently reassigned, and does not disclose the existing link's owner or target."
+    },
+    {
+      "id": "AC7",
+      "statement": "A customer can retrieve how their link has performed, and the click count returned reflects clicks already made."
+    },
+    {
+      "id": "AC8",
+      "statement": "After a customer deletes a link, clicking it no longer redirects to the original address."
+    },
+    {
+      "id": "AC9",
+      "statement": "After a link is deleted or reported as abusive, it stops working within the service's published time bound, measured from the delete or report."
+    },
+    {
+      "id": "AC10",
+      "statement": "A link is no longer redirected once it has expired, with default expiry about a month after creation."
+    },
+    {
+      "id": "AC11",
+      "statement": "The expiry of an individual link can be set or changed per link through configuration/data rather than requiring a code change."
+    },
+    {
+      "id": "AC12",
+      "statement": "A create, view-performance, or delete request without a valid signed-in session is refused."
+    },
+    {
+      "id": "AC13",
+      "statement": "A signed-in customer cannot view the performance of, delete, or otherwise interfere with a link belonging to another customer, and cannot tell from the response whether that link exists."
+    },
+    {
+      "id": "AC14",
+      "statement": "Clicking a short link succeeds with no credentials and no sign-in of any kind."
+    },
+    {
+      "id": "AC15",
+      "statement": "Requesting a short code that was never issued does not redirect and is not distinguishable from a code that exists but is not the requester's."
+    },
+    {
+      "id": "AC16",
+      "statement": "Given a set of issued short links, the short codes give no means of deriving or guessing other issued short codes; systematic guessing does not find links at a rate better than chance against the code space."
+    },
+    {
+      "id": "AC17",
+      "statement": "Stored customer credentials do not yield the original passwords to someone holding a full copy of the database."
+    },
+    {
+      "id": "AC18",
+      "statement": "A request carrying a customer's session is accepted by a service without that service making a call back to the login system on every request."
+    },
+    {
+      "id": "AC19",
+      "statement": "While one source is issuing requests at an abusive rate (link mining, existence scraping, or bulk junk-link creation), that source is throttled or refused and other customers' requests continue to be served."
+    },
+    {
+      "id": "AC20",
+      "statement": "Clicks continue to be redirected and counted while link creation or its dependencies are unavailable; when the system cannot do both, clicks are served in preference to accepting new links."
+    },
+    {
+      "id": "AC21",
+      "statement": "A long URL identified as phishing or malware is not turned into a working short link, and an existing link found to point at one stops redirecting."
+    },
+    {
+      "id": "AC22",
+      "statement": "Under a traffic spike in which a single short link takes a large fraction of total click traffic in a few minutes, clicks on that link continue to be served fast and counted."
+    }
+  ],
+  "constraints": [
+    "Java 21",
+    "Spring Boot",
+    "PostgreSQL for data; no second database technology may be taken on",
+    "Redis is already run in-house and has capacity for this service",
+    "The deliverable is the HTTP API; there is no UI in this build",
+    "Build now for the two-year target scale rather than rewriting in eighteen months",
+    "Must not preclude later: customer-owned link domains, QR codes for a link, a paid permanent-link tier alongside expiring free links, and added database read capacity",
+    "Greenfield: the repository contains no existing application code to integrate with"
+  ],
+  "goal": "Signed-in customers can turn a long URL into a short link (generated or one they choose) that redirects whoever clicks it to the original address, while we count every one of those clicks for the life of the link and report the count back to the customer, delivered as an HTTP API.",
+  "in_scope": [
+    "Customer sign-in before creating links, with passwords stored in a form that is still defensible if the database is stolen",
+    "A signed-in session that carries across our services without every request going back to a login system",
+    "Creating a short link from a long URL",
+    "Requesting a specific short link instead of the one we would generate, so links read as the customer's brand",
+    "Redirecting a click on a short link to the original address",
+    "Counting every click, on every click, for the life of the link, as a measured number rather than an estimate",
+    "Preventing a browser or intermediary from remembering where a short link went and skipping us on later clicks",
+    "Letting a customer see how a link has performed",
+    "Letting a customer delete a link they no longer want live",
+    "Reporting a link as abusive",
+    "Deleted and abuse-reported links ceasing to work quickly, against a stated number someone can hold us to",
+    "Link expiry about a month after creation, changeable per link rather than a number welded into the code",
+    "Per-customer ownership of links: a customer must not see or interfere with anybody else's links",
+    "Public, unauthenticated clicking (whoever clicks is not our customer and will never sign in)",
+    "Short links that cannot be found by guessing, and from which other existing links cannot be worked out",
+    "Continuing to serve real customers while under attack: link mining, existence scraping, junk-link storage burn, and attempts to knock the service over",
+    "Preventing use of the service as the front end of a phishing or malware campaign",
+    "A click path that stays fast and stays up even when the rest of the system is unhappy, preferring to serve a click over accepting a new link",
+    "Design headroom for 100 million link creations a day within two years without a rewrite",
+    "HTTP API as the deliverable, built on Java 21, Spring Boot, PostgreSQL and the existing Redis"
+  ],
+  "non_functional": [
+    "About 10 million link creations a day today, growing to 100 million a day within two years",
+    "Clicks run at about ten times the creation rate, and are much spikier than creations",
+    "A single link can carry a large fraction of a day's traffic within a few minutes",
+    "The great majority of clicks land on a small minority of links, and the same handful of links are hit repeatedly while hot",
+    "The click path must stay fast and stay available even when the rest of the system is degraded",
+    "Availability preference: serve a click correctly rather than accept a new link",
+    "Click counts must be exact for the life of the link, not sampled or estimated, and must not be lost to caching by browsers or intermediaries",
+    "Passwords stored so that theft of the database does not expose them",
+    "Sessions verifiable across services without a per-request call to the login system",
+    "Tenant isolation: no cross-customer visibility or interference",
+    "Short links are treated as secrets: unguessable and non-enumerable",
+    "Takedown latency for deleted or abuse-reported links must be a specific number the business can be held to, motivated by fraud takedown requests",
+    "Resilience to hostile traffic (mining, scraping, storage-burning junk links, denial of service) without degrading service to legitimate customers",
+    "The service must not become a usable front end for phishing or malware campaigns carrying our name"
+  ],
+  "out_of_scope": [
+    "Any user interface \u2014 the requirement states there is no UI in this build",
+    "Customer links on the customer's own domain (named as a future direction; must not be painted into a corner)",
+    "QR codes for a link (named as a future direction)",
+    "A paid tier of permanent, never-expiring links (named as a future direction; only expiry-per-link flexibility is asked for now)",
+    "Adding database read capacity / read replicas as click load grows (named as a future direction)",
+    "Customer account registration, sign-up or provisioning \u2014 the requirement says customers sign in but never says how accounts come to exist",
+    "Password reset, password change, multi-factor authentication, email verification and account recovery",
+    "Sign-out, session revocation and session lifetime rules \u2014 not mentioned",
+    "Roles, teams, or multiple users per customer \u2014 only 'per customer' ownership is stated",
+    "Editing a link after creation, including changing its target URL",
+    "Analytics beyond the click count (referrer, geography, device, unique visitors, time series) unless implied by 'see how a link has performed', which is not further specified",
+    "Billing, pricing, quotas and plan enforcement",
+    "An admin, moderation or support console for handling abuse reports",
+    "Who may report a link as abusive, and any review or appeal process around a takedown",
+    "Bulk link creation, import, export, or machine-to-machine API keys",
+    "Data retention, deletion of customer data, and privacy/regulatory obligations around click data",
+    "An interstitial or link-preview page before redirecting",
+    "Migration of any existing links or customers into this system",
+    "Deployment, infrastructure provisioning, CI/CD and on-call runbooks",
+    "Behaviour of clicks on a link after it expires beyond ceasing to redirect (e.g. renewal, grace periods)"
+  ]
+}

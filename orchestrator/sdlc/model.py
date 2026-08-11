@@ -154,6 +154,12 @@ class NodeSpec:
     worktree: str | None = None
     model: str | None = None
     effort: str | None = None
+    # Turn ceiling for one attempt. Declared per node because the work is not
+    # uniform: filling in a hundred-odd test bodies is a hundred-odd edits,
+    # while emitting one structured document is a handful. A single global
+    # default silently kills whichever node happens to have the most to do,
+    # after it has spent the money.
+    max_turns: int | None = None
     replan_target: str | None = None
     replan_after_attempts: int = 2
     max_replans: int = 2

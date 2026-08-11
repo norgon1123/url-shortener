@@ -1,0 +1,943 @@
+openapi: 3.0.3
+
+info:
+  title: URL Shortener API
+  version: 1.0.0
+  description: |
+    Signed-in customers turn long URLs into short links; anyone may click one and
+    is redirected; every click is counted exactly and reported back to the link's
+    owner.
+
+    This document is the frozen contract. The implementation and the tests are
+    written in parallel, in isolation, by authors who never see each other's
+    work, so anything not fixed here is something they can disagree about. What
+    follows is therefore more prescriptive than an API description usually is.
+
+    ## Two surfaces
+
+    | Surface | Path | Authentication |
+    |---|---|---|
+    | Management API | `/api/v1/**`, JSON | `Authorization: Bearer <token>`, except sign-in |
+    | Click path | `/{code}` at the root | none, ever (AC14) |
+
+    The redirect lives at the root and not under a prefix because that is what
+    makes a short link short. Uniqueness of a code is scoped to
+    `(domain, code)` from day one, with a single configured domain in this
+    build, so customer-owned domains arrive later as data rather than as a
+    migration.
+
+    ## The single 404
+
+    Unknown code, expired link, deleted link, blocked link, and a link that
+    exists but belongs to another customer all answer
+
+    ```
+    404 Not Found
+    Content-Type: application/json
+    {"error":"not_found","message":"Not found"}
+    ```
+
+    byte for byte, on both surfaces. A malformed code answers the same way. There
+    is no 403 and no 410 anywhere in this API: either would tell a caller that a
+    code exists, and an oracle that distinguishes "never issued" from "not yours"
+    is exactly what AC13, AC15 and AC16 forbid.
+
+    ## Error bodies
+
+    Every non-2xx response has the `ApiError` shape. The catalogue is closed:
+
+    | `error` | Status | `message` |
+    |---|---|---|
+    | `invalid_request` | 400 | The request is not valid. |
+    | `invalid_credentials` | 401 | Invalid email or password. |
+    | `unauthorized` | 401 | Authentication required. |
+    | `not_found` | 404 | Not found |
+    | `alias_unavailable` | 409 | That short code is not available. |
+    | `link_not_modifiable` | 409 | This link can no longer be modified. |
+    | `url_rejected` | 422 | The submitted URL cannot be shortened. |
+    | `rate_limited` | 429 | Too many requests. |
+    | `service_unavailable` | 503 | Temporarily unable to accept new links. |
+
+    Messages never echo request content. `fields` is present only on
+    `invalid_request` and is omitted otherwise, so the not-found body is
+    identical everywhere.
+
+    ## Conventions
+
+    - Timestamps are ISO-8601 instants in UTC, e.g. `2026-09-09T12:00:00Z`.
+    - Request bodies are strict: an unknown property is a 400. This is what makes
+      a link's target URL immutable in practice - `PATCH {"longUrl": "..."}`
+      fails loudly instead of being silently ignored.
+    - Codes are case-sensitive. `Abc` and `abc` are different codes.
+    - Rate limiting returns 429 with `Retry-After` in whole seconds, never 0.
+
+    ## Rate limits (AC19)
+
+    Five independent token buckets, all of them configuration:
+
+    | Bucket | Keyed by | Applies to | Default |
+    |---|---|---|---|
+    | click | client IP | `GET /{code}` | `app.rate-limit.click-per-minute`, 3000 |
+    | not-found | client IP | `GET /{code}` that does not resolve | `app.rate-limit.not-found-per-minute`, 300 |
+    | write | customer id | `POST/PATCH/DELETE` under `/api/v1/links` | `app.rate-limit.write-per-minute`, 300 |
+    | abuse-report | customer id | `POST /api/v1/links/{code}/abuse-reports` | `app.rate-limit.abuse-report-per-minute`, 60 |
+    | sign-in | client IP | `POST /api/v1/sessions` | `app.rate-limit.sign-in-per-minute`, 60 |
+
+    The not-found bucket is much tighter than the click bucket on purpose: an
+    enumeration sweep is a long run of 404s, while a link that has gone viral is
+    a long run of 302s, and AC22 requires the second to keep working while AC19
+    requires the first to stop. The defaults are production defaults, set so that
+    an ordinary integration test running from one address never trips them; a
+    test that wants to observe a 429 lowers the relevant property.
+
+    ## Seeded fixtures (part of the freeze)
+
+    There is no registration endpoint - provisioning was never in scope - so
+    accounts arrive by migration. Both branches depend on these values: the
+    migration writes them, the tests sign in with them.
+
+    | Customer id | email | password |
+    |---|---|---|
+    | 00000000-0000-0000-0000-000000000001 | alice@example.com | alice-dev-password |
+    | 00000000-0000-0000-0000-000000000002 | bob@example.com | bob-dev-password |
+
+    Two customers, because tenant isolation (AC13) cannot be tested with one. The
+    migration stores an Argon2id hash; the plaintext appears here and nowhere in
+    the repository, and these accounts exist for local and test use only.
+
+    The threat denylist is seeded with the hosts `malware.example.com` and
+    `phishing.example.net`. Both are in the reserved `example.*` space and
+    resolve nowhere, so a test can assert AC21 without depending on anything real
+    being malicious.
+
+    ## Notes that bind both branches
+
+    1. `GET /{code}` is mapped with a bare `@GetMapping("/{code}")` on a
+       controller that declares no class-level `@RequestMapping`. HEAD is served
+       by that same handler - Spring MVC dispatches HEAD to the GET mapping - and
+       must not be given a mapping of its own. It is not a separate operation in
+       this document for the same reason: the route gate compares documented
+       operations against detected `@GetMapping`/`@PostMapping`/... annotations,
+       Spring has no `@HeadMapping`, and a second `@RequestMapping` in that file
+       would be read by the gate as a path prefix and break the route match.
+    2. Every other method on `/{code}` answers 405 from Spring's own dispatcher.
+       No operation is declared for them.
+    3. The resolution cache TTL must stay at or below 60 seconds
+       (`app.cache.ttl`), and deletes, expiry changes and takedowns must actively
+       invalidate. The TTL is the floor under the published bound, not the
+       mechanism: the scaffold's 5-minute default would breach AC9 by four
+       minutes with nothing failing.
+    4. There must remain exactly one `CacheManager` bean. Replace the body of the
+       existing `CacheConfig.cacheManager` rather than adding a second
+       configuration class; two candidates fail context load for every
+       integration test at once and read like a broken harness.
+    5. Credentials and keys stay in the unquoted `${VAR:default}` placeholder
+       style the configuration already uses.
+
+servers:
+  - url: http://localhost:8080
+    description: Local development. The public origin used to build `shortUrl` is `app.base-url`.
+
+tags:
+  - name: sessions
+    description: Sign-in. Issues the stateless token every other management call carries.
+  - name: links
+    description: Owner-scoped link management.
+  - name: abuse
+    description: Abuse reporting and takedown.
+  - name: click
+    description: The public redirect. No credentials, ever.
+
+security:
+  - bearerAuth: []
+
+paths:
+  /api/v1/sessions:
+    post:
+      tags: [sessions]
+      operationId: signIn
+      summary: Exchange customer credentials for a session token
+      description: |
+        Verifies the password against a memory-hard hash (AC17) and returns a JWT
+        signed with an asymmetric key. Every other service verifies that token
+        locally against the public key, with no call back here on any request
+        (AC18).
+
+        The token is valid for 24 hours, is not refreshable, and cannot be
+        revoked: sign-out and revocation are out of scope, and a revocation list
+        would reintroduce the per-request lookup AC18 exists to avoid.
+
+        Unknown email and wrong password give the same `invalid_credentials`
+        response, and take the same time to answer - a fast path for unknown
+        accounts is an account-enumeration oracle.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignInRequest'
+            example:
+              email: alice@example.com
+              password: alice-dev-password
+      responses:
+        '200':
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignInResponse'
+              example:
+                accessToken: eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiIwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDEifQ.c2ln
+                tokenType: Bearer
+                expiresAt: '2026-09-09T12:00:00Z'
+                customerId: 00000000-0000-0000-0000-000000000001
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          description: |
+            Credentials rejected. Deliberately not distinguishable from an
+            account that does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: invalid_credentials
+                message: Invalid email or password.
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /api/v1/links:
+    post:
+      tags: [links]
+      operationId: createLink
+      summary: Create a short link
+      description: |
+        Creates a link owned by the calling customer (AC1).
+
+        With no `alias`, the code is 22 base62 characters drawn from a CSPRNG -
+        128 bits of entropy, derived from nothing about the row, the time, the
+        URL or any other code, so holding a pile of issued codes gives no purchase
+        on the next one (AC16).
+
+        With an `alias`, that exact code is taken if it is free (AC5) and the
+        request is rejected if it is not (AC6). Aliases share one namespace with
+        generated codes; an alias is memorable and therefore guessable, which is
+        the trade AC5 asks for and the reason AC16's guarantee is scoped to codes
+        we generate.
+
+        The target is checked before the link exists: syntax and length (400),
+        then host policy and the threat denylist (422). A URL known to be phishing
+        or malware never becomes a working link (AC21). When the checker cannot
+        answer, the link is accepted and the event is logged at WARN - AC20's
+        stated preference is availability, and this is where that preference is
+        actually spent.
+
+        The same long URL submitted twice yields two independent links with
+        independent counts. Deduplicating would share a count across customers and
+        leak that somebody else had already shortened that URL.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLinkRequest'
+            examples:
+              generated:
+                summary: Generated code, default 30-day expiry
+                value:
+                  longUrl: https://example.com/a/very/long/path?with=query
+              alias:
+                summary: Customer-chosen code with an explicit expiry
+                value:
+                  longUrl: https://example.com/spring-campaign
+                  alias: spring-sale
+                  expiresAt: '2026-12-31T23:59:59Z'
+      responses:
+        '201':
+          description: |
+            Created. `Location` is the API resource for the new link, not the
+            short URL - the short URL is in the body, because a client pastes it
+            rather than follows it.
+          headers:
+            Location:
+              description: '`/api/v1/links/{code}`'
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkResponse'
+              example:
+                code: 7Qk2mZa9Xr4Lb0Nc8Tv1Ps
+                shortUrl: http://localhost:8080/7Qk2mZa9Xr4Lb0Nc8Tv1Ps
+                longUrl: https://example.com/a/very/long/path?with=query
+                status: ACTIVE
+                createdAt: '2026-08-10T12:00:00Z'
+                expiresAt: '2026-09-09T12:00:00Z'
+                clickCount: 0
+        '400':
+          description: |
+            Malformed body, unknown property, `longUrl` absent, not absolute
+            http(s), or longer than 2048 characters; alias outside
+            `^[A-Za-z0-9_-]{3,64}$` or on the reserved list; `expiresAt` not in
+            the future.
+
+            A reserved alias is 400 rather than 409: nobody holds it, and 409
+            would imply somebody does.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: invalid_request
+                message: The request is not valid.
+                fields:
+                  longUrl: must be an absolute http or https URL
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: The requested alias is already in use.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: alias_unavailable
+                message: That short code is not available.
+        '422':
+          description: |
+            The URL parses but may not be shortened: a denylisted target (AC21),
+            an internal/loopback/private/link-local host, or this service's own
+            origin (A14). One message for all of them, so the response is not a
+            probe of the denylist or of our internal network.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: url_rejected
+                message: The submitted URL cannot be shortened.
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          description: |
+            A dependency the create path needs is unavailable. This status exists
+            on this operation and on no other write, and never on the click path:
+            AC20 says that when the system cannot do both, clicks are served in
+            preference to accepting new links, and this is what that sentence
+            looks like on the wire.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: service_unavailable
+                message: Temporarily unable to accept new links.
+
+    get:
+      tags: [links]
+      operationId: listLinks
+      summary: List the caller's own links
+      description: |
+        Every link owned by the caller, including expired, deleted and blocked
+        ones, newest first (`createdAt` descending, `code` ascending as a
+        tiebreak, so the order is total and stable across runs).
+
+        Owner-scoped in the query itself, not by filtering afterwards: another
+        customer's link is not omitted from this list, it is invisible to it
+        (AC13). Without a UI, this is also the only way a customer who has lost a
+        code can reach their own link again.
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          description: One page of the caller's links.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkPage'
+              example:
+                items:
+                  - code: 7Qk2mZa9Xr4Lb0Nc8Tv1Ps
+                    shortUrl: http://localhost:8080/7Qk2mZa9Xr4Lb0Nc8Tv1Ps
+                    longUrl: https://example.com/a/very/long/path?with=query
+                    status: ACTIVE
+                    createdAt: '2026-08-10T12:00:00Z'
+                    expiresAt: '2026-09-09T12:00:00Z'
+                    clickCount: 42
+                page: 0
+                size: 20
+                totalElements: 1
+                totalPages: 1
+        '400':
+          description: '`page` negative, or `size` outside 1..100.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: invalid_request
+                message: The request is not valid.
+                fields:
+                  size: must be between 1 and 100
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/links/{code}:
+    parameters:
+      - $ref: '#/components/parameters/CodePath'
+    get:
+      tags: [links]
+      operationId: getLink
+      summary: How the caller's link has performed
+      description: |
+        Returns the link and its click count (AC7).
+
+        `clickCount` is exact and current: the durable PostgreSQL total plus the
+        delta still sitting in Redis, so a click made a second ago is already in
+        the number rather than arriving at the next flush (AC3/A9). Clicks that
+        404 are not counted, so a deleted link's count cannot be inflated by
+        hammering it (A12).
+
+        The caller's own expired, deleted and blocked links are visible here with
+        their retained counts - they are that customer's data and the row is kept.
+        Anything not owned by the caller is 404, identical to a code that was
+        never issued.
+      responses:
+        '200':
+          description: The link.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkResponse'
+              example:
+                code: 7Qk2mZa9Xr4Lb0Nc8Tv1Ps
+                shortUrl: http://localhost:8080/7Qk2mZa9Xr4Lb0Nc8Tv1Ps
+                longUrl: https://example.com/a/very/long/path?with=query
+                status: ACTIVE
+                createdAt: '2026-08-10T12:00:00Z'
+                expiresAt: '2026-09-09T12:00:00Z'
+                clickCount: 42
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [links]
+      operationId: updateLinkExpiry
+      summary: Change the caller's link expiry
+      description: |
+        Sets a new absolute expiry (AC11). This is the whole of "editing a link":
+        the target URL is immutable for the life of the code, so a short link
+        that has been shared cannot be repointed at something else afterwards -
+        which is the bait-and-switch AC21 is about, and the reason link editing
+        was excluded from scope.
+
+        `longUrl`, `status` or any other property in the body is a 400, not a
+        silent no-op.
+
+        Shortening the expiry stops the link redirecting once the new time
+        passes; the caches are invalidated on the change, so it takes effect
+        within the same bound as a delete rather than after the old TTL.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateLinkExpiryRequest'
+            example:
+              expiresAt: '2027-01-31T00:00:00Z'
+      responses:
+        '200':
+          description: The updated link.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkResponse'
+              example:
+                code: 7Qk2mZa9Xr4Lb0Nc8Tv1Ps
+                shortUrl: http://localhost:8080/7Qk2mZa9Xr4Lb0Nc8Tv1Ps
+                longUrl: https://example.com/a/very/long/path?with=query
+                status: ACTIVE
+                createdAt: '2026-08-10T12:00:00Z'
+                expiresAt: '2027-01-31T00:00:00Z'
+                clickCount: 42
+        '400':
+          description: |
+            `expiresAt` absent, unparseable, not in the future, or any other
+            property present. An expiry in the past is refused rather than treated
+            as a takedown: `DELETE` is the takedown, and it invalidates the caches.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: invalid_request
+                message: The request is not valid.
+                fields:
+                  expiresAt: must be in the future
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: |
+            The caller's own link is deleted or blocked. Its expiry is no longer
+            meaningful, and a link taken down for abuse must not be revivable by
+            its owner pushing the expiry out.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: link_not_modifiable
+                message: This link can no longer be modified.
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+    delete:
+      tags: [links]
+      operationId: deleteLink
+      summary: Take the caller's link down
+      description: |
+        Stops the link redirecting (AC8) within the published bound of 60 seconds
+        measured from this response (AC9), by flipping its status and actively
+        invalidating the resolution cache rather than waiting for a TTL.
+
+        A soft delete: the row and its click total are retained and the code is
+        never reissued to anyone. Reissuing would silently hand an old link's
+        audience to a new owner's target, which is a security problem rather than
+        an untidiness.
+
+        Idempotent - deleting an already-deleted link of the caller's is another
+        204. A link that is not the caller's is 404, whether or not it exists.
+      responses:
+        '204':
+          description: |
+            Deleted. No body: there is nothing to say, and a body describing what
+            was deleted would be a way to confirm what existed.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /api/v1/links/{code}/abuse-reports:
+    parameters:
+      - $ref: '#/components/parameters/CodePath'
+    post:
+      tags: [abuse]
+      operationId: reportAbuse
+      summary: Report a link as abusive
+      description: |
+        A report blocks the link immediately (AC9/AC21) - there is no moderation
+        console in this build, so there is nobody for a queued report to wait for.
+        The reporter's customer id, the timestamp and the optional reason are
+        recorded for the review process that comes later.
+
+        Reporting requires a signed-in session and is rate-limited per reporter.
+        That is the whole defence against this endpoint being a cheap way to kill
+        a competitor's links, and it is why an open, unauthenticated report
+        endpoint with automatic takedown is deliberately not built. A reviewer
+        should weigh that trade: this design chooses "a signed-in customer can
+        take down any link they can name, subject to a rate limit and an audit
+        row" over "abusive links stay up until a human is hired".
+
+        The response is 202 for any syntactically acceptable code, whether or not
+        a link exists and whoever owns it. Answering 404 for an unknown code would
+        turn this endpoint into the existence oracle that every other endpoint is
+        careful not to be.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AbuseReportRequest'
+            example:
+              reason: Phishing page imitating a bank sign-in
+      responses:
+        '202':
+          description: |
+            Report accepted. No body, and the same response whether or not the
+            code resolves.
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /{code}:
+    parameters:
+      - $ref: '#/components/parameters/CodePath'
+    get:
+      tags: [click]
+      operationId: followShortLink
+      summary: Follow a short link
+      description: |
+        Redirects to the URL the link was created from (AC2) and counts the click
+        (AC3). No credentials, no session, no cookie: whoever clicks is not our
+        customer and will never sign in (AC14).
+
+        HEAD is served by this same handler with the same status and headers and
+        no body. It is not declared separately - see note 1 in the description at
+        the top of this document. Every other method answers 405 from the
+        dispatcher.
+
+        **302, not 301.** A 301 is cached by browsers and intermediaries
+        indefinitely by default, which means the second and later clicks never
+        reach us - the counts silently stop growing and a deleted link keeps
+        redirecting from somebody's cache long after our bound has passed. That
+        single choice would break AC3, AC4, AC8 and AC9 at once, and none of it
+        would show up in a test of our own service. 302 plus the no-store headers
+        below is what keeps every click coming back. 307 would also work but buys
+        only method preservation, and clicks are GETs.
+
+        This operation never returns 5xx and never returns 429 for a resolvable
+        code inside the click bucket. It is the path that must stay up when
+        everything else is unhappy: when Redis is unavailable the redirect is
+        served from PostgreSQL and the count is lost rather than the click (AC20).
+      security: []
+      responses:
+        '302':
+          description: |
+            Redirect to the target. The cache headers are part of the contract,
+            not decoration - without them AC4 fails silently.
+          headers:
+            Location:
+              description: The link's target URL.
+              required: true
+              schema:
+                type: string
+                format: uri
+            Cache-Control:
+              description: '`no-store, no-cache, must-revalidate, max-age=0`'
+              required: true
+              schema:
+                type: string
+            Pragma:
+              description: '`no-cache`, for intermediaries that predate Cache-Control.'
+              required: true
+              schema:
+                type: string
+            Expires:
+              description: '`0`'
+              required: true
+              schema:
+                type: string
+        '404':
+          description: |
+            The code does not resolve: never issued, expired, deleted, blocked, or
+            not a well-formed code at all. Identical body and identical cache
+            headers in every case, so response shape, size and cacheability leak
+            nothing (AC15). Not counted as a click (A12).
+          headers:
+            Cache-Control:
+              description: '`no-store, no-cache, must-revalidate, max-age=0`'
+              required: true
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: not_found
+                message: Not found
+        '429':
+          description: |
+            The client IP has exhausted the click bucket or, much sooner, the
+            not-found bucket. The two are separate so that throttling an
+            enumeration sweep does not throttle a link that has gone viral (AC22).
+          headers:
+            Retry-After:
+              description: Whole seconds, never 0.
+              required: true
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: rate_limited
+                message: Too many requests.
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        The token from `POST /api/v1/sessions`, verified locally against a public
+        key. No request causes a call back to a login system (AC18).
+
+  parameters:
+    CodePath:
+      name: code
+      in: path
+      required: true
+      description: |
+        The short code. Case-sensitive. No syntactic validation is applied on
+        either surface: a code that could not possibly exist answers 404 like any
+        other code that does not resolve, because a 400 for a malformed code would
+        tell an enumerator which shapes are worth trying.
+      schema:
+        type: string
+        maxLength: 64
+      example: 7Qk2mZa9Xr4Lb0Nc8Tv1Ps
+    PageParam:
+      name: page
+      in: query
+      required: false
+      description: Zero-based page index.
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+    SizeParam:
+      name: size
+      in: query
+      required: false
+      description: Items per page.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+  responses:
+    InvalidRequest:
+      description: The request body or parameters are not valid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+          example:
+            error: invalid_request
+            message: The request is not valid.
+    Unauthorized:
+      description: |
+        No session token, or one that is malformed, expired or not verifiable.
+        The reason is never disclosed.
+      headers:
+        WWW-Authenticate:
+          description: '`Bearer`'
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+          example:
+            error: unauthorized
+            message: Authentication required.
+    NotFound:
+      description: |
+        The code does not resolve for this caller: never issued, or somebody
+        else's. Byte-identical to every other not-found in this API.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+          example:
+            error: not_found
+            message: Not found
+    RateLimited:
+      description: A token bucket for this caller is empty.
+      headers:
+        Retry-After:
+          description: Whole seconds, never 0.
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+          example:
+            error: rate_limited
+            message: Too many requests.
+
+  schemas:
+
+    ApiError:
+      type: object
+      description: The shape of every non-2xx body in this API.
+      required: [error, message]
+      additionalProperties: false
+      properties:
+        error:
+          type: string
+          description: Machine-readable code from the closed catalogue.
+          enum:
+            - invalid_request
+            - invalid_credentials
+            - unauthorized
+            - not_found
+            - alias_unavailable
+            - link_not_modifiable
+            - url_rejected
+            - rate_limited
+            - service_unavailable
+        message:
+          type: string
+          description: Fixed per code. Never echoes request content.
+        fields:
+          type: object
+          description: |
+            Per-field detail, present only on `invalid_request` and omitted
+            entirely otherwise - which is what keeps the not-found body identical
+            across every endpoint.
+          additionalProperties:
+            type: string
+
+    LinkStatus:
+      type: string
+      description: |
+        `EXPIRED` is derived from `expiresAt` at read time and never stored;
+        the other three are the stored states. Only `ACTIVE` redirects.
+      enum: [ACTIVE, EXPIRED, DELETED, BLOCKED]
+
+    SignInRequest:
+      type: object
+      required: [email, password]
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          maxLength: 320
+        password:
+          type: string
+          maxLength: 256
+          format: password
+
+    SignInResponse:
+      type: object
+      required: [accessToken, tokenType, expiresAt, customerId]
+      additionalProperties: false
+      properties:
+        accessToken:
+          type: string
+          description: 'Compact JWS, presented in the Authorization header as: Bearer <accessToken>'
+        tokenType:
+          type: string
+          enum: [Bearer]
+        expiresAt:
+          type: string
+          format: date-time
+          description: 24 hours out. Non-refreshable, non-revocable.
+        customerId:
+          type: string
+          format: uuid
+
+    CreateLinkRequest:
+      type: object
+      required: [longUrl]
+      additionalProperties: false
+      properties:
+        longUrl:
+          type: string
+          maxLength: 2048
+          description: Absolute http or https URL with a host.
+        alias:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{3,64}$'
+          description: |
+            Optional customer-chosen code, in the same namespace as generated
+            codes. Reserved words (`api`, `actuator`, `health`, `admin`,
+            `robots.txt`, ... - the full list is `AliasPolicy.RESERVED_CODES`)
+            are refused with 400 so that no alias can shadow a route.
+        expiresAt:
+          type: string
+          format: date-time
+          description: |
+            Optional absolute expiry, must be in the future. Absent means 30 days
+            from creation. There is no way to request a link that never expires;
+            the permanent tier is a later build, and it arrives as a null column
+            rather than a schema change.
+
+    UpdateLinkExpiryRequest:
+      type: object
+      required: [expiresAt]
+      additionalProperties: false
+      description: |
+        The only mutable property of a link. `additionalProperties: false` is
+        enforced, not documentary: a body carrying `longUrl` is a 400.
+      properties:
+        expiresAt:
+          type: string
+          format: date-time
+
+    AbuseReportRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+
+    LinkResponse:
+      type: object
+      required: [code, shortUrl, longUrl, status, createdAt, expiresAt, clickCount]
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          description: The stable identifier. Clients should key on this, not on `shortUrl`.
+        shortUrl:
+          type: string
+          format: uri
+          description: |
+            `app.base-url` + `/` + `code`. Returned as well as the code, not
+            instead of it, so that customer-owned domains later change this host
+            without breaking clients.
+        longUrl:
+          type: string
+        status:
+          $ref: '#/components/schemas/LinkStatus'
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        clickCount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: |
+            Exact count of clicks served: durable total plus un-flushed delta.
+            Repeated clicks from the same client all count (AC3); 404s do not.
+
+    LinkPage:
+      type: object
+      required: [items, page, size, totalElements, totalPages]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LinkResponse'
+        page:
+          type: integer
+          minimum: 0
+        size:
+          type: integer
+          minimum: 1
+        totalElements:
+          type: integer
+          format: int64
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0

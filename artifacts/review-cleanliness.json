@@ -1,0 +1,86 @@
+{
+  "findings": [
+    {
+      "confidence": "high",
+      "file": "service/src/main/java/com/example/urlshortener/link/UrlValidator.java",
+      "id": "CLEAN-1",
+      "line": 40,
+      "severity": "minor",
+      "suggestion": "Make the configured value load-bearing or delete it. Cheapest consistent option: have `LinkPolicyConfig.urlValidator(...)` pass `properties.links().maxUrlLength()` into `UrlValidator` (it already passes `baseUrl`), and drop the now-redundant hardcoded constant; keep `@Size(max = 2048)` only if you reference a shared constant, since a bean-validation annotation needs a compile-time constant.",
+      "summary": "The maximum long-URL length exists three times and only two of them agree by accident: `UrlValidator.MAX_URL_LENGTH = 2048`, `@Size(max = 2048)` on `CreateLinkRequest.longUrl` (line 25), and `app.links.max-url-length: 2048` in application.yml bound to `AppProperties.Links.maxUrlLength` \u2014 which no code reads. Raising the limit in config changes nothing, and a reviewer would reasonably believe it did."
+    },
+    {
+      "confidence": "high",
+      "file": "service/src/main/java/com/example/urlshortener/api/CreateLinkRequest.java",
+      "id": "CLEAN-2",
+      "line": 26,
+      "severity": "minor",
+      "suggestion": "Write `@Pattern(regexp = AliasPolicy.PATTERN)` \u2014 it is a `public static final String`, so it is a valid annotation constant \u2014 and delete the comment. If a package cycle is unwanted, move `PATTERN` to the `api` package and have `AliasPolicy` reference it.",
+      "summary": "The alias charset rule is a literal regex on the DTO and again as `AliasPolicy.PATTERN`. `AliasPolicy` even carries the comment \"identical to the one on the request DTO\", which documents the drift risk rather than removing it \u2014 and `PATTERN` also duplicates `MIN_LENGTH`/`MAX_LENGTH` inside its own literal."
+    },
+    {
+      "confidence": "high",
+      "file": "service/src/main/java/com/example/urlshortener/click/ClickFlushJob.java",
+      "id": "CLEAN-3",
+      "line": 43,
+      "severity": "minor",
+      "suggestion": "Drop the inline default \u2014 `@Scheduled(fixedDelayString = \"${app.click.flush-interval}\")` \u2014 since `@DefaultValue(\"PT5S\")` plus application.yml already supply it, and add a one-line comment on `AppProperties.Click.flushInterval` saying it is consumed by the annotation rather than by a constructor, so the accessor does not read as dead.",
+      "summary": "`@Scheduled(fixedDelayString = \"${app.click.flush-interval:PT5S}\")` reaches past the typed configuration surface that the rest of the change uses uniformly (`AppProperties`), and restates the PT5S default that `AppProperties.Click.flushInterval` already declares. `AppProperties.Click.flushInterval()` is consequently read by nothing, so the documented accessor and the actual schedule can diverge silently."
+    },
+    {
+      "confidence": "medium",
+      "file": "service/src/main/java/com/example/urlshortener/redirect/CachedLink.java",
+      "id": "CLEAN-4",
+      "line": 50,
+      "severity": "minor",
+      "suggestion": "Delete the unused `LinkEntity.isResolvableAt` and have `CachedLink.redirectsAt` be the single statement of the rule, or express both in terms of one static predicate on `LinkStatus`. Whichever way, one of the two should stop existing.",
+      "summary": "\"A link redirects when it is ACTIVE and not yet expired\" is expressed twice: `CachedLink.redirectsAt` and `LinkEntity.statusAt`/`isResolvableAt`. They must agree \u2014 adding a fourth `LinkStatus` or changing the expiry boundary from exclusive to inclusive has to be done in both \u2014 and `LinkEntity.isResolvableAt` is currently called by nothing, so nothing would fail if only one copy were updated."
+    },
+    {
+      "confidence": "medium",
+      "file": "service/src/test/java/com/example/urlshortener/support/AbstractRestartIntegrationTest.java",
+      "id": "CLEAN-5",
+      "line": 75,
+      "severity": "minor",
+      "suggestion": "Move the container-independent helpers to static methods on `ApiClient` or `Fixtures` (e.g. `Fixtures.givenLink(api, bearer)`, `ApiClient.clickRepeatedly(api, code, times)`) and have both base classes delegate, so the restart harness inherits nothing but still shares one definition of each helper.",
+      "summary": "`alice()`, `bob()`, `givenLink(bearer)`, `sleep(Duration)` and `clickRepeatedly(...)` are re-implemented here alongside `AbstractIntegrationTest`. The class comment explains convincingly why the two cannot share a superclass, but that argument does not extend to the helpers themselves \u2014 and `clickRepeatedly` has already drifted: it returns `List<Integer>` here and `List<HttpResponse<String>>` there, so the same name means two things depending on which base class a test extends."
+    },
+    {
+      "confidence": "medium",
+      "file": "docs/IMPLEMENTATION_PLAN.md",
+      "id": "CLEAN-6",
+      "line": 328,
+      "severity": "minor",
+      "suggestion": "Update \u00a77 to match the delivered contract (or mark it superseded by artifacts/design.json), and change the `CacheConfig` javadoc to point at something that exists \u2014 the negative-caching rationale is already written in `LinkResolver` and `CachedLink`.",
+      "summary": "\u00a77 of the committed \"plan of record\" now contradicts the service that was built: it states 410-for-expired vs 404-for-unknown (the design deliberately chose 404 for both), \"Caffeine only \u2014 no Redis in the build\" (the change is Redis-backed throughout), a `/api/v1/links/{code}/stats` endpoint, `Idempotency-Key`, an outbox, and 7-character codes (shipped: 22). Relatedly, `CacheConfig.LINKS_CACHE` cites \"the enumeration note in ADR-004\", but no ADR documents exist in the repo and the only ADR-004 reference is this plan's 7-character code decision."
+    },
+    {
+      "confidence": "medium",
+      "file": "service/src/main/java/com/example/urlshortener/link/UrlValidator.java",
+      "id": "CLEAN-7",
+      "line": 66,
+      "severity": "nit",
+      "suggestion": "Either drop the ones with no caller, or add a single line to each saying it is contract surface retained for future callers, so a later reader does not have to grep the whole repo to find out.",
+      "summary": "A handful of members exist for tests that never call them: `UrlValidator.ownHost()` and its no-arg constructor, `ShortCodeGenerator.random()` and its `SecureRandom` constructor, `RateLimitDecision.remaining()`, `LinkEntity.getDomain()`/`getCustomerId()`. They were plausibly frozen into the contract before the tests were written, which is a real reason \u2014 but as shipped they are surface nobody exercises."
+    },
+    {
+      "confidence": "high",
+      "file": "service/src/main/java/com/example/urlshortener/abuse/AbuseReportService.java",
+      "id": "CLEAN-8",
+      "line": 27,
+      "severity": "nit",
+      "suggestion": "Replace `\\'` with `'` in the three AbuseReportService javadoc lines, and add the `java.util.UUID` import in `SignInService`.",
+      "summary": "Javadoc contains escaped apostrophes (`competitor\\'s`, `customer\\'s` on lines 35 and 36) \u2014 a shell-escaping artifact that renders literally in the generated docs. Separately, `SignInService.java:46` writes `java.util.UUID.randomUUID()` fully qualified where every other file in the change imports `java.util.UUID`."
+    }
+  ],
+  "lens": "review-cleanliness",
+  "not_examined": [
+    "service/pom.xml dependency choices and versions (supply-chain/build concern, and argued in artifacts/design.json)",
+    "artifacts/openapi.yaml conformance (api-contract lens)",
+    "the 21 behaviour test classes under src/test/java/.../behaviour \u2014 read only for harness usage patterns, not for assertion adequacy (test-adequacy lens)",
+    "src/main/resources/redis/*.lua and db/migration/*.sql reviewed only for existence and call sites, not line by line",
+    "orchestrator/ and runs/ pipeline machinery \u2014 outside the change under review",
+    "correctness, concurrency and performance characteristics of the two-tier click counter (other lenses)"
+  ],
+  "summary": "This is unusually clean, consistent code for a greenfield change of this size: one naming vocabulary, one error catalogue, business rules in the service layer with the controllers doing routing and rate-limit charging only, no swallowed exceptions that are not explicitly argued for (every `catch (RuntimeException)` here is a documented fail-open with a log line at a defensible level, and the fail-open decisions log loudly enough to diagnose from), and comments that overwhelmingly explain *why* rather than *what*. Nothing I found is close to a blocker. The findings that will cost someone real time are duplications that must stay in agreement and have no mechanism keeping them so: the max-URL-length rule in three places with the configured copy dead (CLEAN-1), the alias regex literal duplicated with a comment acknowledging it (CLEAN-2), the flush interval bypassing the typed config surface everything else uses (CLEAN-3), the redirect-eligibility rule in two classes (CLEAN-4), and already-drifted helpers across the two test base classes (CLEAN-5). CLEAN-6 is documentation the change left contradicting the code. The remaining nits are few on purpose; other minor things I saw and did not file \u2014 near-verbatim rationale paragraphs repeated between `RateLimiter` and `RedisTokenBucketRateLimiter`, and between `RateLimitDecision.ALLOWED` and its implementation, plus `ThreatCheckConfig` living in `threat` while the other three `@Configuration` classes live in `config` \u2014 are minor and internally consistent."
+}

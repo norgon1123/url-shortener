@@ -1,0 +1,8 @@
+{
+  "pipeline": "/home/neil/repos/url-shortener/orchestrator/pipelines/sdlc.yaml",
+  "workspace": "/home/neil/repos/url-shortener",
+  "prompts": "/home/neil/repos/url-shortener/orchestrator/prompts",
+  "script": null,
+  "scenario": "greenfield",
+  "backend": "live"
+}

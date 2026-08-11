@@ -146,6 +146,12 @@ DESIGN: dict[str, Any] = {
         # evidence, and asking for one here would also mean asking a model to
         # reproduce a hashing scheme by hand.
         "contract_hash": _STR,
+        # path -> hash, stamped by the orchestrator beside the aggregate. Lets a
+        # consumer verify the part of the freeze it does not own.
+        "contract_file_hashes": {
+            "type": "object",
+            "additionalProperties": {"type": "string"},
+        },
     },
 }
 
@@ -350,6 +356,12 @@ TEST_CONTRACT: dict[str, Any] = {
         ),
         "rationale": _STR,
         "contract_hash": _STR,
+        # path -> hash, stamped by the orchestrator beside the aggregate. Lets a
+        # consumer verify the part of the freeze it does not own.
+        "contract_file_hashes": {
+            "type": "object",
+            "additionalProperties": {"type": "string"},
+        },
     },
 }
 

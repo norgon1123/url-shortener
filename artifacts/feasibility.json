@@ -1,0 +1,154 @@
+{
+  "evidence": [
+    {
+      "claim": "Adding a Redis CacheManager does NOT create a duplicate-bean failure by itself: Spring Boot's CacheAutoConfiguration is annotated @ConditionalOnMissingBean(value=CacheManager.class, name=\"cacheResolver\") at class level and @AutoConfiguration(after=RedisAutoConfiguration), so the existing CacheConfig.cacheManager bean suppresses all auto-configured cache managers. The break only happens if a node adds a *second* explicit CacheManager bean. Replacing the body of CacheConfig.cacheManager is therefore the safe move.",
+      "source": "javap -v on org/springframework/boot/autoconfigure/cache/CacheAutoConfiguration.class extracted from ~/.m2/.../spring-boot-autoconfigure-3.5.16.jar \u2014 class-level RuntimeVisibleAnnotations show ConditionalOnClass(CacheManager), ConditionalOnBean(CacheAspectSupport), ConditionalOnMissingBean(value=[CacheManager], name=[\"cacheResolver\"])"
+    },
+    {
+      "claim": "spring-boot-starter-data-redis:3.5.16 resolves from Maven Central and pulls only spring-boot-starter, lettuce-core and spring-data-redis; versions are managed by the spring-boot-starter-parent already in the pom, so no version pin is needed for it (lettuce 6.6.0.RELEASE, per the BOM).",
+      "source": "HTTP 200 for repo1.maven.org/.../spring-boot-starter-data-redis-3.5.16.pom; its <artifactId> list is [spring-boot-starter-data-redis, spring-boot-starter, lettuce-core, spring-data-redis]; ~/.m2/.../spring-boot-dependencies-3.5.16.pom line 121 <lettuce.version>6.6.0.RELEASE</lettuce.version>"
+    },
+    {
+      "claim": "Spring Boot 3.5.16's dependency BOM manages NO version for nimbus-jose-jwt, jjwt or BouncyCastle \u2014 case-insensitive grep for 'nimbus' and 'bouncycastle|bcprov' both return 0 matches. Any JWT or Argon2 dependency the design node freezes must carry a literal <version>, since implement and author-tests cannot add one later.",
+      "source": "grep -icE 'nimbus' and grep -icE 'bouncycastle|bcprov' against ~/.m2/repository/org/springframework/boot/spring-boot-dependencies/3.5.16/spring-boot-dependencies-3.5.16.pom \u2192 both printed 0"
+    },
+    {
+      "claim": "Argon2id via spring-security-crypto needs BouncyCastle added explicitly: Argon2PasswordEncoder.class in spring-security-crypto-6.5.11.jar contains the string 'org/bouncycastle', yet that artifact's published pom declares no BouncyCastle dependency (only an optional runtime assertj). BCryptPasswordEncoder and BCrypt ship self-contained in the same jar. bcprov-jdk18on:1.81 is available on Central (HTTP 200).",
+      "source": "python3 zipfile read of spring-security-crypto-6.5.11.jar: 'bouncycastle referenced: True' for org/springframework/security/crypto/argon2/Argon2PasswordEncoder.class; dependency list from spring-security-crypto-6.5.11.pom; HTTP 200 for bcprov-jdk18on-1.81.jar"
+    },
+    {
+      "claim": "spring-boot-starter-security pulls spring-security-config and spring-security-web, which activate Spring Security's default filter chain over every mapping including the root-level /{code} redirect and /actuator. spring-security-crypto is a standalone jar with neither, so taking only the crypto artifact gives password hashing without any auto-configured authentication that would have to be re-opened for AC14 (clicks need no credentials).",
+      "source": "spring-boot-starter-security-3.5.16.pom <artifactId> list: [spring-boot-starter-security, spring-boot-starter, spring-aop, spring-security-config, spring-security-web]; spring-security-crypto-6.5.11.pom lists no spring-security-config/web"
+    },
+    {
+      "claim": "A Redis Testcontainer needs no new test dependency: spring-boot-testcontainers 3.5.16 already ships RedisContainerConnectionDetailsFactory, and org.testcontainers:testcontainers 1.21.4 (GenericContainer) is already in the local repository as a transitive of the postgresql/junit-jupiter modules the pom declares. A GenericContainer(\"redis:7-alpine\") with @ServiceConnection wires spring.data.redis.* automatically.",
+      "source": "unzip -l on ~/.m2/.../spring-boot-testcontainers-3.5.16.jar \u2192 org/springframework/boot/testcontainers/service/connection/redis/RedisContainerConnectionDetailsFactory.class; ls ~/.m2/repository/org/testcontainers/testcontainers/ \u2192 1.21.4"
+    },
+    {
+      "claim": "The stale migration is real and is a build artifact of the abandoned greenfield-2/implement branch, not of anything on HEAD: service/target/classes/db/migration/V1__create_links.sql (mtime Aug 10 10:30) is byte-for-byte the file at greenfield-2/implement:service/src/main/resources/db/migration/V1__create_links.sql (columns hit_count, last_accessed_at, index ux_links_code) and is ignored via .gitignore line 14 'service/target/'. Only .gitkeep is tracked under src/main/resources/db/migration. A first build of this run must be `clean`.",
+      "source": "ls -l service/target/classes/db/migration/; git show greenfield-2/implement:service/src/main/resources/db/migration/V1__create_links.sql; git check-ignore -v \u2192 .gitignore:14; git ls-files service/src/main/resources/db/migration/ \u2192 only .gitkeep"
+    },
+    {
+      "claim": "The shipped cache TTL exceeds the takedown bound Q1 committed to: application.yml sets app.cache.spec: maximumSize=10000,expireAfterWrite=5m, and CacheConfig hard-codes the same 5m as its @Value default. Both have to move to <=60s, or a missed invalidation breaches AC9 by up to five minutes.",
+      "source": "service/src/main/resources/application.yml (app.cache.spec); CacheConfig.java constructor @Value(\"${app.cache.spec:maximumSize=10000,expireAfterWrite=5m}\")"
+    },
+    {
+      "claim": "application.yml today carries datasource, JPA (ddl-auto: validate), Flyway, server, actuator exposure and app.cache.spec only \u2014 no Redis connection, no JWT key or TTL, no rate-limit buckets, no default expiry, no public base URL. Every one of those is configuration under A5/A7/A13/A15 and Q7/Q8, and only the implement node can write this file.",
+      "source": "full read of service/src/main/resources/application.yml"
+    },
+    {
+      "claim": "The test harness starts PostgreSQL only, in a static initialiser deliberately not managed by the @Testcontainers extension (the javadoc records a thirty-minute build caused by getting that wrong). Any Redis container must follow the same singleton pattern, and it is added by test-contract/author-tests, not by implement.",
+      "source": "service/src/test/java/com/example/urlshortener/support/AbstractIntegrationTest.java \u2014 static { POSTGRES.start(); } plus the javadoc paragraph on @Testcontainers/@Container"
+    },
+    {
+      "claim": "Toolchain preconditions are fine: java 21.0.12 is on PATH matching <java.version>21</java.version>, the Docker daemon is reachable (docker ps exits 0, user is in the docker group), and Maven Central answers 200. The local image cache holds postgres:17-alpine and testcontainers/ryuk:0.12.0 but no redis image.",
+      "source": "java -version; docker ps (outside sandbox, exit 0); docker images --format '{{.Repository}}:{{.Tag}}'; HTTP 200 from repo1.maven.org"
+    },
+    {
+      "claim": "Maven cannot run from inside the agent sandbox once new dependencies are involved: ~/.m2 is read-only ('resolver-status.properties (Read-only file system)') and DNS for repo.maven.apache.org fails ('Temporary failure in name resolution'), while plain HTTPS to repo1.maven.org succeeds. Every current dependency is already cached, so this only bites when the pom gains the Redis/JWT/BC artifacts.",
+      "source": "./mvnw -B dependency:get output; ./mvnw -o dependency:tree failure for maven-dependency-plugin:3.8.1"
+    },
+    {
+      "claim": "No schema, no entities and no application code exist beyond the scaffold: the whole of service/src is UrlShortenerApplication, CacheConfig, application.yml, an empty migration directory and AbstractIntegrationTest. There is no existing links table, unique index or customer table on this branch to preserve or migrate.",
+      "source": "find service -type f -not -path '*/target/*' \u2192 5 source files plus mvnw/pom; git ls-files on the migration directory"
+    },
+    {
+      "claim": "docker-compose.yml defines postgres only, with a pg_isready healthcheck and the ${DB_PASSWORD:-shortener} env placeholder style. Any redis service added by a human should follow the same placeholder convention so local defaults stay non-secret.",
+      "source": "full read of docker-compose.yml"
+    }
+  ],
+  "options": [
+    {
+      "cost": "low",
+      "recommended": true,
+      "risk": "low",
+      "summary": "Cache: replace the body of CacheConfig.cacheManager with a RedisCacheManager (keeping the method name and the LINKS_CACHE constant), rather than adding a second cache configuration class. Verified to be conflict-free because Boot's cache auto-config backs off entirely when one CacheManager bean exists."
+    },
+    {
+      "cost": "medium",
+      "risk": "medium",
+      "summary": "Cache: two-tier \u2014 a small Caffeine near-cache in front of Redis, one bean marked @Primary. Buys a few hundred microseconds on the hottest link (AC22) but reintroduces a per-instance layer that active invalidation cannot reach, so the 60s bound would rest on the near-cache TTL as well."
+    },
+    {
+      "cost": "low",
+      "recommended": true,
+      "risk": "low",
+      "summary": "Auth libraries: take spring-security-crypto (for the KDF) plus jjwt-api/impl/jackson with literal versions, and do NOT take spring-boot-starter-security. Session verification is a plain filter/interceptor, so nothing auto-secures the click path or actuator."
+    },
+    {
+      "cost": "medium",
+      "risk": "high",
+      "summary": "Auth libraries: take spring-boot-starter-security and configure a permitAll SecurityFilterChain for /{code} and /actuator. More idiomatic, but a single missing matcher 401s the public redirect path and breaks AC14, and the failure is a passing build with failing tests."
+    },
+    {
+      "cost": "medium",
+      "recommended": true,
+      "risk": "low",
+      "summary": "Rate limiting: hand-roll the token bucket as a Lua script evaluated through the RedisTemplate the Redis starter already provides. No extra dependency, no second supply-chain approval, and single-key operations stay Cluster-safe."
+    },
+    {
+      "cost": "low",
+      "risk": "medium",
+      "summary": "Rate limiting: add a third-party bucket library. Saves writing the script but adds an unmanaged, explicitly versioned artifact to the frozen pom (the bucket4j coordinate guessed here did not resolve at the version tried, so coordinates need verifying before freezing)."
+    }
+  ],
+  "unknowns": [
+    {
+      "current_best_answer": "Single instance or Sentinel, AOF appendfsync everysec, noeviction \u2014 this is exactly what Q5's approved answer assumes. Design should keep every Redis operation single-key or hash-tagged so a later Cluster move is additive.",
+      "how_to_settle": "Ask whoever runs the shared Redis, or run `redis-cli INFO persistence`, `redis-cli CONFIG GET maxmemory-policy` and `redis-cli INFO replication` against the target instance. One sentence from the platform owner settles it.",
+      "id": "U1",
+      "question": "Is the in-house Redis a single instance/Sentinel with AOF persistence and no key eviction, or a Cluster and/or a cache-only deployment with maxmemory-policy allkeys-lru?",
+      "why_it_matters": "A9/Q5 make Redis the durable buffer for click counts and A13 keys rate limits there. Under allkeys-lru a counter key can be silently evicted before flush, which loses clicks against AC3 with no error anywhere. Cluster mode additionally forbids multi-key Lua without hash tags and changes the Spring connection config, so getting it wrong is a rewrite of the counter and rate-limit code, not an edit."
+    },
+    {
+      "current_best_answer": "Yes \u2014 repo1.maven.org returns 200 from here and every current dependency is already cached, so the restriction is the agent sandbox rather than the machine.",
+      "how_to_settle": "Run `./mvnw -B clean verify` in the same environment the gates run in, before the design node writes the pom. If it downloads anything at all, resolution works.",
+      "id": "U2",
+      "question": "Does the environment that runs the Maven gates have a writable ~/.m2 and outbound access to Maven Central, given that none of the new dependencies are in the local cache?",
+      "why_it_matters": "spring-boot-starter-data-redis, the JWT artifacts and bouncycastle are all absent from ~/.m2. The first build after the design node freezes the pom must download them. Inside the agent sandbox that build fails for reasons unrelated to the code (~/.m2 is read-only and DNS for repo.maven.apache.org does not resolve), which would surface at the compile gate as an opaque resolution error."
+    },
+    {
+      "current_best_answer": "Reachable \u2014 registry-1.docker.io answered (401, i.e. up and requiring the normal token) even from the sandbox. Pre-pulling is cheap insurance, not a blocker.",
+      "how_to_settle": "`docker pull redis:7-alpine` on the machine that runs verify, before the run needs it.",
+      "id": "U3",
+      "question": "Will the first Redis-using test run be allowed to pull a redis image from Docker Hub, or should the image be pre-pulled?",
+      "why_it_matters": "postgres:17-alpine and testcontainers/ryuk are in the local image cache; no redis image is. A cold pull inside a restricted network turns into a Testcontainers timeout in AbstractIntegrationTest's static initialiser, which fails every test class at once and reads like a broken harness."
+    },
+    {
+      "current_best_answer": "Add bcprov-jdk18on:1.81 (confirmed present on Central) and keep Argon2id as A6 specifies; BCrypt cost 12 only if the approver rejects the extra supply-chain entry.",
+      "how_to_settle": "The approver answers yes/no at the existing pom approval. If yes, the pom must carry bcprov-jdk18on with a literal version \u2014 Spring Boot's BOM manages no BouncyCastle version.",
+      "id": "U4",
+      "question": "Is adding BouncyCastle (org.bouncycastle:bcprov-jdk18on, explicitly versioned) acceptable at the pom approval, or should the build use the BCrypt cost-12 fallback that A6 already sanctions?",
+      "why_it_matters": "Argon2PasswordEncoder in spring-security-crypto references org/bouncycastle but the artifact's published pom declares no BouncyCastle dependency, so Argon2id without an explicit bcprov pin compiles fine and throws NoClassDefFoundError at the first sign-in. BCrypt in the same jar is self-contained. Since pom.xml is frozen before the fan-out, a missing pin cannot be fixed by implement or author-tests."
+    },
+    {
+      "current_best_answer": "Env placeholder in the same ${VAR:default} style application.yml already uses for DB credentials, with a generated dev key when the variable is absent, so no key material is ever literal in the repo.",
+      "how_to_settle": "One sentence from whoever owns deployment config: 'JWT_PRIVATE_KEY is injected from the vault' or 'generate at boot for this build'.",
+      "id": "U5",
+      "question": "Where does the JWT signing key come from \u2014 an environment-supplied PEM in every environment, or may the service generate a keypair at startup for this build?",
+      "why_it_matters": "A5 fixes stateless asymmetric JWTs but not key provisioning. A startup-generated key invalidates every session on restart and makes a token issued by one instance unverifiable by another, which quietly breaks AC18's intent at more than one replica. It also decides whether application.yml carries key material at all."
+    },
+    {
+      "current_best_answer": "Start and serve. Lettuce connects lazily, so the context loads without Redis; redirects fall through to PostgreSQL and counting degrades to best-effort. /actuator/health will report DOWN, which is the honest signal.",
+      "how_to_settle": "A one-line answer from the requirement owner; then assert it with a test that stops the Redis container and re-clicks a live code.",
+      "id": "U6",
+      "question": "If Redis is unavailable at startup, should the service start and serve redirects from PostgreSQL in a degraded mode, or refuse to start?",
+      "why_it_matters": "AC20 prefers serving clicks over accepting links, but nothing states what happens when the cache/counter tier is the thing that is down. The answer determines whether the redirect path may depend on Redis at all and whether every integration test needs a Redis container to load the context \u2014 a harness decision the test-contract node makes before implement runs."
+    },
+    {
+      "current_best_answer": "No admin API \u2014 denylist rows are seeded by migration and takedown of already-issued links happens through the report path, exactly as Q2 describes.",
+      "how_to_settle": "Ask the requirement owner whether an admin/denylist endpoint is expected, or whether abuse reports plus DB access are considered sufficient for this build.",
+      "id": "U7",
+      "question": "Besides a seeded migration fixture and the abuse-report endpoint, is there any way to add a URL/domain to the threat denylist in this build?",
+      "why_it_matters": "Q2 settled the ThreatCheck port, but AC21's second half ('an existing link found to point at one stops redirecting') needs some operator path to mark a target bad. If a migration is the only write path, marking a URL bad in production is a schema change under an approval gate rather than an operation."
+    },
+    {
+      "current_best_answer": "Yes \u2014 it is a five-line addition and the same reviewer is already in the pom approval.",
+      "how_to_settle": "Add a redis:7-alpine service with a healthcheck alongside the existing postgres service when approving the dependency change.",
+      "id": "U8",
+      "question": "Will a redis service be added to docker-compose.yml in the same human review that approves the pom change?",
+      "why_it_matters": "docker-compose.yml appears in no node's write paths, so no agent can fix it. Tests use Testcontainers and are unaffected, but `docker compose up` yields a service that cannot serve a click, and the gap is invisible to every mechanical gate."
+    }
+  ],
+  "verdict": "feasible_with_risk"
+}

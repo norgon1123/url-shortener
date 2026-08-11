@@ -35,6 +35,15 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <jacoco.version>0.8.15</jacoco.version>
     <spotbugs.version>4.10.3.0</spotbugs.version>
+    <!--
+      Spring Boot's BOM manages no version for either of these (verified against
+      spring-boot-dependencies-3.5.16.pom: zero matches for `nimbus`, `jjwt`,
+      `bouncycastle` or `bcprov`), so both carry a literal version. They are
+      pinned here and nowhere else: `implement` and `author-tests` are denied
+      this file, so a version they cannot add later has to be right now.
+    -->
+    <jjwt.version>0.12.6</jjwt.version>
+    <bouncycastle.version>1.81</bouncycastle.version>
   </properties>
 
   <dependencies>
@@ -59,12 +68,95 @@
       <artifactId>spring-boot-starter-cache</artifactId>
     </dependency>
 
-    <!-- Caffeine only. Redis is the documented scale path (docs/architecture.md),
-         not a dependency: a second network hop in the redirect path has to earn
-         its place, and at one instance it does not. -->
+    <!--
+      Caffeine is retained only because the scaffold's CacheConfig still builds a
+      CaffeineCacheManager; `implement` replaces the body of that single bean
+      method with a RedisCacheManager (see below). It is NOT a near-cache tier:
+      a per-instance cache cannot be reached by the active invalidation the 60s
+      takedown bound rests on, so a second tier would put a hole under AC9 that
+      no test on one instance can see.
+    -->
     <dependency>
       <groupId>com.github.ben-manes.caffeine</groupId>
       <artifactId>caffeine</artifactId>
+    </dependency>
+
+    <!--
+      Redis. This reverses the "Caffeine only, no Redis" decision recorded above
+      and in docs/, and it is the reason this file needs a human.
+
+      Three things in the frozen contract require a store that is shared across
+      instances and survives a process restart: click counters on the hot path
+      (A9 - a synchronous Postgres write per click does not hold at the stated
+      click rate), the code->URL resolution cache with negative caching and
+      *active* invalidation (A10 - a per-instance cache can only be expired, not
+      invalidated, so the published takedown bound would rest on TTL alone), and
+      the token buckets behind AC19 (a per-instance limiter multiplies every
+      limit by the replica count).
+
+      Version managed by the parent BOM; pulls spring-data-redis and lettuce-core
+      only. Lettuce connects lazily, which is what lets the service start and
+      serve redirects from PostgreSQL when Redis is down (AC20).
+    -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-redis</artifactId>
+    </dependency>
+
+    <!--
+      Password hashing (AC17/A6), and deliberately *only* password hashing.
+
+      spring-boot-starter-security would drag in spring-security-config and
+      spring-security-web, whose auto-configured filter chain secures every
+      mapping in the application - including the root-level short-code redirect,
+      which AC14 requires to work with no credentials at all. Re-opening that
+      chain correctly is one matcher away from 401-ing the click path, and the
+      failure mode is a green build with a broken product. The standalone crypto
+      artifact carries the KDFs and no filter chain, so session verification
+      stays an explicit filter this codebase owns. Version managed by the BOM
+      via spring-security-bom.
+    -->
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-crypto</artifactId>
+    </dependency>
+    <!--
+      Argon2PasswordEncoder delegates to BouncyCastle (the class references
+      org/bouncycastle directly), but spring-security-crypto's published pom
+      declares no such dependency. Without this pin the service compiles, passes
+      every gate, and throws NoClassDefFoundError at the first sign-in. BCrypt in
+      the same jar is self-contained and remains A6's sanctioned fallback if this
+      coordinate is rejected at review - but then A6's primary choice goes with
+      it, so the decision belongs to the approver, not to `implement`.
+    -->
+    <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bcprov-jdk18on</artifactId>
+      <version>${bouncycastle.version}</version>
+    </dependency>
+
+    <!--
+      Stateless sessions (A5/AC18): a JWT signed with an asymmetric key and
+      verified locally, so no request calls back to a login system. api is
+      compile-scope (the code programs against it); impl and jackson are runtime
+      service-loader wiring and are scoped accordingly.
+    -->
+    <dependency>
+      <groupId>io.jsonwebtoken</groupId>
+      <artifactId>jjwt-api</artifactId>
+      <version>${jjwt.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.jsonwebtoken</groupId>
+      <artifactId>jjwt-impl</artifactId>
+      <version>${jjwt.version}</version>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.jsonwebtoken</groupId>
+      <artifactId>jjwt-jackson</artifactId>
+      <version>${jjwt.version}</version>
+      <scope>runtime</scope>
     </dependency>
 
     <!-- Schema changes are versioned migrations, never ddl-auto. The migration
@@ -111,6 +203,20 @@
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!--
+      Declared explicitly rather than inherited transitively from the postgresql
+      module: the harness needs GenericContainer for the Redis container, and a
+      dependency the test harness compiles against should not rest on another
+      module's transitive graph. spring-boot-testcontainers already ships
+      RedisContainerConnectionDetailsFactory, so a GenericContainer("redis:...")
+      annotated @ServiceConnection wires spring.data.redis.* with no further
+      dependency and no third-party Redis module. Version managed by the BOM.
+    -->
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>

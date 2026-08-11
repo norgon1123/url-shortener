@@ -44,7 +44,7 @@ from .model import (
     NodeResult,
     NodeSpec,
 )
-from .policy import PolicyEngine
+from .policy import PathVerdict, PolicyEngine
 
 
 class GateError(RuntimeError):
@@ -763,6 +763,7 @@ def _contract_frozen(ctx: GateContext, params: dict[str, Any]) -> GateResult:
     names = params.get("artifacts") or [params.get("artifact", "design.json")]
     files: list[str] = []
     recorded: dict[str, str] = {}
+    per_file: dict[str, dict[str, str]] = {}
     for name in names:
         try:
             doc = ctx.read_json(name)
@@ -776,6 +777,10 @@ def _contract_frozen(ctx: GateContext, params: dict[str, Any]) -> GateResult:
         files.extend(declared)
         if doc.get("contract_hash"):
             recorded[name] = doc["contract_hash"]
+        # Older artifacts carry only the aggregate. Fall back to hashing each
+        # declared file as it stands now, which degrades to a presence check
+        # rather than failing outright.
+        per_file[name] = doc.get("contract_file_hashes") or {}
 
     missing = [f for f in files if not ctx.path(f).is_file()]
     if missing:
@@ -788,25 +793,43 @@ def _contract_frozen(ctx: GateContext, params: dict[str, Any]) -> GateResult:
             missing=missing,
         )
 
-    # Each artifact's hash covers its own files, so a drifted test skeleton is
-    # named as such rather than reported as "the contract changed".
+    # Verify only the part of the freeze this node does not own.
+    #
+    # The skeletons *are* the files the branches must edit: `implement` fills in
+    # the production classes `design.json` declares, `author-tests` fills in the
+    # test bodies `test-contract.json` declares. Checking the whole set would
+    # fail the moment a branch did its job -- which is exactly what happened on
+    # a retry, where a partially-completed attempt left the worktree looking
+    # like a drifted contract.
+    #
+    # So the question the gate asks is narrower and correct: has anything moved
+    # that this node was never allowed to move? For `implement` that is the
+    # OpenAPI document, the pom, and the whole test skeleton; for `author-tests`
+    # it is the OpenAPI document, the pom, and the whole production skeleton.
+    # Each branch still cannot touch the other's half, and the shared
+    # specification is immutable to both.
+    drifted: list[str] = []
+    checked = 0
     for name in names:
-        if name not in recorded:
-            continue
-        own = ctx.read_json(name).get("contract_files") or []
-        actual_own = hash_inputs([ctx.path(f) for f in own], root=ctx.workspace)
-        if actual_own != recorded[name]:
-            return _result(
-                ctx,
-                "contract_frozen",
-                _MECH,
-                _FAIL,
-                f"{name} has changed since it was frozen "
-                f"(recorded {recorded[name][:12]}..., found {actual_own[:12]}...)",
-                artifact=name,
-                recorded=recorded[name],
-                actual=actual_own,
-            )
+        recorded_files = per_file.get(name) or {}
+        for rel, expected in recorded_files.items():
+            if ctx.policy.check_write(rel).verdict is not PathVerdict.DENIED:
+                continue  # the node owns this file; its edits are the work
+            checked += 1
+            found = hash_inputs([ctx.path(rel)], root=ctx.workspace)
+            if found != expected:
+                drifted.append(rel)
+
+    if drifted:
+        return _result(
+            ctx,
+            "contract_frozen",
+            _MECH,
+            _FAIL,
+            f"{len(drifted)} contract file(s) this node may not write have changed "
+            f"since the freeze: {', '.join(drifted[:5])}",
+            drifted=drifted,
+        )
 
     actual = hash_inputs([ctx.path(f) for f in files], root=ctx.workspace)
     return _result(
@@ -814,9 +837,10 @@ def _contract_frozen(ctx: GateContext, params: dict[str, Any]) -> GateResult:
         "contract_frozen",
         _MECH,
         _PASS,
-        f"{len(files)} contract file(s) across {len(names)} artifact(s) "
-        f"intact at {actual[:12]}...",
+        f"{checked} of {len(files)} contract file(s) verified across "
+        f"{len(names)} artifact(s); the rest are this node's to write",
         contract_hash=actual,
+        verified=checked,
         artifacts=list(names),
     )
 

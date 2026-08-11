@@ -12,6 +12,7 @@ milliseconds, which is the entire argument for building mock mode first.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -119,6 +120,11 @@ def make_prompts(tmp_path: Path, names: list[str]) -> Path:
 class Harness:
     """Everything an Engine needs, assembled for a test."""
 
+    # Swapped by the `recorded_sleeps` fixture. Injected rather than
+    # monkeypatched onto the `time` module, which would also capture sleeps this
+    # engine never asked for.
+    sleep = staticmethod(time.sleep)
+
     def __init__(self, tmp_path: Path, nodes: list[dict], script: dict, **top):
         self.tmp_path = tmp_path
         self.git = make_repo(tmp_path)
@@ -146,6 +152,7 @@ class Harness:
             prompts_root=self.prompts,
             run_id=RUN_ID,
             budget=self.budget,
+            sleep=Harness.sleep,
         )
 
     def run(self, **kw) -> RunStatus:
@@ -171,7 +178,7 @@ def happy(tmp_path: Path) -> Harness:
 
 
 @pytest.fixture(autouse=True)
-def recorded_sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+def recorded_sleeps() -> list[float]:
     """Retry backoff is recorded rather than served.
 
     Two reasons, and the second is the interesting one. No test should spend
@@ -179,11 +186,10 @@ def recorded_sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     as elapsed time is a delay no test can assert on. Recording it makes the
     wait a fact in the journal of the test rather than a slow test.
     """
-    import time
-
     delays: list[float] = []
-    monkeypatch.setattr(time, "sleep", delays.append)
-    return delays
+    Harness.sleep = staticmethod(delays.append)
+    yield delays
+    Harness.sleep = staticmethod(time.sleep)
 
 
 # --------------------------------------------------------------------------
@@ -402,6 +408,33 @@ class TestRetry:
         )
         assert harness.run() is RunStatus.FAILED
         assert len(harness.events("node_attempt_failed")) == 2  # max_attempts, not forever
+
+    def test_a_wall_is_not_retried(self, tmp_path: Path) -> None:
+        """A provider quota reset hours from now is not a transient failure.
+
+        The run that motivated this spent three attempts and $7.42 discovering
+        the same session limit three times. Retrying a deterministic external
+        limit is superstition; the attempts are better kept for failures a
+        second try could plausibly clear.
+        """
+        harness = Harness(
+            tmp_path,
+            failure_nodes("retry"),
+            {
+                **SETUP_OK,
+                "work": [
+                    ScriptedAttempt(
+                        fail="success; You've hit your session limit · resets 6:50pm"
+                    )
+                ],
+            },
+        )
+        assert harness.run() is RunStatus.FAILED
+        assert len(harness.events("node_attempt_failed")) == 1  # not 2
+        abandoned = harness.events("retries_abandoned")
+        assert len(abandoned) == 1
+        assert abandoned[0].payload["reason"] == "provider quota exhausted"
+        assert abandoned[0].payload["attempts_remaining"] == 1
 
     def test_a_retry_waits_out_the_declared_backoff(
         self, tmp_path: Path, recorded_sleeps: list[float]
@@ -900,6 +933,7 @@ TRIAGE_NODES = [
         "type": "handler",
         "prompt": "triage.md",
         "write_paths": ["artifacts/**"],
+        "output_schema": "triage",
     },
 ]
 
@@ -962,7 +996,7 @@ class TestTriageRouting:
         h.run()
         verdicts = h.events("triage_verdict")
         assert verdicts[0].payload["verdict"] == "implementation"
-        assert verdicts[0].payload["target"] == "implement"
+        assert verdicts[0].payload["targets"] == ["implement"]
         assert verdicts[0].payload["triggered_by"] == "verify"
 
     def test_triage_costs_are_charged_to_the_run(self, tmp_path: Path) -> None:
@@ -990,18 +1024,15 @@ class TestTriageEscalates:
         assert h.status("verify") is NodeStatus.PENDING_APPROVAL
         assert not h.events("repair_routed")
 
-    def test_a_mixed_verdict_goes_to_a_human(self, tmp_path: Path) -> None:
-        """A mixture cannot be sent to one branch, and picking the larger pile
-        leaves the rest unfixed."""
+    def test_a_verdict_naming_no_repairable_branch_goes_to_a_human(
+        self, tmp_path: Path
+    ) -> None:
+        """Nothing to route to is not the same as nothing wrong."""
         h = self._run(tmp_path, {
-            "verdict": "mixed",
-            "summary": "one of each",
-            "failures": [
-                {"test": "a", "classification": "implementation",
-                 "confidence": "high", "evidence": "x"},
-                {"test": "b", "classification": "test",
-                 "confidence": "high", "evidence": "y"},
-            ],
+            "verdict": "contract",
+            "summary": "the document is silent",
+            "failures": [{"test": "a", "classification": "contract",
+                          "confidence": "high", "evidence": "x"}],
         })
         assert h.status("verify") is NodeStatus.PENDING_APPROVAL
 
@@ -1015,8 +1046,26 @@ class TestTriageEscalates:
         })
         assert h.status("verify") is NodeStatus.PENDING_APPROVAL
         assert not h.events("repair_routed")
-        assert "unsure" in h.events("triage_verdict")[0].payload["reason"]
+        assert "low confidence" in h.events("triage_verdict")[0].payload["reason"]
 
+
+class TestHandlersDoNotBlockCompletion:
+    def test_a_run_completes_with_its_handler_never_invoked(
+        self, tmp_path: Path
+    ) -> None:
+        """A handler that never ran is the good case, not an incomplete run.
+
+        Every scheduled node passed and the run still reported FAILED, because
+        `triage` sat at PENDING -- having never been asked to do anything.
+        """
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(IMPL_VERDICT))
+        # `verify` is deterministic -- it never calls a backend, so the only way
+        # to make it pass is to satisfy its gate in the workspace.
+        green = h.git.root / "artifacts" / "green.txt"
+        green.parent.mkdir(parents=True, exist_ok=True)
+        green.write_text("ok")
+        assert h.run() is RunStatus.COMPLETED
+        assert h.status("triage") is NodeStatus.PENDING
 
 class TestRepairBudget:
     """Asymmetric on purpose, and durable across the process."""
@@ -1048,3 +1097,191 @@ class TestRepairBudget:
 
         reopened = RunStore(tmp_path / "state.db")
         assert reopened.get_node(RUN_ID, "implement").repairs == recorded
+
+
+MIXED_VERDICT = {
+    "verdict": "mixed",
+    "summary": "a precision bug in the code and a test that leaks state between classes",
+    "failures": [
+        {"test": "expiryRoundTrips", "classification": "implementation",
+         "confidence": "high", "evidence": "nanos vs micros on the same field"},
+        {"test": "abuseReportAccepted", "classification": "test",
+         "confidence": "high", "evidence": "an earlier class drained the rate limit"},
+    ],
+}
+CONTRACT_IN_THE_MIX = {
+    "verdict": "mixed",
+    "summary": "one of each, and a question the document does not answer",
+    "failures": [
+        {"test": "expiryRoundTrips", "classification": "implementation",
+         "confidence": "high", "evidence": "nanos vs micros"},
+        {"test": "errorBodiesMatch", "classification": "contract",
+         "confidence": "medium", "evidence": "the contract never promised equal bodies"},
+    ],
+}
+
+
+CONTRACT_ONLY = {
+    "verdict": "contract",
+    "summary": "one side read line 47, the other read note 2",
+    "failures": [
+        {"test": "errorBodiesMatch", "classification": "contract",
+         "confidence": "high", "evidence": "openapi.yaml:47 vs openapi.yaml:123"},
+    ],
+}
+
+
+class TestMixedVerdicts:
+    """Choosing one branch would be wrong. Asking each to fix its own side is
+    what a team does, and the branches are already isolated by path."""
+
+    def test_a_mixture_routes_to_every_implicated_branch(self, tmp_path: Path) -> None:
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(MIXED_VERDICT))
+        h.run()
+        routed = {e.node_id for e in h.events("repair_routed")}
+        assert routed == {"implement", "author-tests"}
+
+    def test_a_contract_question_in_the_mixture_still_stops(self, tmp_path: Path) -> None:
+        """No amount of re-running settles two sides reading one document
+        differently."""
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(CONTRACT_IN_THE_MIX))
+        h.run()
+        assert h.status("verify") is NodeStatus.PENDING_APPROVAL
+        assert not h.events("repair_routed")
+
+    def test_a_human_adjudication_releases_it(self, tmp_path: Path) -> None:
+        """The approval on file *is* the contract decision."""
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(CONTRACT_IN_THE_MIX))
+        h.run()
+        h.store.record_approval(
+            RUN_ID,
+            Approval("verify", ApprovalDecision.APPROVED, "neil", note="the test over-asserts"),
+        )
+        h.run(resume=True)
+        routed = {e.node_id for e in h.events("repair_routed")}
+        assert "implement" in routed
+        assert "adjudicated by neil" in h.events("triage_verdict")[-1].payload["reason"]
+
+    def test_an_adjudication_naming_no_branch_says_so(self, tmp_path: Path) -> None:
+        """Clearing the block is only half a decision.
+
+        A verdict that is *only* a contract question has no classification the
+        machine can route on, so an approval that names no branch leaves the run
+        exactly where it was. Escalating again with the same words wastes the
+        human's second look; naming the missing flag does not.
+        """
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(CONTRACT_ONLY))
+        h.run()
+        h.store.record_approval(
+            RUN_ID, Approval("verify", ApprovalDecision.APPROVED, "neil", note="test defect")
+        )
+        h.run(resume=True)
+        assert not h.events("repair_routed")
+        assert "--answer route=" in h.events("triage_verdict")[-1].payload["reason"]
+
+    def test_an_adjudication_can_name_the_branch_that_repairs_it(
+        self, tmp_path: Path
+    ) -> None:
+        """Deciding a contract question *is* deciding which side has to change."""
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(CONTRACT_ONLY))
+        h.run()
+        h.store.record_approval(
+            RUN_ID,
+            Approval(
+                "verify",
+                ApprovalDecision.APPROVED,
+                "neil",
+                note="the contract never promised equal bodies; the test over-asserts",
+                answers={"route": "author-tests"},
+            ),
+        )
+        h.run(resume=True)
+        routed = h.events("repair_routed")
+        assert [e.node_id for e in routed] == ["author-tests"]
+        brief = routed[-1].payload["reason"]
+        assert "errorBodiesMatch" in brief
+        assert "never promised equal bodies" in brief  # the ruling, not just the route
+
+    def test_an_adjudication_buys_the_named_branch_an_attempt(
+        self, tmp_path: Path
+    ) -> None:
+        """`repair_attempts` bounds the machine, not the human.
+
+        author-tests gets one attempt and had already spent it. Refusing the
+        human's routing did not stop the run -- it fell through to a replan from
+        `decompose`, re-deriving the whole pipeline to fix one assertion.
+        """
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(TEST_VERDICT))
+        h.run()  # spends author-tests' single machine attempt
+        assert h.events("repair_budget_exhausted")
+        assert h.events("replan_triggered")
+
+        h.store.record_approval(
+            RUN_ID,
+            Approval(
+                "verify",
+                ApprovalDecision.APPROVED,
+                "neil",
+                note="the test over-asserts",
+                answers={"route": "author-tests"},
+            ),
+        )
+        assert h.engine()._adjudicated_grants("author-tests") == 0  # not yet journalled
+        h.journal.append(
+            "human_decision",
+            node_id="verify",
+            decision="approved",
+            approver="neil",
+            answers={"route": "author-tests"},
+        )
+        assert h.engine()._adjudicated_grants("author-tests") == 1
+        assert h.engine()._adjudicated_grants("implement") == 0
+
+    def test_the_verdict_reaches_the_branch_being_repaired(self, tmp_path: Path) -> None:
+        """A repair with no account of what it is repairing is a re-roll.
+
+        Carried through the prompt rather than by copying the artifact into the
+        branch's checkout, which would dirty the tree the barrier merges and put
+        a file in the node's diff it was never permitted to write.
+        """
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(MIXED_VERDICT))
+        h.journal.append(
+            "repair_routed", node_id="implement", reason="nanos vs micros on the same field"
+        )
+        assert "nanos vs micros" in h.engine()._repair_note("implement")
+
+    def test_the_note_is_spent_once_the_branch_passes(self, tmp_path: Path) -> None:
+        """Otherwise every later attempt carries feedback about a fixed defect."""
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(MIXED_VERDICT))
+        h.journal.append("repair_routed", node_id="implement", reason="nanos vs micros")
+        h.journal.append("node_passed", node_id="implement")
+        assert h.engine()._repair_note("implement") == ""
+
+    def test_a_node_never_routed_a_repair_carries_no_note(self, tmp_path: Path) -> None:
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(MIXED_VERDICT))
+        assert h.engine()._repair_note("plan") == ""
+
+
+class TestRepairBrief:
+    """A branch needs the failures attributed to *it*, not the overall summary."""
+
+    def test_the_brief_itemises_only_this_branch_failures(self) -> None:
+        """Handed the summary alone, the first live repair found nothing
+        addressed to it, concluded nothing was broken, and spent seven dollars
+        verifying that."""
+        brief = Engine._repair_brief("implement", MIXED_VERDICT, "overall")
+        assert "expiryRoundTrips" in brief
+        assert "abuseReportAccepted" not in brief
+        assert "nanos vs micros" in brief
+
+    def test_each_branch_gets_its_own(self) -> None:
+        tests = Engine._repair_brief("author-tests", MIXED_VERDICT, "overall")
+        assert "abuseReportAccepted" in tests
+        assert "expiryRoundTrips" not in tests
+
+    def test_it_says_not_to_chase_the_other_branch_failures(self) -> None:
+        brief = Engine._repair_brief("implement", MIXED_VERDICT, "overall")
+        assert "not yours to chase" in brief or "another branch" in brief.lower()
+
+    def test_it_falls_back_to_the_summary_when_nothing_is_attributed(self) -> None:
+        assert Engine._repair_brief("implement", {"failures": []}, "overall") == "overall"

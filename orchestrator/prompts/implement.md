@@ -55,3 +55,18 @@ whose behaviour does, which is where this kind of change usually goes wrong.
 Its `regression_surface` is the existing behaviour most likely to break; the
 tests being written in parallel are aimed at it, so it is worth reading as a
 list of things that must still work when you are done.
+
+
+## If this prompt carries a repair brief, that is your whole job
+
+`verify` failed and an adjudicator attributed some of those failures to this
+node. The brief names each one and the evidence for the call.
+
+Fix exactly those. Another branch is repairing the failures attributed to it,
+in parallel, and a failure that is not in your brief is not yours to chase --
+changing code to satisfy it will collide with the branch that owns it.
+
+If you believe a failure was misattributed, say so in your response rather than
+working around it: the verdict is advisory and a human reads it. And if the
+brief is empty or names nothing you can act on, say that too rather than
+re-doing work that is already committed.

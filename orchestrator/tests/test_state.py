@@ -238,3 +238,67 @@ class TestRebuildFromJournal:
         empty = Journal(tmp_path / "empty.jsonl", run_id="run-12", clock=fixed_clock())
         with pytest.raises(ValueError, match="empty journal"):
             store.rebuild_from_journal(empty)
+
+
+class TestSchemaMigration:
+    """A store opened by older code keeps its old shape until something adds to it."""
+
+    def _legacy(self, tmp_path: Path) -> Path:
+        """A node_state table from before `invocations` and `repairs` existed."""
+        import sqlite3
+
+        path = tmp_path / "legacy.db"
+        conn = sqlite3.connect(path)
+        conn.executescript(
+            """
+            CREATE TABLE runs (
+                run_id TEXT PRIMARY KEY, pipeline TEXT NOT NULL, scenario TEXT,
+                status TEXT NOT NULL, branch TEXT, workspace TEXT,
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                cost_usd REAL NOT NULL DEFAULT 0
+            );
+            CREATE TABLE node_state (
+                run_id TEXT NOT NULL, node_id TEXT NOT NULL, status TEXT NOT NULL,
+                attempt INTEGER NOT NULL DEFAULT 0, input_hash TEXT,
+                checkpoint_commit TEXT, started_at TEXT, ended_at TEXT,
+                cost_usd REAL NOT NULL DEFAULT 0, error TEXT,
+                PRIMARY KEY (run_id, node_id)
+            );
+            CREATE TABLE approvals (
+                run_id TEXT NOT NULL, node_id TEXT NOT NULL, decision TEXT NOT NULL,
+                approver TEXT NOT NULL, note TEXT NOT NULL DEFAULT '',
+                answers TEXT NOT NULL DEFAULT '{}', ts TEXT NOT NULL,
+                PRIMARY KEY (run_id, node_id)
+            );
+            """
+        )
+        conn.execute(
+            "INSERT INTO node_state (run_id, node_id, status) VALUES ('run-1','design','passed')"
+        )
+        conn.commit()
+        conn.close()
+        return path
+
+    def test_an_older_database_gains_the_new_columns(self, tmp_path: Path) -> None:
+        """This is how the first run of the 21-node graph died: the runs
+        directory held a database from before `repairs` existed, and the very
+        first node crashed reading a column that was never there."""
+        store = RunStore(self._legacy(tmp_path), clock=fixed_clock())
+        state = store.get_node("run-1", "design")
+        assert state.status is NodeStatus.PASSED
+        assert state.invocations == 0 and state.repairs == 0
+
+    def test_existing_rows_survive_the_migration(self, tmp_path: Path) -> None:
+        store = RunStore(self._legacy(tmp_path), clock=fixed_clock())
+        assert store.get_node("run-1", "design").status is NodeStatus.PASSED
+
+    def test_the_new_counters_work_after_migrating(self, tmp_path: Path) -> None:
+        store = RunStore(self._legacy(tmp_path), clock=fixed_clock())
+        assert store.next_invocation("run-1", "design") == 0
+        assert store.record_repair("run-1", "design") == 1
+
+    def test_migrating_twice_is_harmless(self, tmp_path: Path) -> None:
+        path = self._legacy(tmp_path)
+        RunStore(path, clock=fixed_clock()).close()
+        store = RunStore(path, clock=fixed_clock())
+        assert store.get_node("run-1", "design").repairs == 0

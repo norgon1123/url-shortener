@@ -5,6 +5,79 @@ reader can judge whether it still does.
 
 ---
 
+## Residual risks signed off at `release-readiness`, greenfield-3
+
+`release-readiness` returned `ready: false` and was approved anyway, to close the
+run and give brownfield a baseline. These are the reasons it said no. Approving
+did not resolve any of them, and the node's own artifact
+(`artifacts/release.json`) is the fuller record.
+
+**AC21 has a working bypass in shipped code, and no test catches it.**
+A trailing dot — `https://malware.example.com./x` — defeats the denylist
+(SEC-2), and a non-dotted-quad literal — `http://2130706433/` — defeats the
+internal-address rule (SEC-6). Both were confirmed by a standalone JDK 21 probe,
+not by a test. Fix the host normaliser (strip the root label, resolve integer and
+hex literal forms) and add the two cases as regression tests. The acceptance
+criterion is currently marked satisfied by a suite that would not notice either.
+
+**An unvalidated `{code}` reaches the datastores.**
+On the two untrusted paths it flows to Redis, PostgreSQL, and
+`abuse_reports.code VARCHAR(64)`, and `ApiExceptionHandler` has no fallback
+handler behind it (SEC-7 / API-1 / PERF-6 / API-2). An over-long code on the
+abuse endpoint returns a 500 carrying Spring's default body, against a spec that
+declares the error shape. Validate the code at the edge; add a catch-all handler
+that emits the declared shape.
+
+**Four acceptance criteria are unverified, not satisfied.**
+AC3 (click count exact under concurrency), AC19 (abusive source throttled while
+others are not), AC20 (clicks preferred over creates under pressure), AC22 (hot
+link stays fast and counted). Marked `unknown` — no evidence either way. Each
+needs a test that could fail.
+
+**Where nobody looked.** No lens executed anything; the Lua scripts and their
+atomicity, Redis eviction and `maxmemory` behaviour, and the edge-proxy contract
+were all read at most. Dependency and supply-chain review did not happen.
+
+---
+
+## SEC-1: seeded customer accounts ship to production — accepted risk, must be fixed
+
+**Status: risk accepted by neil at `review-synthesis`, greenfield-3, to let the
+run finish. Not fixed. This is the first thing to fix in the next run.**
+
+`service/src/main/resources/db/migration/V2__seed_customers_and_denylist.sql:13`
+inserts two customer accounts through an ordinary Flyway migration. There is no
+profile and no placeholder gate — `spring.flyway.enabled: true`,
+`locations: classpath:db/migration` — so **a production deploy creates them**.
+Their plaintext passwords are published in `artifacts/openapi.yaml:99-102`
+(`alice-dev-password`, `bob-dev-password`). The migration comment says "local
+and test use only"; nothing enforces that, and a comment is not a control.
+
+Because the service has no registration endpoint, these *are* the accounts.
+Either one can create links and, via the abuse endpoint (SEC-5, medium), take
+any link on the service down permanently. Two lenses concurred at high
+confidence: a published credential in an unconditional migration, not a
+hardening nit.
+
+**Fix.** Move the two customer `INSERT`s to `classpath:db/testdata`, added to
+`spring.flyway.locations` only under a dev/test profile. Leave the denylist rows
+in the main migration — they are real data. Provision real accounts by an
+operator step. Rotate the plaintexts out of `openapi.yaml`, or mark them
+explicitly as fixtures that exist only when the test location is active.
+
+**Note the interaction with SEC-5.** As long as any account can take down any
+link, the blast radius of one leaked credential is the whole service. Fixing
+SEC-1 alone narrows who has the credential; it does not narrow what the
+credential can do.
+
+**Why it was accepted.** The build is green and the remaining budget did not
+cover a reject-and-repair cycle ($106.11 of a $120 ceiling at the decision
+point). Accepting it buys the completed run and its metrics; it does not buy a
+shippable service. Nothing here should be deployed anywhere reachable until this
+is closed.
+
+---
+
 ## Maintain `CONTEXT.md`, `AGENTS.md` and `CLAUDE.md` from every run
 
 Follow the established conventions rather than inventing a format:

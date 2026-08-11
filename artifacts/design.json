@@ -1,0 +1,125 @@
+{
+  "assumption_ids": [
+    "A1",
+    "A2",
+    "A3",
+    "A4",
+    "A5",
+    "A6",
+    "A7",
+    "A8",
+    "A9",
+    "A10",
+    "A11",
+    "A12",
+    "A13",
+    "A14",
+    "A15",
+    "A16",
+    "A17",
+    "A18",
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4",
+    "Q5",
+    "Q6",
+    "Q7",
+    "Q8",
+    "Q9",
+    "Q10",
+    "U1",
+    "U4",
+    "U5",
+    "U6",
+    "U7"
+  ],
+  "contract_files": [
+    "artifacts/openapi.yaml",
+    "service/pom.xml",
+    "service/src/main/java/com/example/urlshortener/config/AppProperties.java",
+    "service/src/main/java/com/example/urlshortener/api/ApiError.java",
+    "service/src/main/java/com/example/urlshortener/api/SignInRequest.java",
+    "service/src/main/java/com/example/urlshortener/api/SignInResponse.java",
+    "service/src/main/java/com/example/urlshortener/api/CreateLinkRequest.java",
+    "service/src/main/java/com/example/urlshortener/api/UpdateLinkExpiryRequest.java",
+    "service/src/main/java/com/example/urlshortener/api/AbuseReportRequest.java",
+    "service/src/main/java/com/example/urlshortener/api/LinkResponse.java",
+    "service/src/main/java/com/example/urlshortener/api/LinkPage.java",
+    "service/src/main/java/com/example/urlshortener/domain/LinkStatus.java",
+    "service/src/main/java/com/example/urlshortener/error/ErrorCode.java",
+    "service/src/main/java/com/example/urlshortener/error/ApiException.java",
+    "service/src/main/java/com/example/urlshortener/auth/CurrentCustomer.java",
+    "service/src/main/java/com/example/urlshortener/auth/PasswordHasher.java",
+    "service/src/main/java/com/example/urlshortener/auth/JwtIssuer.java",
+    "service/src/main/java/com/example/urlshortener/auth/JwtVerifier.java",
+    "service/src/main/java/com/example/urlshortener/link/ShortCodeGenerator.java",
+    "service/src/main/java/com/example/urlshortener/link/AliasPolicy.java",
+    "service/src/main/java/com/example/urlshortener/link/UrlValidator.java",
+    "service/src/main/java/com/example/urlshortener/threat/ThreatCheck.java",
+    "service/src/main/java/com/example/urlshortener/threat/ThreatVerdict.java",
+    "service/src/main/java/com/example/urlshortener/click/ClickCounter.java",
+    "service/src/main/java/com/example/urlshortener/ratelimit/RateLimitBucket.java",
+    "service/src/main/java/com/example/urlshortener/ratelimit/RateLimitDecision.java",
+    "service/src/main/java/com/example/urlshortener/ratelimit/RateLimiter.java"
+  ],
+  "contract_hash": "9e578901cd067f9c5f653e48d758655e26bbcbae18a548bf2fbae34185de2e1e",
+  "endpoints": [
+    {
+      "method": "POST",
+      "notes": "Sign-in. 200 rather than 201: no addressable resource is created, the token is the whole response. Unknown email and wrong password both give 401 invalid_credentials, same body, same timing. 400 malformed, 429 sign-in bucket (per IP). Public (security: []).",
+      "path": "/api/v1/sessions",
+      "success_status": 200
+    },
+    {
+      "method": "POST",
+      "notes": "Create. Location: /api/v1/links/{code} (the API resource), short URL in the body. 400 syntax/alias-charset/reserved-alias/past-expiry; 401; 409 alias taken (no owner or target disclosed); 422 url_rejected for denylisted, internal or self-referential targets, one message for all three; 429 write bucket; 503 when a create dependency is down - the only place AC20's 'serve clicks over accepting links' is visible on the wire.",
+      "path": "/api/v1/links",
+      "success_status": 201
+    },
+    {
+      "method": "GET",
+      "notes": "Owner-scoped page, filtered in the query not after it. Order fixed at createdAt DESC then code ASC so blind tests have a total order. page>=0, size 1..100, else 400. Includes the caller's expired/deleted/blocked links; never anyone else's.",
+      "path": "/api/v1/links",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "notes": "Performance: durable Postgres total plus un-flushed Redis delta, so the count reflects a click made a second ago. Caller's own expired/deleted/blocked links are visible with retained counts; unknown or another customer's code is 404 with the identical body - never 403, never 410.",
+      "path": "/api/v1/links/{code}",
+      "success_status": 200
+    },
+    {
+      "method": "PATCH",
+      "notes": "Expiry only. Strict bodies make longUrl immutability mechanical: {\"longUrl\":...} is 400, not a silent no-op. 400 past/absent expiry; 404 not yours; 409 link_not_modifiable when the caller's own link is deleted or blocked (an abuse takedown must not be reversible by its owner); 429.",
+      "path": "/api/v1/links/{code}",
+      "success_status": 200
+    },
+    {
+      "method": "DELETE",
+      "notes": "Soft delete plus active cache invalidation; stops redirecting within the 60s published bound. Idempotent (repeat delete is 204). 204 with no body because a body describing what was deleted confirms what existed. 404 for anything not the caller's.",
+      "path": "/api/v1/links/{code}",
+      "success_status": 204
+    },
+    {
+      "method": "POST",
+      "notes": "Blocks the link immediately and records reporter id, timestamp and reason. 202 with no body for ANY syntactically acceptable code whether or not it resolves - a 404 here would be the existence oracle every other endpoint avoids. Authenticated and rate-limited per reporter; that pair is the entire defence against weaponising takedown.",
+      "path": "/api/v1/links/{code}/abuse-reports",
+      "success_status": 202
+    },
+    {
+      "method": "GET",
+      "notes": "Public redirect. 302 with Cache-Control: no-store, no-cache, must-revalidate, max-age=0 / Pragma: no-cache / Expires: 0. 404 (identical body and identical cache headers) for unknown, expired, deleted, blocked or malformed codes, and not counted. 429 from the per-IP click bucket or the much tighter not-found bucket. Never 5xx. Must be a bare @GetMapping(\"/{code}\") on a controller with no class-level @RequestMapping.",
+      "path": "/{code}",
+      "success_status": 302
+    },
+    {
+      "method": "HEAD",
+      "notes": "Served by the same @GetMapping handler - Spring MVC dispatches HEAD to the GET mapping - with identical status and headers and no body. Deliberately NOT a separate operation in openapi.yaml and it must NOT get its own annotation: the routes gate compares documented operations against @Get/@Post/... regex matches, Spring has no @HeadMapping, and a second @RequestMapping in that file would be read as a path prefix and break the route match. Listed here because the behaviour is real, not because a route is missing.",
+      "path": "/{code}",
+      "success_status": 302
+    }
+  ],
+  "openapi_path": "artifacts/openapi.yaml",
+  "rationale": "WHAT IS FROZEN. artifacts/openapi.yaml (8 operations), 25 Java skeletons under service/src/main/java, and service/pom.xml. `mvn -DskipTests compile` passes (BUILD SUCCESS, 27 sources); the OpenAPI passes the lint the gate runs (8 unique operationIds, every operation has responses, all $refs resolve) and contains no match for the no_secrets pattern. The first build of this run was `clean`, which removed the stale target/classes/db/migration/V1__create_links.sql that impact.json flagged.\n\nTWO BLOCKING AMBIGUITIES WERE NEVER ANSWERED BY A HUMAN, AND THIS CONTRACT COMMITS TO A READING OF BOTH. Q1: the published takedown bound is 60 seconds p99 from the delete/report response, delivered by active cache invalidation with app.cache.ttl <= 60s as the floor under it (the scaffold shipped 5 minutes; that alone would breach it by four minutes with nothing failing). If the business's real number is sub-second, the delete and report paths need synchronous multi-tier invalidation and the TTL safety net stops being sufficient - that changes RedirectController, CacheInvalidator and the acceptance test, not the API shape, so the cost of being wrong is contained to one node's worth of rework. Q2: ThreatCheck is a port with a Postgres denylist and a no-op, and it fails open with a WARN when it cannot answer (ThreatVerdict.UNAVAILABLE exists as a third value precisely so a fail-open decision is visible in the logs rather than collapsed into \"clean\"). If a real reputation feed is expected in this build, the port is where it lands but the work is materially larger and the create path acquires an external latency and procurement dependency. Both readings are the ones clarification proposed; I did not invent a third.\n\nSTATUS CODES, ONE AT A TIME. 302 for the redirect, never 301: a 301 is cached indefinitely by default, so the second and later clicks never reach us - that silently breaks the exact click count (AC3), the \"no intermediary short-circuit\" rule (AC4), delete taking effect (AC8) and the takedown bound (AC9), and none of it would show up in a test of our own service. 307 was rejected only because method preservation buys nothing for browser GETs. 404 and never 410 for expired/deleted links: 410 means \"this existed\", which distinguishes an expired link from an unissued code and hands an enumerator a free signal; the whole point of A4 is that unknown, expired, deleted, blocked and another customer's code are one indistinguishable answer, byte-for-byte, with the same cache headers. 404 and never 403 for another customer's link, for the same reason - a 403/404 split is an existence oracle and it is the one AC13 and AC15 name. 201 on create with Location pointing at /api/v1/links/{code} rather than at the short URL, because the short URL is pasted, not followed by the client. 204 on delete with no body: a body saying what was deleted is a way to confirm what existed. 202 on abuse report, returned for any well-formed code whether or not it resolves - a 404 there would reintroduce the oracle through the one endpoint that takes a code from an untrusted caller. 409 alias_unavailable for a taken alias (AC6 requires rejection rather than silent reassignment) but 400 for a reserved word, because nobody holds \"actuator\" and a 409 would imply somebody does. 422 url_rejected, not 400, for a URL that parses but may not be shortened, with one fixed message shared by denylist hits, internal/private/loopback hosts and our own origin, so the response cannot be used to enumerate the denylist or map our network. 401 with a single unauthorized body for every token failure - expired, forged, absent - so a caller cannot learn which tokens are nearly valid. 429 always with Retry-After in whole seconds and never 0. 503 only on create, never on the click path: that asymmetry is AC20's \"serve clicks in preference to accepting links\" made visible on the wire. 405 for other methods on /{code} comes from Spring's dispatcher and is documented in prose, not as an operation.\n\nCODE LENGTH: A2 IS INTERNALLY INCONSISTENT AND I CORRECTED IT IN THE DIRECTION OF THE ACCEPTANCE CRITERION. A2 says \"128 bits of CSPRNG output rendered as ~11 base62 characters\"; 11 base62 characters carry ~65 bits, not 128. AC16 is an acceptance criterion and \"short\" is not, so ShortCodeGenerator.CODE_LENGTH is 22 (ceil(128/log2(62)), ~131 bits) and the reviewer should know the cost: a short link becomes ~40 characters, longer than the products this is modelled on, which buy 7-character codes with aggressive enumeration defence instead. We have that defence too (the separate, much tighter not-found bucket), so trading length against rate limiting later is a one-constant change with no migration - old codes stay valid. If the business would rather have short links than the stated bit strength, this is the line to change, and it should be changed deliberately rather than by an off-by-a-factor-of-two in the assumptions.\n\nOWNER-SCOPED VISIBILITY. A link that is not yours is 404 everywhere. Your own expired, deleted or blocked link is visible on GET with its retained click count, because A11 keeps the row and the count and it is your data; only PATCH refuses it (409 link_not_modifiable), so an abuse takedown cannot be undone by its owner pushing the expiry out. Ownership is filtered in the query, not checked after the fetch - AC13 is an invariant, and a post-fetch comparison is one forgotten branch away from a cross-tenant read.\n\nTHE POM: ONE APPROVAL, EVERYTHING IT NEEDS. spring-boot-starter-data-redis (BOM-managed) for click counters, the resolution cache with negative caching, and the token buckets - a per-instance cache cannot be actively invalidated, which would leave the 60s bound resting on TTL alone, and a per-instance limiter multiplies every limit by the replica count. spring-security-crypto for the KDF and deliberately NOT spring-boot-starter-security: the starter's auto-configured filter chain covers every mapping including the root redirect, and one missing matcher 401s the public click path (AC14) with a green build. bcprov-jdk18on:1.81 pinned explicitly - Argon2PasswordEncoder references org/bouncycastle but spring-security-crypto declares no such dependency, so without this pin the service compiles, passes every gate and throws NoClassDefFoundError at the first sign-in; this is U4, and since neither downstream branch may edit pom.xml it had to be decided here. If the approver rejects the extra supply-chain entry, A6's sanctioned fallback is BCrypt cost 12, self-contained in the same jar - but that is the approver's call, not implement's. jjwt-api/impl/jackson 0.12.6 with literal versions because Boot's BOM manages no JWT version (verified: zero matches for nimbus/jjwt/bouncycastle in spring-boot-dependencies-3.5.16). Rate limiting is a hand-written Lua script over the existing Redis connection rather than a bucket library: no second supply-chain approval, and single-key operations stay Cluster-safe against the unresolved U1. org.testcontainers:testcontainers declared explicitly (test scope) so the harness can use GenericContainer for Redis without leaning on another module's transitive graph; spring-boot-testcontainers already ships the Redis @ServiceConnection factory, so no third-party Redis module is needed. Caffeine is retained only because the scaffold's CacheConfig still builds a CaffeineCacheManager; the contract states that implement replaces the body of that one bean method rather than adding a second CacheManager (two candidates fail context load for every integration test at once and read like a broken harness) and that a Caffeine near-cache is out, because active invalidation cannot reach a per-instance tier. All new coordinates were resolved from Maven Central during the compile, so they exist at the versions pinned.\n\nTHE CONFIG SURFACE IS FROZEN AS A TYPE, NOT LEFT TO application.yml. application.yml is not in this node's write paths, so AppProperties is the only way the two branches can agree on configuration: implement reads these keys, and author-tests - which never sees application.yml - needs the property names to drive a bucket down to a testable size via @SpringBootTest(properties=...). Every key has a default here, so a key missing from application.yml degrades to this file rather than failing to bind. Rate-limit defaults are production defaults chosen high enough that an ordinary suite running from 127.0.0.1 does not self-throttle; the not-found bucket is an order of magnitude tighter than the click bucket, because an enumeration sweep is a run of 404s while a viral link is a run of 302s and AC22 requires the second to survive whatever we do to the first. A SIGN_IN bucket was added beyond A13's three: an unthrottled sign-in is an open credential-stuffing target, and AC17's promise about stolen databases is worth little if passwords can be guessed at the front door.\n\nFIXTURES ARE PART OF THE FREEZE. There is no registration endpoint, so the two seeded customers (alice@example.com / bob@example.com, fixed UUIDs, plaintexts in the spec) and the two denylisted hosts (malware.example.com, phishing.example.net, both in reserved example space so nothing real is implicated) are written into openapi.yaml. Without them the migration and the tests would each invent their own and every auth and AC21 test would fail at the join for a reason that looks like a bug. Two customers, because tenant isolation cannot be tested with one. The migration stores an Argon2id hash, never the plaintext, and credentials in configuration keep the existing unquoted ${VAR:default} style so the no_secrets gate does not fire on a false positive.\n\nGATE-SHAPED CONSTRAINTS STATED IN THE CONTRACT RATHER THAN DISCOVERED AT VERIFY. routes_match_openapi is a regex over Spring annotations, so: HEAD /{code} is not a documented operation and must not get its own mapping (Spring has no @HeadMapping and a stray @RequestMapping in that file would be parsed as a path prefix); the redirect controller must carry a bare @GetMapping(\"/{code}\") with no class-level @RequestMapping; actuator endpoints are not documented because they are not @*Mapping annotations and documenting them would fail the same gate. Strict request bodies (unknown property -> 400) need spring.jackson.deserialization.fail-on-unknown-properties: true in application.yml; that is what makes longUrl immutability mechanical rather than a silently ignored field.\n\nUNKNOWNS I DESIGNED PAST, AND THE READING TAKEN. U1 (Redis topology): assumed single instance/Sentinel, AOF, no eviction; every Redis operation in this design is single-key or hash-taggable so a Cluster move stays additive, but if the shared Redis runs allkeys-lru a counter key can be evicted before flush and clicks are lost against AC3 with no error anywhere - that is a question for the platform owner, not something a test here can catch. U5 (JWT key provenance): keys come from the environment as PEM placeholders; when both are blank the service generates an ephemeral keypair and logs a warning, which is correct for one instance and for tests and wrong for replicas, where a token issued by one instance will not verify on another - AppProperties.Session says so in its javadoc so the trap is documented where someone will read it. U6 (Redis down at startup): the service starts and serves redirects from PostgreSQL with counting degraded; Lettuce connects lazily, so this costs nothing and it is the only reading consistent with AC20. U7 (denylist writes): seeded by migration plus the abuse-report path; there is no admin endpoint, so marking a URL bad in production is currently a migration under an approval gate - a real operational gap, flagged rather than solved, because an admin API is a surface nobody asked for.\n\nKNOWN, ACCEPTED HOLE. The alias path is an existence oracle by construction: create-with-alias answers 409 when the code is taken, so a caller can probe any code for existence. It cannot be closed without breaking AC5/AC6, and it is worthless against generated codes at 128 bits; the per-customer write bucket and the requirement of a signed-in session bound it. Stated here because a security reviewer will find it and should find our reasoning next to it.\n\nDELIBERATELY NOT DONE. No controllers (implement's job; the contract fixes their routes instead), no application.yml or migrations (not in this node's write paths), and no docker-compose.yml - it is in no node's write paths and still defines Postgres only, so the human approving this pom should add a redis service in the same review or `docker compose up` yields a service that cannot serve a click, invisibly to every mechanical gate."
+}

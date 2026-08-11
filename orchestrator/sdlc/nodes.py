@@ -121,7 +121,15 @@ def finalize_output(output: dict[str, Any], workspace: Path) -> dict[str, Any]:
     from .audit import hash_inputs
 
     digest = hash_inputs([workspace / f for f in files], root=workspace)
-    return {**output, "contract_hash": digest}
+    # Per file as well as in aggregate. The aggregate says "something moved";
+    # the per-file map says which, and -- more importantly -- lets a consumer
+    # check a subset. Each parallel branch is *required* to edit part of what
+    # the freeze covers, so verifying the whole set against one hash would fail
+    # the moment a branch did its job.
+    per_file = {
+        f: hash_inputs([workspace / f], root=workspace) for f in files
+    }
+    return {**output, "contract_hash": digest, "contract_file_hashes": per_file}
 
 
 def _context_section(context: dict[str, Any]) -> str:

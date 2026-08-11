@@ -411,3 +411,43 @@ class TestTriageConfiguration:
     def test_a_handler_is_not_scheduled(self, tmp_path: Path) -> None:
         p = load_pipeline(self._pipeline(tmp_path, triage_node="triage"))
         assert "triage" not in {nid for level in schedule(p) for nid in level}
+
+
+class TestTurnBudget:
+    """A limit that can end a node belongs in the pipeline, not in the backend."""
+
+    def _pipeline(self, tmp_path: Path, nodes, **top) -> Path:
+        path = tmp_path / "p.yaml"
+        path.write_text(yaml.safe_dump({"version": 1, "nodes": nodes, **top}))
+        return path
+
+    def test_a_node_can_declare_its_own(self, tmp_path: Path) -> None:
+        p = load_pipeline(
+            self._pipeline(tmp_path, [{"id": "a", "prompt": "a.md", "max_turns": 600}])
+        )
+        assert p.node("a").max_turns == 600
+
+    def test_the_default_applies_when_a_node_is_silent(self, tmp_path: Path) -> None:
+        p = load_pipeline(
+            self._pipeline(
+                tmp_path, [{"id": "a", "prompt": "a.md"}], defaults={"max_turns": 150}
+            )
+        )
+        assert p.node("a").max_turns == 150
+
+    def test_a_node_overrides_the_default(self, tmp_path: Path) -> None:
+        """author-tests needs a body per behaviour; intake emits one document."""
+        p = load_pipeline(
+            self._pipeline(
+                tmp_path,
+                [{"id": "a", "prompt": "a.md"}, {"id": "b", "prompt": "b.md", "max_turns": 600}],
+                defaults={"max_turns": 150},
+            )
+        )
+        assert (p.node("a").max_turns, p.node("b").max_turns) == (150, 600)
+
+    def test_the_real_pipeline_budgets_the_branch_that_ran_out(self) -> None:
+        p = load_pipeline(
+            Path(__file__).resolve().parents[2] / "orchestrator/pipelines/sdlc.yaml"
+        )
+        assert p.node("author-tests").max_turns > p.node("intake").max_turns
