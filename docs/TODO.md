@@ -95,6 +95,41 @@ is closed.
 
 ---
 
+## The graph has no node where a new test meets the old code
+
+A bug fix is supposed to produce a test that fails for the reason the bug exists.
+This graph structurally cannot: `implement` and `author-tests` start together,
+`author-tests`' exit gates execute nothing, and the first suite run is
+`maven_verify` at `verify` — after the join, with the fix already in the tree.
+So the deliverable is asserted rather than evidenced, and `review-synthesis`
+promoted exactly that to a blocker on `brownfield-1` (TEST-1).
+
+It was closed by hand for that run — see `docs/evidence/` — and by hand is not a
+control.
+
+**Shape of the fix.** A `discriminate` node between `author-tests` and `join`,
+in a worktree, that runs the new tests against the *pre-change* main sources and
+requires them to fail. It needs three things the pipeline already has:
+
+- the baseline. The run's starting commit, not the immediately preceding one:
+  `design` stubs new classes, and a test that fails with
+  `UnsupportedOperationException` proves only that a stub is a stub;
+- the set of tests to run. `test-contract.json` already lists behaviours with
+  their `criteria_ids`, so "the tests for this change's acceptance criteria" is
+  derivable rather than guessed;
+- a gate that fails the node when the new tests *pass* against old code, which
+  is the interesting failure: it means the test does not discriminate.
+
+**Cost.** One extra suite run per bug-fix change, on a tree that does not build
+the fix. That is the price of the difference between "we tested it" and "we can
+show what the test caught".
+
+**Not for every run.** A greenfield change has no pre-change code to fail
+against. This wants to be conditional on the scenario, or on whether any
+acceptance criterion is a defect rather than a feature.
+
+---
+
 ## Maintain `CONTEXT.md`, `AGENTS.md` and `CLAUDE.md` from every run
 
 Follow the established conventions rather than inventing a format:
