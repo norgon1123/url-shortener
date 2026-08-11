@@ -142,16 +142,27 @@ no API key can still exercise every control.
 **Phase 1 — graph, gates, policy, checkpoints, journal, engine, CLI, metrics,
 all against the mock. DONE.** 275 tests, ~2.5 s, no API key required.
 
-**Phase 2 — the Java scaffold, then live Agent SDK nodes; run greenfield.
-IN PROGRESS.**
+**Phase 2 — the Java scaffold, then live Agent SDK nodes; run greenfield. DONE.**
+`greenfield-3` completed: 148 tests, $108.70.
 
-**Phase 3 — brownfield, ambiguous, and fault-injection scenarios. TODO.**
+**Phase 3 — brownfield, ambiguous, and fault-injection scenarios. DONE, with
+the scenario list revised.** `brownfield-1` completed: 276 tests, $98.16.
+Ambiguity and fault injection turned out not to need staging — see §9.
 
-**Phase 4 — metrics report, ADRs, documentation. TODO.**
+**Phase 4 — metrics report, ADRs, documentation. DONE.**
+[`METRICS.md`](METRICS.md), six ADRs in [`adr/`](adr), and this plan brought
+back into line with what was built.
 
 **Cut order under pressure:** separate `security` node (fold the scans into exit
 gates) → HTML report (terminal/markdown table first) → service extras
 (idempotency key, negative caching).
+
+**What was actually cut, and why.** The separate `security` node: its scans are
+exit gates on every node instead, which is stricter — a secret cannot reach a
+checkpoint rather than being found at one. The HTML report: `report --json`
+feeds anything, and the terminal table is what an operator reads mid-run. The
+service extras survived; the review lenses asked for them and neither was
+expensive.
 
 ---
 
@@ -160,17 +171,32 @@ gates) → HTML report (terminal/markdown table first) → service extras
 ### 6.1 DAG
 
 ```
-intake → clarify → impact-analysis → feasibility → decompose → design ─┬→ implement ────┐
-                                                                     └→ author-tests ─┴→ (join) → verify ─┬→ docs ───────────────┐
-                                                                                                          ├→ review-security ────┤
-                                                                                                          ├→ review-performance ─┤
-                                                                                                          ├→ review-api-contract ┼→ (review-join) → review-synthesis → release-readiness
-                                                                                                          ├→ review-test-adequacy┤
-                                                                                                          └→ review-cleanliness ─┘
+intake → clarify → impact-analysis → feasibility → decompose → design → test-contract ─┬→ implement ────┐
+                                                                                       └→ author-tests ─┴→ (join) → verify ─┬→ docs ───────────────┐
+                                                                                                                            ├→ review-security ────┤
+                                                                                            [verify fails] → triage         ├→ review-performance ─┤
+                                                                                                   │                        ├→ review-api-contract ┼→ (review-join) → review-synthesis → release-readiness
+                                                                                                   └→ routes a repair to    ├→ review-test-adequacy┤
+                                                                                                      implement and/or      └→ review-cleanliness ─┘
+                                                                                                      author-tests
 ```
 
-19 nodes: 16 agent, 2 barrier (`join`, `review-join`), 1 deterministic
-(`verify`, no LLM call at all).
+21 nodes: 17 agent, 2 barrier (`join`, `review-join`), 1 deterministic
+(`verify`, no LLM call at all), 1 handler (`triage`, invoked by failure and
+never scheduled).
+
+**Two nodes were added after the plan was first written**, and both were
+earned rather than designed:
+
+- **`test-contract`** — the executable half of the freeze. The original graph
+  fanned `implement` and `author-tests` straight out of `design`, and they
+  disagreed about method names, harness shape and fixture naming, so the join
+  spent its time reconciling accidents. `test-contract` writes the test classes,
+  behaviour-named signatures and harness — structure, no assertions — and both
+  branches build against it. See [ADR-003](adr/003-segregation-of-duties.md).
+- **`triage`** — a handler, not a stage. The original graph was strictly acyclic
+  and a failing `verify` ended the run, which automates the easy half of the
+  job. See [ADR-006](adr/006-bounded-repair-with-human-routing.md).
 
 Each node declares `prompt`, `tools`, `write_paths`, `deny_paths`,
 `output_schema`, `entry_gates`, `exit_gates`, `retry`, `autonomy`, `on_failure`.
@@ -369,16 +395,45 @@ retention.
 
 ---
 
-## 9. The three scenarios
+## 9. The scenarios — planned, and as they actually ran
 
-1. **Greenfield** — "Build shorten + redirect APIs." Full DAG traversal;
-   `clarify` passes *through* with zero blocking ambiguities.
-2. **Brownfield** — "Add rate limiting to link creation." Deliberately excluded
-   from the base build so this produces a real diff. Exercises codebase
-   reasoning: impact analysis identifies affected modules, APIs, and data flows;
-   the existing tests must still pass at `verify`.
-3. **Ambiguous** — "Make it reliable and add analytics." `clarify` refuses to
-   proceed, emits ambiguities plus proposed assumptions, and escalates.
+The plan called for three scenarios. Two ran, and the third turned out to be a
+property of both rather than a run of its own.
+
+**1. Greenfield — planned as "build shorten + redirect APIs", run as the full
+requirement.** `orchestrator/fixtures/runs/greenfield-3`. The requirement grew
+into [`input/greenfield.txt`](../input/greenfield.txt): 92 lines of business
+voice covering accounts, abuse, expiry, analytics and scale. Full traversal, 148
+tests, $108.70.
+
+**2. Brownfield — planned as "add rate limiting", run as three real changes.**
+`orchestrator/fixtures/runs/brownfield-1`. Rate limiting ended up inside the base
+build, which would have made the brownfield diff artificial, so the ask became
+[`input/brownfield.txt`](../input/brownfield.txt): close a URL filter that two
+tricks walk past, add self-service sign-up, add anonymous links that expire after
+a month. That mixture is a better exercise than the original — a defect, a
+feature, and a feature that changes the security posture of an existing one.
+
+**3. Ambiguous — planned as its own run, and it is not one.** The intent was
+"make it reliable and add analytics", with `clarify` refusing to proceed. What
+happened instead is that *both* runs escalated at `clarify` on their own terms,
+which is the behaviour the scenario was meant to demonstrate:
+
+- `greenfield-3` — two blocking ambiguities, resolved by a human before design.
+- `brownfield-1` — two blocking ambiguities out of eleven questions, and the
+  second is better than anything the scripted scenario would have produced:
+  *any* visible refusal of a duplicate sign-up makes the endpoint an
+  account-existence oracle, in a service that goes to deliberate lengths
+  elsewhere to avoid being one. The node would not decide it, and said why.
+
+A synthetic ambiguity run would have proved the node can escalate when handed
+something obviously vague. Two real runs proved it escalates on the thing a
+careful engineer would have escalated on, which is the claim worth making.
+
+**Fault injection** was likewise not staged: two provider session limits, a
+Spring context startup failure, a Testcontainers capacity exhaustion and a
+Maven timeout arrived on their own. Each is in a journal, and each produced a
+control that did not exist before — see §12.
 
 ---
 
@@ -430,3 +485,39 @@ therefore a brief cost and rate-limit spike; cost scales with graph width; no
 multi-tenant isolation; `routes_match_openapi` is a regex scan of Spring
 annotations rather than an AST walk, so it handles literal-string mappings and
 would need replacing for dynamically composed paths.
+
+### 12.1 Limitations discovered, stated anyway
+
+The ones above were foreseen. These were not, and each cost something to learn.
+All are open; `docs/TODO.md` carries the fixes.
+
+**The graph has no point where a new test meets the old code.** A bug fix is
+supposed to produce a test that fails for the reason the bug exists.
+`implement` and `author-tests` start together, `author-tests`' gates execute
+nothing, and the first suite run is after the join with the fix already in the
+tree. `brownfield-1`'s own `release-readiness` found this; the evidence was
+produced by hand afterwards (`docs/evidence/`), and by hand is not a control.
+
+**No review lens looks at the orchestrator.** Five lenses review the service.
+`gates.py` was modified inside `brownfield-1`'s own history and nothing
+examined that diff — while every mechanical outcome in the run is produced by
+that code. The release node caught it; nothing structural would have.
+
+**Re-planning has no cost ceiling.** Editing a prompt mid-run invalidated
+everything downstream and spent $42.86 on re-runs in `greenfield-3`. The engine
+does the right thing and never asks whether the operator meant to.
+
+**The budget guard measures the wrong currency.** It counts estimated dollars
+while the binding constraint is a subscription's rate limit. Both runs hit a
+provider session limit with the guard reporting ~20% headroom.
+
+**Approvals are per-node, not per-diff.** An approval clears any later
+protected-path escalation from that node, including changes the human never saw.
+
+**A node left `RUNNING` by a dead process needs a SQL update.** There is no
+`reset` subcommand, which is a gap in a tool whose pitch is operability.
+
+**Two gates were written against an empty repository** and failed on the first
+run that inherited a real one. The general form is worth stating: *a gate whose
+correctness depends on the starting state being empty is not a gate, it is a
+coincidence.*
