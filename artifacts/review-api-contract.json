@@ -1,13 +1,13 @@
 {
   "findings": [
     {
-      "confidence": "high",
-      "file": "service/src/main/java/com/example/urlshortener/link/UrlValidator.java",
+      "confidence": "medium",
+      "file": "service/src/main/java/com/example/urlshortener/error/ApiExceptionHandler.java",
       "id": "API-1",
-      "line": 115,
-      "severity": "minor",
-      "suggestion": "Fix the document, not the code: the 400-vs-422 split is pinned elsewhere in the contract and the blind test branch reached the same reading (Fixtures.UNPARSEABLE_OUT_OF_RANGE_NUMERIC_URL, \"No host from URI: 400\"). Replace the `999.999.999.999` / empty-label examples in the 422 paragraph with `4294967296`, and say explicitly that out-of-range forms URI cannot parse remain 400.",
-      "summary": "openapi.yaml lines 79-82 (\"Host policy and equivalent forms\") and the 422 description at line 704 name `999.999.999.999` and \"an empty label\" as hosts that \"cannot be canonicalised unambiguously\" and are \"refused with 422 url_rejected, never accepted and never downgraded to 400\". They are in fact 400 invalid_request: java.net.URI.getHost() returns null for `http://999.999.999.999/`, `http://a..b/` and `http://1.2.3.4.5/` (verified on the same JDK 21.0.12 the pom targets), so parseOrThrow refuses them before requireShortenable/HostNormalizer ever runs. The spec contradicts itself - lines 98-101 say forms URI cannot parse a host from stay 400 - and the code follows the second sentence. Only hosts URI does parse and the normaliser then rejects (e.g. `http://4294967296/`) actually reach 422; that path works."
+      "line": 36,
+      "severity": "major",
+      "suggestion": "The code is wrong. Add an @ExceptionHandler(Exception.class) (or at least DataAccessException) that logs and returns 503 service_unavailable in ApiError shape for the two create paths, so the documented degradation contract holds for the dependency that actually fails most often. If the intent is genuinely to let 500 escape, the spec must document a 500 and its body.",
+      "summary": "No fallback exception handler. Only ApiException, MethodArgumentNotValid, HttpMessageNotReadable, MethodArgumentTypeMismatch and MissingServletRequestParameter are mapped; anything else (a PostgreSQL outage or a Redis-backed CacheManager failure that surfaces as a DataAccessException on POST /api/v1/links or POST /api/v1/public/links) propagates to Spring Boot's BasicErrorController and answers 500 with {\"timestamp\",\"status\",\"error\",\"path\"}. openapi.yaml lines 717-730 and 570-584 document 503 service_unavailable as the answer when 'a dependency the create path needs is unavailable', and lines 121-138 say every non-2xx body has the ApiError shape with a closed catalogue that contains no 500. Only two dependency failures are actually translated: ResolutionCache.invalidateBeforeIssuing (ResolutionCache.java:91) and code-generation exhaustion (LinkService.java:225)."
     },
     {
       "confidence": "high",
@@ -15,48 +15,66 @@
       "id": "API-2",
       "line": 36,
       "severity": "minor",
-      "suggestion": "Either document the exception - \"405 and 415 carry the framework's default body and are not part of the ApiError catalogue\" - or add handlers mapping them onto ApiError (which needs a new catalogue entry, so it is a contract change). Recommend documenting, since the closed catalogue has no code that means \"method not allowed\".",
-      "summary": "openapi.yaml line 121 states \"Every non-2xx response has the ApiError shape\" and the catalogue is closed, but there is no handler for HttpRequestMethodNotSupportedException, HttpMediaTypeNotSupportedException or a generic Exception. The 405 the spec explicitly requires on the two new exempt paths (lines 58-61) therefore carries Spring's BasicErrorController body - {\"timestamp\":...,\"status\":405,\"error\":\"Method Not Allowed\",\"path\":\"/api/v1/customers\"} - not ApiError. Same for 415 on a wrong Content-Type and 500 on anything unhandled. Newly consequential because 405 on /api/v1/customers and /api/v1/public/links is now reachable with no credentials at all, and the default body echoes the request path."
-    },
-    {
-      "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/auth/SessionAuthenticationFilter.java",
-      "id": "API-3",
-      "line": 70,
-      "severity": "minor",
-      "suggestion": "Add one sentence to the \"Three surfaces\" section recording that OPTIONS on the exempt paths answers 200 with an Allow header, or set spring.mvc.dispatch-options-request=false if the intent was 405 for every non-POST verb. Decide it rather than leave it to the default.",
-      "summary": "openapi.yaml lines 57-61 say the exemption is not method-aware and that non-POST verbs on /api/v1/customers and /api/v1/public/links \"must reach Spring's dispatcher and answer 405\". OPTIONS is not one of the four verbs listed and, with Spring MVC's default dispatchOptionsRequest=true, an unauthenticated `OPTIONS /api/v1/customers` answers 200 with `Allow: POST,OPTIONS` rather than 405 - undocumented behaviour on a path that is outside the session filter (the same request against /api/v1/links is 401, so the two new paths behave differently). Confidence is medium because this rests on a framework default rather than on code in this diff."
+      "suggestion": "The status codes are right (405 is the documented behaviour and is what the code does, because the session filter's exemption is not method-aware - SessionAuthenticationFilter.java:70). Change the spec: qualify the ApiError-shape sentence to cover only statuses this document declares, and say explicitly that dispatcher-level 404/405/415 carry Boot's default body.",
+      "summary": "Framework default error bodies leak on undeclared failure paths: 405 (GET/PUT/PATCH/DELETE on /api/v1/customers and /api/v1/public/links, and any wrong verb on /{code}), 415 (a POST with a non-JSON Content-Type), and 404 for an unmatched path such as GET / or GET /api/v1/nope with a valid token. All return Boot's error JSON, not ApiError. openapi.yaml line 121 states flatly that 'Every non-2xx response has the ApiError shape', while lines 58-61 and 230 deliberately delegate 405 to Spring's dispatcher. The two statements cannot both be true."
     },
     {
       "confidence": "high",
-      "file": "service/src/main/resources/db/migration/V3__unique_lower_email.sql",
-      "id": "API-4",
-      "line": 27,
+      "file": "service/src/main/java/com/example/urlshortener/link/UrlValidator.java",
+      "id": "API-3",
+      "line": 115,
       "severity": "minor",
-      "suggestion": "Either renumber so the nullable relaxation runs first, as the contract states, or amend note 7 to record the order actually shipped and why. The human on the migration diff needs the two to agree.",
-      "summary": "openapi.yaml note 7 (lines 249-252) pins the order of the two schema changes: \"relax links.customer_id to nullable, and add a unique index over lower(email)\", in that order. The implementation ships them the other way round - V3 is the unique index, V4 is the nullable relaxation. Note 7 also warns that the lower(email) index fails to apply where duplicates exist; on the shipped order that failure aborts Flyway before customer_id is relaxed, so a partially-migrated database is one where the anonymous-create path's column constraint is still NOT NULL. The 409 account_unavailable contract depends on the V3 index existing, so the dependency itself is satisfied."
+      "suggestion": "The code is right and the spec is self-contradictory. Amend openapi.yaml lines 78-82 to drop 999.999.999.999 and 'an empty label' as 422 examples and say instead that hosts java.net.URI cannot parse are 400, and only canonicalisation failures on a host it can parse (e.g. a single-label numeric overflow) are 422.",
+      "summary": "Out-of-range dotted numeric hosts answer 400 invalid_request, not the 422 url_rejected the spec demands. openapi.yaml lines 78-82: 'A host that cannot be canonicalised unambiguously - an out-of-range numeric address like 999.999.999.999, an empty label - is refused with 422 url_rejected, never accepted and never downgraded to 400.' I verified on JDK 21 that java.net.URI returns a null host for http://999.999.999.999/, http://a..b/ and http://1.2.3.4.5/, so parseOrThrow rejects them at line 115 as 400 before HostNormalizer is ever consulted - exactly as lines 98-101 of the same document say it should ('the 400-vs-422 split is unchanged'). Single-label overflow (http://0x100000000/) does reach HostNormalizer and does answer 422, so only the dotted forms diverge. The test branch read it the same way as the code (Fixtures.java:359-365 classes these as unparseable)."
     },
     {
       "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/link/LinkService.java",
+      "file": "service/src/main/java/com/example/urlshortener/link/AliasPolicy.java",
+      "id": "API-4",
+      "line": 44,
+      "severity": "minor",
+      "suggestion": "The code is wrong: add \"error\" to AliasPolicy.RESERVED_CODES. The spec needs no change - it delegates the list to this constant, which is why the omission is invisible to the route gate.",
+      "summary": "'error' is missing from RESERVED_CODES, so POST /api/v1/links {\"alias\":\"error\"} answers 201 and mints a code that can never redirect: Spring Boot maps BasicErrorController at server.error.path (/error), and a literal PathPattern outranks the /{code} variable pattern in RedirectController.java:62, so GET /error is handled by the error controller and answers 500 with Boot's error body rather than the documented 302 (openapi.yaml lines 1004-1030) - on the one path the spec says never returns 5xx (line 999). openapi.yaml lines 1308-1311 make the reserved list authoritative precisely so 'no alias can shadow a route'."
+    },
+    {
+      "confidence": "high",
+      "file": "service/src/main/java/com/example/urlshortener/link/AliasPolicy.java",
       "id": "API-5",
-      "line": 86,
+      "line": 44,
       "severity": "nit",
-      "suggestion": "Truncate to ChronoUnit.MICROS in LinkService as SignUpService already does, so the created-response value is the value that is stored and read back.",
-      "summary": "Timestamp precision is inconsistent across responses for the same resource. SignUpService truncates to microseconds (SignUpService.java:57) so the body matches what the TIMESTAMP(6) column will return, but LinkService.create/createAnonymous use a raw Instant.now(), so the 201 body carries nanosecond precision (e.g. ...T12:00:00.123456789Z) while a later GET /api/v1/links/{code} returns the rounded stored value (...123457Z). Both are valid ISO-8601 instants per openapi.yaml line 152, so this is not a schema break, but createdAt/expiresAt for one link differ between the create response and every subsequent read."
+      "suggestion": "Leave the behaviour; add a comment (or drop the dotted entries) noting that dotted names are refused by the pattern, so the list only has to cover single-segment route names - which is what makes the 'error' omission in API-4 the real gap.",
+      "summary": "Six RESERVED_CODES entries are unreachable: robots.txt, favicon.ico, sitemap.xml, index.html, security.txt and .well-known all contain a dot, and requireAcceptable checks well-formedness against ^[A-Za-z0-9_-]{3,64}$ (line 96) before it checks reservation (line 102), so those aliases are already 400 on the pattern. Harmless, but the spec quotes this list as the authority (openapi.yaml line 1311) and a reader will infer the list is load-bearing where it is not."
+    },
+    {
+      "confidence": "high",
+      "file": "service/src/main/resources/application.yml",
+      "id": "API-6",
+      "line": 63,
+      "severity": "nit",
+      "suggestion": "Document the actuator surface and its authentication posture in the spec's surfaces table (or scope it to a management port). No code change is needed for contract conformance.",
+      "summary": "Undocumented surface: /actuator/health, /actuator/info, /actuator/metrics and /actuator/prometheus are exposed and are outside the session filter, which is registered only for /api/v1/* (WebConfig.java:28,36). The spec's 'Three surfaces' table (openapi.yaml lines 40-44) presents its list as exhaustive and never mentions actuator. Pre-existing rather than introduced by this change, but undocumented behaviour becomes a de facto contract as soon as a caller depends on it."
+    },
+    {
+      "confidence": "medium",
+      "file": "service/src/main/java/com/example/urlshortener/ratelimit/RedisTokenBucketRateLimiter.java",
+      "id": "API-7",
+      "line": 75,
+      "severity": "nit",
+      "suggestion": "Either map the enum to the hyphenated names or note in the spec that the key segment is the enum name lower-cased. Worth deciding before anything (a dashboard, a runbook, an ops script) starts matching on the key.",
+      "summary": "Redis bucket key names differ from the spec's names. openapi.yaml line 190 pins keys as ratelimit:<bucket>:<key> and the bucket column at lines 165-171 names them click, not-found, write, abuse-report, sign-in, sign-up, anonymous-create; keyFor derives the segment from the enum constant, producing ratelimit:not_found:, ratelimit:sign_up:, ratelimit:anonymous_create:, ratelimit:abuse_report:, ratelimit:sign_in:. No wire effect, and the load-bearing property - that no bucket can spend another's tokens, so exhausting anonymous-create leaves write untouched (AC14) - holds."
     }
   ],
   "lens": "review-api-contract",
   "not_examined": [
-    "Nothing was executed: no build, no integration run, no live request. Every status above is inferred from source plus one standalone compile of HostNormalizer, so framework-default behaviours (405/415 bodies, OPTIONS handling, Jackson's ISO-8601 instant rendering) are read, not observed.",
-    "POST /api/v1/sessions: the token itself - claims, issuer, the 24-hour expiresAt value in SignInResponse, and Bearer tokenType - was not traced into JwtIssuer/JwtVerifier.",
-    "The 429 path end to end: I read RateLimitGuard, the Retry-After flooring and the bucket-to-capacity mapping, but not redis/token_bucket.lua, so the retry-millis value feeding Retry-After is unverified.",
-    "GET /api/v1/links paging: the 400 boundaries (page<0, size 1..100) were read in the controller, but the LinkPage totals, the createdAt-desc/code-asc ordering and its stability across pages were not exercised.",
-    "POST /api/v1/links/{code}/abuse-reports error paths: the 400 for a reason over 500 characters and the 429 body were not traced; only the 202 path and the anonymous-link takedown were read.",
-    "clickCount exactness (durable total plus un-flushed Redis delta) and the ClickFlushJob interaction with the value reported by GET /api/v1/links/{code}.",
-    "The seeded fixtures the contract freezes: the V1/V2 migrations, the two seeded accounts' Argon2id hashes and the threat-denylist seed rows were not opened, so \"alice@example.com signs in after the lower(email) index lands\" is unverified.",
-    "Undocumented surfaces the spec never mentions: the actuator endpoints exposed in application.yml (health, info, metrics, prometheus) sit outside the session filter and were not compared against the contract, since the spec declares no operations for them.",
-    "Whether a request to an exempt path with an odd encoding (trailing slash, %2e, matrix parameters) still matches the exact-equality exemption - a routing/security question I left to that lens."
+    "The Lua token-bucket script (resources/redis/token_bucket.lua) - I verified the Java-side Retry-After clamp (max(1s), never 0) but not the script's returned retry-millis semantics, so the 429 Retry-After value under real contention is unverified.",
+    "JwtIssuer/JwtVerifier implementations: SignInResponse.expiresAt being exactly 24 hours out, the token claims, and the 401 path for an expired-but-well-formed token were read only at the interface level.",
+    "clickCount exactness (durable PostgreSQL total + un-flushed Redis delta) and the flush job - the arithmetic in ClickCounter/ClickFlushWriter was not verified against the 'exact and current' promise.",
+    "Nothing was executed: no build, no test run, no HTTP request. The Boot default error-body shapes in API-1/API-2 and the /error-over-/{code} pattern precedence in API-4 are read from framework behaviour, not observed.",
+    "Flyway migrations V1, V2 and V4 - column types, lengths and nullability were not cross-checked against the response schemas (only V3's lower(email) index was read).",
+    "HostNormalizer's IDN/punycode branch and its IPv6-literal passthrough (bracketed hosts are lower-cased and returned unnormalised) were reviewed by reading only; no case was executed.",
+    "Cache TTL and the 60-second takedown bound (app.cache.ttl, invalidateAfterCommit ordering) - checked that invalidation exists, not that the published bound holds.",
+    "GET /api/v1/links pagination beyond the 400 boundaries: the page/size echo and totalPages arithmetic for empty and last pages.",
+    "The existing test suite was not used as a source of truth; I consulted it once, for Fixtures' host classification, to corroborate API-3."
   ],
-  "summary": "The implementation honours the contract on every documented status, body and header I was able to check by reading, including the parts most likely to drift. The three 1.1.0 additions are faithful: POST /api/v1/customers is 201 with {customerId,email,createdAt} and no Location and no token, with 409 account_unavailable decided by the lower(email) unique index rather than a read-then-write; POST /api/v1/public/links is 201 with the narrower AnonymousLinkResponse (no status, no clickCount), no Location, owner column NULL, the anonymous TTL applied server-side, and a separate CreateAnonymousLinkRequest record so that alias/expiresAt are 400 under fail-on-unknown-properties rather than silently accepted; both paths are exempted from the session filter by exact string equality, not by prefix, and both charge their own IP-keyed bucket. The click path still returns 302 (not 301) with Location verbatim plus the pinned no-store/Pragma/Expires trio on redirect, 404 and 429 alike, and the single not_found body is a shared constant so it is byte-identical everywhere. Error bodies come from one closed ErrorCode catalogue with fields omitted unless invalid_request, and Retry-After is floored at 1 second. The equivalent-form work is genuinely shared: I compiled HostNormalizer and confirmed the spec's worked cases (2130706433, 0x7f000001, 017700000001, 0177.0.0.1, 012.0.0.1, trailing dot, IPv6 mapped, five-part names) all canonicalise as documented, and both UrlValidator and DenylistThreatCheck decide on its output. The most consequential divergence is documentary rather than behavioural: the spec's own examples of a host that \"cannot be canonicalised\" - 999.999.999.999 and a..b - are 400, not the 422 the document twice promises, because java.net.URI extracts no host from them and the syntax gate fires first (API-1); the document contradicts itself on this and the code follows the other sentence, so I would change the document. Beyond that, the undeclared verbs the contract deliberately leaves at 405 answer with Spring's default error body rather than ApiError, contradicting \"every non-2xx has the ApiError shape\" (API-2), and OPTIONS on the two new unauthenticated paths answers 200 rather than 405 by framework default (API-3). Nothing here is a break a caller could be harmed by today; all five findings are decisions somebody should take explicitly rather than inherit."
+  "summary": "The implementation honours the contract on every documented operation I traced, including all three 1.1.0 additions. Status codes match condition for condition: 302 (not 301) with Location set verbatim plus Cache-Control/Pragma/Expires on the click path, the single byte-identical 404 {\"error\":\"not_found\",\"message\":\"Not found\"} on both surfaces with no 403 or 410 anywhere, 201 with Location only on POST /api/v1/links and deliberately without it on customers and public links, 204 on delete, 202 on abuse-report regardless of whether the code resolves, 409 account_unavailable decided by the unique index over lower(email) rather than a read-then-write, and 422 url_rejected for equivalent-form hosts (2130706433, 0x7f000001, 017700000001, malware.example.com. all canonicalise and are refused). Bodies match field for field: SignUpResponse, AnonymousLinkResponse (correctly narrower than LinkResponse - no status, no clickCount), LinkResponse and LinkPage all carry exactly the documented names and types, fields appears only on invalid_request (JsonInclude.NON_NULL), and request strictness is real - spring.jackson.deserialization.fail-on-unknown-properties: true is set, so PATCH {\"longUrl\":...} and an alias or expiresAt on the anonymous create path are 400 as promised. The session filter exempts exactly three paths by exact string equality and is not method-aware, so the two new paths answer 405 rather than 401 for other verbs, and the anonymous create path is literally the same LinkService code as the authenticated one (same validator, same denylist, same 22-char CSPRNG generator, same pre-issue invalidation, same 503), differing only in owner, TTL and bucket. The consequential divergences are all on failure paths nobody decided: unmapped exceptions produce Spring Boot's default 500 body where the spec documents 503 service_unavailable for a create-path dependency failure (API-1, the one worth a human's attention), framework-default bodies on 405/415/dispatcher-404 contradict the blanket \"every non-2xx is an ApiError\" claim (API-2), the spec's own 422 example 999.999.999.999 is unreachable because java.net.URI cannot parse a host from it so the code answers 400 (API-3 - the spec is wrong here, not the code), and alias \"error\" is accepted despite shadowing Boot's /error route, yielding a link that answers 5xx on the path the spec says never returns 5xx (API-4)."
 }
