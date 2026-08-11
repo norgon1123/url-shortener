@@ -63,6 +63,18 @@ question is deciding *which side changes*, and an approval that could only say
 "approved" left the run with nowhere to send the work. `--answer route=<node>`
 followed (see ADR-006).
 
+**And the decision has to arrive somewhere.** For three runs, a human could
+answer a blocking ambiguity, the gate would confirm an answer *existed*, and no
+node would ever read it — every downstream stage worked from the model's own
+`proposed_answer`. Escalation without delivery is a pause button with an audit
+trail. The two ambiguous runs found it by answering *against* the proposal;
+`greenfield-3` and `brownfield-1` could not have, because agreement makes the
+right answer and no answer indistinguishable.
+
+The rule that follows: **a control tested only by agreement is not tested.** For
+anything where the human's decision is supposed to change the outcome, the test
+has to be one where the human and the machine disagree.
+
 ## Evidence
 
 - `greenfield-3`, journal seq 112-115: `triage` classified a failure as a

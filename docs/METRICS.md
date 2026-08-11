@@ -152,6 +152,29 @@ single replan that did happen — because a repair budget refused a branch a hum
 had just named — re-ran `decompose` at $1.05 and would have re-derived design,
 the frozen contract and both branches had it not been stopped.
 
+## The pair that measured something else
+
+`ambiguous-1` and `ambiguous-2` are not comparable to the two above: both
+safe-stopped after `decompose`, at $6.73 and $11.37, because the plan was the
+only artifact under test. What they measure is whether a human's answer changes
+the output, which no aggregate metric in this document captures.
+
+| | `ambiguous-1` | `ambiguous-2` |
+|---|---|---|
+| Questions raised at `clarify` | 8, two blocking | 8, two blocking |
+| Answers given | referrer; probe surgery | country-from-IP; circuit breaker |
+| Tasks planned | 14 | 21 |
+
+**The first pass produced near-identical plans**, because the human's answers
+never reached any node. That defect is worth more than the metric it broke, and
+it is the reason the pair exists — see
+[`fixtures/runs/ambiguous-1/README.md`](../orchestrator/fixtures/runs/ambiguous-1/README.md).
+
+The number this suggests the report is still missing: **decision efficacy** —
+what fraction of recorded human decisions demonstrably changed a downstream
+artifact. It would have been zero for three runs, and nothing here would have
+shown it.
+
 ## Metric definitions, and what each one hides
 
 **Node success rate** — nodes that ultimately passed, over nodes scheduled.

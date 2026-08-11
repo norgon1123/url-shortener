@@ -21,7 +21,7 @@ computes about itself and publishes.**
 
 ```bash
 # 1. The whole machine, deterministically, in six seconds. No API key, no spend.
-pytest orchestrator/tests                       # 425 tests
+pytest orchestrator/tests                       # 429 tests
 
 # 2. Replay a real run, entry by entry. Still no API key, still no spend.
 python -m sdlc.cli replay orchestrator/fixtures/runs/greenfield-3
@@ -52,6 +52,11 @@ means the pipeline reached its end with every decision recorded — not that the
 service is shippable. The residuals are in [`docs/TODO.md`](docs/TODO.md), each
 with its mechanism, blast radius and fix.
 
+A third pair, [`ambiguous-1`](orchestrator/fixtures/runs/ambiguous-1) and
+`ambiguous-2`, ran one deliberately underspecified requirement twice with
+opposite answers to the same questions — and found that the answers were
+reaching nobody. See below.
+
 Full analysis, including what each metric hides: **[`docs/METRICS.md`](docs/METRICS.md)**.
 
 ## The one rule everything else follows from
@@ -72,11 +77,11 @@ records are [here](docs/adr/).
 |---|---|---|
 | Dependency graph | [`pipelines/sdlc.yaml`](orchestrator/pipelines/sdlc.yaml) — 21 nodes, declarative | both runs, `parallel_groups` in the metrics |
 | Entry / exit gates | [`gates.py`](orchestrator/sdlc/gates.py) — 30 checks | 148 and 125 gate evaluations |
-| Human checkpoints | `human` gate class; `approve` / `reject` CLI | 12 recorded decisions with notes |
+| Human checkpoints | `human` gate class; `approve` / `reject` / `repair` CLI | 14 recorded decisions, whose answers reach the nodes |
 | Bounded retries | `retry.max_attempts` per node, with the failure fed back into the next prompt | 17 failed attempts, none unbounded |
 | Fallback | `on_failure: fallback` — one more attempt at reduced autonomy, proposing rather than applying | tested; not triggered live |
 | Rollback | `on_failure: rollback` — reset the worktree to the last good checkpoint | tested; not triggered live |
-| Safe-stop | budget breach, or `stop` from another process, halting at a node boundary | 1 in `greenfield-3` |
+| Safe-stop | budget breach, or `stop` from another process, halting at a node boundary | 3, one per ambiguous run plus `greenfield-3` |
 | Policy guardrails | [`policy.py`](orchestrator/sdlc/policy.py) — path allowlists at the tool layer, re-checked against the diff | `paths_confined` on every node |
 | Audit trail | [`audit.py`](orchestrator/sdlc/audit.py) — hash-chained JSONL | 345 and 250 entries, both verify |
 | Reliability metrics | [`metrics.py`](orchestrator/sdlc/metrics.py) — computed from the journal only | [`docs/METRICS.md`](docs/METRICS.md) |
@@ -103,7 +108,13 @@ person would have missed, or where it was wrong and the record says so.
   `greenfield-3`'s spend was re-running nodes invalidated by prompt edits made
   while the run was in flight. Change-driven replanning working exactly as
   designed, and a self-inflicted 39% of that run's cost.
-- **Six defects in the orchestrator, each now a test.** Retrying a provider quota
+- **A human's answers were never reaching the work.** For three runs, a person
+  could answer a blocking ambiguity, the gate would confirm an answer existed,
+  and every downstream node would keep building from the model's own proposal.
+  The two earlier runs could not have caught it: the human agreed with the
+  proposal both times, which makes the right answer and no answer produce
+  identical output. **A control tested only by agreement is not tested.**
+- **Seven defects in the orchestrator, each now a test.** Retrying a provider quota
   wall three times at $7.42. An approval that cleared a contract question and
   then dead-ended because it could not name the branch. A repair budget that
   refused the branch a human had just named, and replanned from `decompose`
