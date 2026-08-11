@@ -1,225 +1,207 @@
 {
   "checklist": [
     {
-      "evidence": "Journal seq 278 (run greenfield-3, node `verify`): check `maven_verify`, outcome pass, exit_code 0. Surefire XML in service/target/surefire-reports (written 2026-08-10 22:53, 21 class files) aggregates to 148 tests, 0 failures, 0 errors, 0 skipped. The verified tree is join commit 4d59deb; `git diff --stat 4d59deb HEAD -- service/` is empty and `git status` is clean, so HEAD's service sources are byte-identical to what was verified. I did not re-run the build myself.",
-      "item": "Build and test suite green on the tree being shipped",
+      "evidence": "13 contracted behaviours mapped to AC1 in test-contract.json, all present in the tree, e.g. HostEvasionRefusalTest.aDenylistedHostWithATrailingDotIsRefusedIdenticallyToTheHostItself and HostCanonicalisationTest.aTrailingDotIsNotPartOfAHost. Green in the final verify run (journal seq 179, `mvn verify` exit 0); surefire-reports on disk (37 files, 11:39) aggregate 276 tests / 0 failures / 0 errors / 0 skipped.",
+      "item": "AC1 - denylisted host with trailing dot refused 422 url_rejected",
       "status": "pass"
     },
     {
-      "evidence": "triage.json records RedirectTest.aMethodOtherThanGetOrHeadIsRefusedWithoutRevealingWhetherTheCodeExists failing on the pre-repair tree, adjudicated a test defect by a human twice (journal seq 115, seq 239). Commit 6df7986 (author-tests) changed only RedirectTest.java (+59/-4). That test appears in the current surefire XML with no <failure> element; 0 skipped and 0 disabled means it was not muted. test-baseline.json (tests 130, disabled 0) vs 148 executed methods now - no test was deleted to reach green.",
-      "item": "Previously failing test (triage.json) is resolved, not suppressed",
+      "evidence": "14 behaviours, all methods present, e.g. HostCanonicalisationTest.everyNumericSpellingOfLoopbackCanonicalisesToOneDottedQuad, HostEvasionRefusalTest.anInternalAddressWrittenAsOneDecimalNumberIsRefusedIdenticallyToTheDottedForm. Same green run (seq 179).",
+      "item": "AC2 - internal address in non-dotted-quad numeric form refused 422",
       "status": "pass"
     },
     {
-      "evidence": "Journal seq 279: `coverage_floor` pass, \"line coverage 86.9% (657/756) against a 70% floor\". Recomputed independently from service/target/site/jacoco/jacoco.csv (58 classes): line 86.90%, instruction 88.96%, branch 70.59%. The floor lives in orchestrator/pipelines/sdlc.yaml; pom.xml jacoco config reports but does not enforce (pom.xml:232-238), so the gate is the enforcement point and it passed.",
-      "item": "Coverage floor",
+      "evidence": "docs/evidence/ac3-host-evasion-before-fix.log: HostEvasionRefusalTest run at the merge commit with only UrlValidator.java and DenylistThreatCheck.java reverted to sdlc/greenfield-3 - 'Tests run: 11, Failures: 6, Errors: 0', failures showing 201 ACTIVE links for https://malware.example.com./x, http://2130706433/, http://0177.0.0.1/, http://localhost./internal. Same 11 green at verify (seq 179). Caveat: this evidence was produced by hand in a scratch worktree after review-synthesis promoted the gap to a blocker (journal seq 132/134); no pipeline node runs new tests against old code, recorded in docs/TODO.md. HostCanonicalisationTest's 10 unit tests have no meaningful pre-change baseline (the class did not exist).",
+      "item": "AC3 - the AC1/AC2 tests fail against pre-change code, pass after, and are retained",
       "status": "pass"
     },
     {
-      "evidence": "Journal seq 280: `routes_match_openapi` pass, \"8 route(s) match the contract exactly\". This checks route shape only, not response bodies; API-2, API-4 and API-6 are body/status divergences the gate cannot see.",
-      "item": "Route / contract diff against the frozen OpenAPI spec",
+      "evidence": "12 behaviours, e.g. SignUpTest.anUnauthenticatedCallerCreatesAnAccountAndReceivesItsIdentity; POST /api/v1/customers added in CustomerController.java (commit 19e0c4a) and exempted in SessionAuthenticationFilter. Green at seq 179.",
+      "item": "AC4 - unauthenticated caller can create an account",
       "status": "pass"
     },
     {
-      "evidence": "Journal seq 314/330: `static_analysis` pass, \"no findings at or above 'high' (21 medium, 2 low)\". service/target/spotbugsXml.xml contains 23 BugInstances: 20 MALICIOUS_CODE, 3 BAD_PRACTICE; priority 2 x21, priority 3 x2. Nobody triaged the 21 mediums individually in this run.",
-      "item": "Static analysis",
+      "evidence": "SignUpTest.theNewAccountSignsInAtTheExistingSessionEndpoint and .theNewAccountsTokenIsAcceptedByEveryEndpointAnExistingCustomersTokenIs (7 behaviours). Green at seq 179.",
+      "item": "AC5 - sign-in with new credentials succeeds; token accepted everywhere an existing token is",
       "status": "pass"
     },
     {
-      "evidence": "Journal seq 291-306: `schema_valid` + `paths_confined` pass for each of review-performance/-api-contract/-cleanliness/-security/-test-adequacy (1 file each, within allowlist); seq 328/332 same for review.json; seq 313/329 `lens_findings_preserved` \"all 48 lens finding(s) preserved\".",
-      "item": "Schema-validity and path-confinement gates on every review artifact",
+      "evidence": "10 behaviours incl. SignUpUniquenessTest.aSecondSignUpForAnExistingAccountNameIsRefused; enforced by V3__unique_lower_email.sql (unique index on lower(email)) plus the DataIntegrityViolationException -> 409 account_unavailable translation in SignUpService.java:64. Green at seq 179. See SEC-8: that catch is broad in the constraint sense and would report any other integrity fault as 'name taken'.",
+      "item": "AC6 - duplicate account name refused; concurrent attempts yield exactly one account",
       "status": "pass"
     },
     {
-      "evidence": "review.json SEC-1, severity blocker, confidence high: V2__seed_customers_and_denylist.sql:13 inserts two customers unconditionally (spring.flyway.enabled: true, locations: classpath:db/migration - only V1 and V2 exist in service/src/main/resources/db/migration), plaintexts published at artifacts/openapi.yaml:99-102. Journal seq 318 escalated it; seq 319 human decision by neil is \"approved\" with note \"Risk accepted to let the run complete, not resolved... nothing from this run is to be deployed anywhere reachable until it is closed. Proceed to release-readiness, which must report this as an open blocker rather than treat the approval as a fix.\" docs/TODO.md:8 records it as an accepted, unfixed risk. The gate at seq 331 reads \"cleared by neil\" - procedural clearance, not a code fix. No commit touches V2 since.",
-      "item": "SEC-1 (blocker): seeded customer accounts with published plaintext passwords reach production",
-      "status": "fail"
-    },
-    {
-      "evidence": "8 mapped behaviours in test-contract.json (B026-B029 et al., CreateLinkTest); all 8 present in surefire XML with no failure.",
-      "item": "AC1 - signed-in customer gets a short link",
+      "evidence": "SignUpTest.theSubmittedPasswordIsNeverStoredInRecoverableForm and .theStoredCredentialIsProducedByTheSameMechanismTheSeededAccountsUse (6 behaviours); SignUpService delegates to the existing Argon2PasswordHasher. Green at seq 179.",
+      "item": "AC7 - password never stored or returned recoverably; same mechanism as existing accounts",
       "status": "pass"
     },
     {
-      "evidence": "7 mapped behaviours (B028, B040, B048, B061 et al.; RedirectTest, CustomAliasTest); all executed, all passed.",
-      "item": "AC2 - live short link redirects",
+      "evidence": "SignUpIsolationTest (7 behaviours) incl. aSignedUpCustomerCannotReadAnotherCustomersLink, aNewlyCreatedAccountOwnsNothing. Green at seq 179.",
+      "item": "AC8 - sign-up customer cannot see/modify/delete another customer's link",
       "status": "pass"
     },
     {
-      "evidence": "17 mapped behaviours (ClickCountingTest, DurabilityAcrossRestartTest) all executed and green, but review.json TEST-1 (high) shows the assertions read durable+pendingDelta and the Redis hash is never emptied, so deleting @Scheduled from ClickFlushJob.flush(), breaking read_click_deltas.lua or breaking ClickFlushWriter.write leaves the suite green. Exactness across an actual durable flush is not demonstrated. Settled by the proposed ClickDurabilityTest (flush-interval=PT1S, resetSharedTierState(), assert count still N).",
-      "item": "AC3 - click count exact, no clicks missing",
+      "evidence": "AnonymousLinkCreationTest.anUnauthenticatedCallerReceivesAShortLinkForTheirLongUrl (12 behaviours); PublicLinkController.java added; routes_match_openapi 10/10 (seq 181). Green at seq 179.",
+      "item": "AC9 - anonymous link creation returns code and short URL with no credentials",
+      "status": "pass"
+    },
+    {
+      "evidence": "AnonymousLinkCreationTest.anAnonymousLinkExpiresOneMonthAfterItIsCreated plus AnonymousLinkExpiryTest (8 behaviours). Green at seq 179. TEST-7 flags a timing margin in AnonymousLinkExpiryTest.anAnonymousLinkRedirectsUntilItsExpiryPasses (sleeps half a 3s TTL) as CI-flake-prone.",
+      "item": "AC10 - anonymous link expires one month after creation; 404 thereafter",
+      "status": "pass"
+    },
+    {
+      "evidence": "11 behaviours incl. AnonymousLinkRedirectTest / AnonymousLinkExpiryTest.anAnonymousLinkRedirectsUntilItsExpiryPasses; CachedLink carries no customerId (confirmed by the performance lens by reading). Green at seq 179.",
+      "item": "AC11 - anonymous code redirects identically and counts clicks identically",
+      "status": "pass"
+    },
+    {
+      "evidence": "5 behaviours incl. AnonymousLinkCreationTest.aDenylistedTargetIsRefused and theAnonymousPathAcceptsNoTargetTheAuthenticatedPathRefuses. Green at seq 179. CLEAN-1 notes the admission sequence is retyped rather than shared between create() and createAnonymous(), so nothing mechanical keeps them equal for a future fourth rule.",
+      "item": "AC12 - anonymous creation applies the same safety filter, including AC1/AC2 forms",
+      "status": "pass"
+    },
+    {
+      "evidence": "19 behaviours, the largest set, incl. AnonymousLinkInvisibilityTest and AnonymousLinkCreationTest.theCreatedLinkIsStoredWithNoOwner; enforced structurally by NULL customer_id (V4 migration) since SQL equality never matches NULL. Green at seq 179.",
+      "item": "AC13 - anonymous links invisible to every caller (404, never listed)",
+      "status": "pass"
+    },
+    {
+      "evidence": "AnonymousCreateRateLimitTest.anonymousCreationIsThrottledOnceItsBucketIsEmpty, .aThrottledAnonymousCreateMintsNoLink, .anEmptyAnonymousCreateBucketDoesNotAffectTheClickPath (5 behaviours). Green at seq 179. Qualified by SEC-3 (bucket keyed on getRemoteAddr(), which behind the edge proxy is the proxy's address) and by the fact that no lens read redis/token_bucket.lua, where the limit is actually enforced.",
+      "item": "AC14 - anonymous creation rate limited; cannot bypass authenticated limits",
+      "status": "pass"
+    },
+    {
+      "evidence": "AnonymousCreateDegradationTest.anonymousCreationIsRefusedWithTheExistingErrorWhileADependencyIsUnavailable exists and passed, but TEST-5 shows every 503 assertion is guarded (allMatch(201||503), then filter(status!=201), then filter(status==503)), so an implementation whose anonymous create survives the outage passes with the service_unavailable envelope never checked. What would settle it: assert at least one of the three attempts returned 503, or record a run showing the 503 branch was entered.",
+      "item": "AC15 - anonymous creation refused with the existing error while the click path serves",
       "status": "unknown"
     },
     {
-      "evidence": "6 mapped behaviours (B012, B098-B100; RedirectTest cache-header assertions plus ClickCountingTest); all executed, all passed.",
-      "item": "AC4 - repeat clicks reach the service and are counted",
+      "evidence": "SeededAccountsSurviveTest plus SignUpUniquenessTest.aSeededAccountNameCannotBeTakenAgain, .aRefusedSignUpLeavesTheExistingAccountsCredentialUntouched (7 behaviours). Green at seq 179 against the real Flyway-migrated Postgres container.",
+      "item": "AC16 - seeded accounts still exist and can sign in",
       "status": "pass"
     },
     {
-      "evidence": "AC5 6 behaviours, AC6 5 behaviours (CustomAliasTest B039-B045); all executed, all passed. Caveat recorded separately as TEST-2: the invalidateBeforeIssuing path (alias probed before it existed) is unpinned.",
-      "item": "AC5 / AC6 - custom alias granted when free, rejected without disclosure when taken",
+      "evidence": "20 behaviours mapped; tests_not_weakened gate at author-tests (seq 172) reported 244 tests / 1786 assertions / 0 disabled against a baseline of 240/1056 in artifacts/test-baseline.json - no test removed or disabled. Full suite 276 tests, 0 failures/errors (surefire-reports, 11:39). routes_match_openapi 10/10 (seq 181).",
+      "item": "AC17 - all pre-existing documented behaviour unchanged; existing suite passes",
       "status": "pass"
     },
     {
-      "evidence": "19 mapped behaviours (ListLinksTest, ClickCountingTest); all executed, all passed. The AC3 durable-flush caveat applies to the number reported.",
-      "item": "AC7 - owner retrieves link performance",
+      "evidence": "implement exit gate maven_compiles pass, exit_code 0 (journal seq 148); author-tests tests_compile pass, exit_code 0 (seq 171).",
+      "item": "Build gate - main and test sources compile",
       "status": "pass"
     },
     {
-      "evidence": "AC8 14 behaviours (DeleteLinkTest), AC9 9 behaviours (B004, B006, B054, B055; AbuseReportTest + DeleteLinkTest, 60s cache TTL bound); all executed, all passed. API-6 notes DELETE on a BLOCKED link overwrites status to DELETED - a representation issue, not a redirect-stops issue.",
-      "item": "AC8 / AC9 - deleted or reported link stops redirecting within the published bound",
+      "evidence": "verify node maven_verify pass, '`mvn verify` exited 0, full build and test suite green' (journal seq 179), at join commit 745626c8. An earlier attempt failed (seq 157/162) on WriteRateLimitTest: 5 errors, 'sorry, too many clients already', triaged as a harness connection-budget problem (artifacts/triage.json) and repaired in TestInfrastructure.java only (commit 70755a9, 1 file, no assertion touched).",
+      "item": "Test gate - full suite green",
       "status": "pass"
     },
     {
-      "evidence": "AC10 10 behaviours, AC11 11 behaviours (LinkExpiryTest, ConfiguredDefaultExpiryTest B024/B025/B034/B065); all executed, all passed.",
-      "item": "AC10 / AC11 - expiry default and per-link configurability",
+      "evidence": "coverage_floor pass: line coverage 88.3% (791/896) against a 70% floor (journal seq 180); service/target/site/jacoco/jacoco.xml present.",
+      "item": "Coverage gate",
       "status": "pass"
     },
     {
-      "evidence": "AC12 12 behaviours, AC18 5 behaviours (B107, B108, B114, B117; SessionExpiryTest, SignInBehaviourTest - stateless Ed25519 JWT verified in-process by JwtVerifier); all executed, all passed.",
-      "item": "AC12 / AC18 - unauthenticated management requests refused; sessions verified without a callback",
+      "evidence": "routes_match_openapi pass, '10 route(s) match the contract exactly' (journal seq 181). Contract-freeze gates also passed at implement and author-tests (seq 142/170: 21 and 35 of 54 contract files verified).",
+      "item": "Route / contract diff gate",
       "status": "pass"
     },
     {
-      "evidence": "15 mapped behaviours (TenantIsolationTest B029/B036/B042/B057 et al.); all executed, all passed. review.json summary: \"contract conformance is near-exact on all eight operations, the single-404 rule and tenant isolation hold\".",
-      "item": "AC13 - tenant isolation, no existence disclosure across customers",
+      "evidence": "review-synthesis static_analysis pass: 'no findings at or above high (22 medium, 2 low)', counts {high:0, medium:22, low:2} (journal seq 231).",
+      "item": "Static analysis gate",
       "status": "pass"
     },
     {
-      "evidence": "3 mapped behaviours (B095-B097, RedirectTest); executed, passed. WebConfig:28 registers the session filter for /api/v1/* only.",
-      "item": "AC14 - clicking needs no credentials",
+      "evidence": "implement no_secrets pass (seq 150, 3 files scanned); paths_confined pass at every node in the run, including 'protected path(s) approved by neil' for the two migrations (seq 88).",
+      "item": "Secret scan and path confinement",
       "status": "pass"
     },
     {
-      "evidence": "13 mapped behaviours (B005, B049, B058, B059 et al.) all green, including the previously failing 405-parity test now repaired to assert what the contract promises. The 405 bodies still differ in echoed path and timestamp; a human ruled (journal seq 115/239) that this discloses nothing.",
-      "item": "AC15 - unissued code indistinguishable from someone else's code",
+      "evidence": "git diff --stat 745626c8..HEAD touches only artifacts/*.json, docs/RUNBOOK.md and docs/TODO.md - no file under service/ changed after the green verify. Working tree is clean (git status --porcelain empty).",
+      "item": "Verify ran against the code being shipped",
       "status": "pass"
     },
     {
-      "evidence": "9 mapped behaviours (ShortCodeUnguessabilityTest B019/B038/B047/B103); all executed, all passed. SEC-10 (nit) notes codes are written to INFO logs, widening their audience without breaking the tested property.",
-      "item": "AC16 - short codes unguessable and non-enumerable",
+      "evidence": "review-security, review-performance, review-api-contract, review-cleanliness, review-test-adequacy each passed schema_valid and paths_confined (journal seq 192-207); lens_findings_preserved pass, 'all 38 lens finding(s) preserved across 5 lens(es)' (seq 230), carried as 35 entries in artifacts/review.json with three merges (SEC-2/PERF-2, SEC-4/PERF-5, SEC-5/CLEAN-4).",
+      "item": "Review coverage - five lenses ran and all findings preserved",
       "status": "pass"
     },
     {
-      "evidence": "7 mapped behaviours (PasswordStorageTest B090-B093); all executed, all passed (Argon2id via Argon2PasswordHasher). The security lens traced the chain rather than testing against a real dumped database, and SEC-1 publishes the two seeded passwords anyway, which defeats this AC's intent for those accounts.",
-      "item": "AC17 - stolen database does not yield passwords",
+      "evidence": "Adjudicated twice. First cycle: promoted to blocker (seq 132), human repair requested by neil (seq 136/137); fix landed in commit f419f62 - AbuseReportService.mayTakeDown requires the reporter to pre-date the link or exceed app.abuse.min-reporter-age, @DefaultValue(\"P7D\") at AppProperties.java:227 - pinned by AbuseReportReporterAgeTest (3 tests, 0 failures, surefire report on disk) in both directions. Re-raised by the security lens against code already containing the fix; human_decision seq 220 closes it with no code change, confirming P7D is the production value and accepting the posture, recorded in docs/TODO.md.",
+      "item": "Blocker disposition - SEC-1 (abuse-report takedown reachable via free accounts)",
       "status": "pass"
     },
     {
-      "evidence": "15 behaviours green (ClickRateLimitTest, SignInRateLimitTest, WriteRateLimitTest, AbuseReportRateLimitTest), but the per-source half is demonstrated only on the two customer-keyed buckets. SEC-3: the three IP-keyed buckets use request.getRemoteAddr() with no server.forward-headers-strategy set (absent from application.yml), so behind a proxy every request shares one key. The test lens records in not_examined that per-source isolation of CLICK/NOT_FOUND/SIGN_IN cannot be shown from loopback. Settled by a deployment decision on forwarded headers plus a test driving two forwarded addresses through one socket.",
-      "item": "AC19 - abusive source throttled while others keep being served",
+      "evidence": "Five majors remain open with no code change and no scheduled fix: PERF-3 (no lock_timeout on V4's ACCESS EXCLUSIVE ALTER TABLE links - the only finding whose damage lands during the deploy), SEC-2/PERF-2 (unbounded concurrent Argon2id on an unauthenticated path, limiter fails open on Redis error, no thread cap or heap size anywhere in the repo), API-1 (no fallback @ExceptionHandler, so a DataAccessException answers Boot's 500 body where openapi.yaml documents 503 in ApiError shape), PERF-1 (Argon2 hash inside the @Transactional sign-up, default pool of 10 shared with the redirect fallback), SEC-3 (both new unauthenticated buckets keyed on getRemoteAddr() behind an edge proxy). SEC-3's named mitigation did land: docs/RUNBOOK.md:144 now states the global-ceiling consequence and that X-Forwarded-For is deliberately untrusted.",
+      "item": "Major findings - disposition",
+      "status": "fail"
+    },
+    {
+      "evidence": "21 minors and 8 nits are unaddressed in code. docs/TODO.md states the general deferral rationale ('nothing here is deployed, the deliverable is the orchestration layer') but does not enumerate them individually; API-4 in particular ('error' missing from AliasPolicy.RESERVED_CODES, letting an alias shadow /error on the one path the spec says never returns 5xx) is a one-line fix left open. What would settle it: a per-id defer/fix decision recorded by the approver.",
+      "item": "Minor/nit findings - disposition",
       "status": "unknown"
     },
     {
-      "evidence": "8 behaviours green, but TEST-3 shows the create half of DegradedDependencyTest:215 asserts disjunctively (created == 201 || created == 503) and cannot fail either way; API-3 shows the documented 503 on POST /api/v1/links (openapi.yaml:324-337) is not produced for a PostgreSQL outage - saveAndFlush's DataAccessException reaches no handler and yields a framework 500. The click half is pinned firmly.",
-      "item": "AC20 - clicks preferred over creates under dependency failure",
+      "evidence": "service/src/main/resources/redis/token_bucket.lua is listed as not_examined by security, performance and api-contract - three of five - and it is where every rate limit is actually enforced; bucket atomicity, key expiry, capacity semantics and the retry-millis feeding Retry-After are unverified, while 'there is a bucket' is the stated mitigation for SEC-1, SEC-2, SEC-4 and SEC-7. Also unexamined by everyone: actuator endpoints (outside the session filter, WebConfig registers it for /api/v1/* only), JWT issuance/verification (read at interface level only; app.session.private-key-pem defaults to blank => ephemeral keypair per replica), clickCount exactness and the flush job, and the orchestrator/sdlc/gates.py + tests diff in commit 7753468.",
+      "item": "Review blind spots - where nobody looked",
+      "status": "fail"
+    },
+    {
+      "evidence": "Four of five lenses state explicitly they ran nothing (see each artifact's not_examined[0]). Mitigated, not eliminated, by the fact that the mechanical gates did execute: maven_verify exit 0, 276 surefire tests green, 88.3% coverage, routes 10/10. Behavioural claims in the findings (Boot error-body shapes, /error outranking /{code}, java.net.URI null host, Hibernate eager connection acquisition) remain read from source, not observed.",
+      "item": "Nothing was executed by the reviewers",
+      "status": "pass"
+    },
+    {
+      "evidence": "25 main-source files, +1129/-42 (git diff 57a7e5b^..HEAD -- service/src/main). Host safety: HostNormalizer.java new (+301), UrlValidator and DenylistThreatCheck route both host decisions through it. Sign-up: CustomerController, SignUpService, SignUpRequest/Response, CustomerRepository, SessionAuthenticationFilter exemption. Anonymous links: PublicLinkController, CreateAnonymousLinkRequest/AnonymousLinkResponse, LinkService.createAnonymous, LinkEntity nullable owner. Rate limiting: two new RateLimitBucket constants. Abuse: AbuseReportService reporter-age eligibility (+71). Schema: V3, V4. Tests: 15 new/extended classes, 244 tests / 1786 assertions.",
+      "item": "Diff summary - what changed",
+      "status": "pass"
+    },
+    {
+      "evidence": "V3__unique_lower_email.sql (unique index on lower(email)) and V4__links_customer_id_nullable.sql (ALTER TABLE links ALTER COLUMN customer_id DROP NOT NULL), both approved on the diff by neil at the paths_confined escalation (journal seq 85/88). V4 is backwards compatible on read and one-way in practice - V4's own comment states re-adding NOT NULL means deleting or re-homing every anonymous row, with rollback defined as 'stop creating them and let the TTL drain', and requires V4 to ship before the code that writes NULLs. Deploy-order and locking caveats are live: PERF-3 (no lock_timeout on V4), PERF-8 (V3's CREATE UNIQUE INDEX is not CONCURRENTLY and takes a SHARE lock on customers).",
+      "item": "Schema changes and backwards compatibility",
+      "status": "pass"
+    },
+    {
+      "evidence": "Only two seeded rows exist here, so the unique index cannot be validated from this repository (stated in SeededAccountsSurviveTest and by the test-adequacy lens). What would settle it: a human running the duplicate-check query the migration comment requires - select lower(email), count(*) from customers group by 1 having count(*)>1 - against every environment before deploy. A failed V3 blocks startup behind Flyway.",
+      "item": "V3 applies cleanly in the target environments",
       "status": "unknown"
     },
     {
-      "evidence": "18 behaviours green on the positive path, but SEC-2 (major, high confidence, verified against JDK 21 URI parsing by the security lens) is a working bypass: https://malware.example.com./campaign keeps the DNS root dot, DenylistThreatCheck:39 lower-cases but does not strip it, existsByHost misses and the parent walk never yields the listed host - the link is created and redirects. TEST-6 additionally shows neither the fail-open nor fail-closed branch of the threat check has any test (Fixtures.THREAT_FAIL_OPEN_KEY declared, used by nothing).",
-      "item": "AC21 - phishing/malware URL cannot become a working link",
+      "evidence": "No Dockerfile, no k8s manifest, no JVM flags, no heap size, no replica count, no connection-pool sizing (spring.datasource.hikari.* absent from application.yml), no server.tomcat.threads.max, no server.forward-headers-strategy. Required env vars are DB_URL/DB_USERNAME/DB_PASSWORD, REDIS_HOST/REDIS_PORT, SERVER_PORT, APP_BASE_URL, APP_DOMAIN, APP_SESSION_PRIVATE_KEY_PEM/PUBLIC_KEY_PEM (application.yml lines 16-100); the last two default to blank, which generates an ephemeral keypair per replica at startup - untraced across replicas by any lens. docker-compose.yml is dev-only. SEC-3, SEC-2 and PERF-1/PERF-2 all turn on facts only an operator can supply.",
+      "item": "Deploy requirements not present in the repository",
       "status": "fail"
     },
     {
-      "evidence": "4 behaviours green; ClickCountingTest.aHotLinkKeepsBeingServedAndStaysExact drives 300 concurrent clicks, asserts every one is 302 and the total exact. The 'fast' half has no assertion anywhere in the suite (TEST-4) and no number to assert against - neither openapi.yaml nor design.json publishes a latency budget. Settled by publishing a target and asserting it, or recording the omission as a decision.",
-      "item": "AC22 - hot link stays fast and counted under a spike",
+      "evidence": "SEC-5 (merged with CLEAN-4): neither new unauthenticated path logs anything joinable to a caller - createAnonymous logs only the generated code (the row carries no creator by construction) and the duplicate sign-up refusal logs neither address nor request id, while the authenticated path already logs its customer id (LinkService.java:107). SEC-4 adds that there is no gauge for NULL-owner row count and no alert on the ANONYMOUS_CREATE 429 rate. The requirement's operability criterion asks for exactly this.",
+      "item": "Operability / observability of the new behaviour",
+      "status": "fail"
+    },
+    {
+      "evidence": "SEC-4/PERF-5: anonymous rows are unowned, undeletable by anyone (AnonymousLinkInvisibilityTest confirms DELETE answers 404), never swept (V1 is soft-delete-only, expiry derived at read time), and permanently hold their (domain, code) namespace slot; no purge job is added and any future reaper needs a tombstone since code reissue is forbidden. PERF-4 adds that ix_links_owner_listing now indexes NULLs that no query can match. Growth rate is set by attacker choice; neither lens could bound it.",
+      "item": "Data retention for anonymous rows",
+      "status": "fail"
+    },
+    {
+      "evidence": "docs/TODO.md carries the unvalidated {code} path variable reaching Redis/PostgreSQL/abuse_reports.code with no fallback handler, and CR/LF log injection through the same variable. The security lens deliberately did not re-report them and explicitly did not verify whether they are still open. API-1 shares a root cause with the first. What would settle it: a read of the current ApiExceptionHandler and RedirectController against those two entries.",
+      "item": "Pre-existing tracked defects still open",
       "status": "unknown"
-    },
-    {
-      "evidence": "artifacts/review.json holds 44 synthesised findings from 48 lens findings (gate `lens_findings_preserved`, seq 329): 1 blocker, 12 major, 17 minor, remainder nits. Exactly one is dispositioned - SEC-1, accepted-not-fixed by neil at seq 319 and recorded in docs/TODO.md. No code change lands in response to any finding: `git diff 4d59deb HEAD -- service/` is empty, so every major (SEC-2, SEC-3, SEC-4/PERF-8, SEC-5, SEC-7/API-1/PERF-6, API-2, API-3, PERF-1, PERF-2, PERF-3, TEST-1, TEST-2, TEST-3) is open and unadjudicated.",
-      "item": "Review findings dispositioned",
-      "status": "fail"
-    },
-    {
-      "evidence": "artifacts/review-security.json, -api-contract.json, -performance.json, -test-adequacy.json, -cleanliness.json, each schema-valid and path-confined (journal seq 291-306), checkpoint commits 1f9272e, 9eceb60, 9cb34d0, aff5b94, 6cd6122.",
-      "item": "Five review lenses ran and are on the record",
-      "status": "pass"
-    },
-    {
-      "evidence": "All five not_examined lists say so independently: security \"I did not build or run the service or its test suite\" (only a standalone JDK 21 URI/InetAddress probe); api-contract \"Nothing was executed - every finding is from reading source, not from observing a response on the wire\"; performance \"no database was available to me\" (no EXPLAIN, no profiler, no measurement); test-adequacy \"I did not run the suite... Testcontainers needs a Docker daemon this sandbox does not allow\". The suite is green per the verify node, but no reviewer observed the running system.",
-      "item": "Where nobody looked - no lens executed anything",
-      "status": "fail"
-    },
-    {
-      "evidence": "Convergent gap across three lenses: api-contract \"redis/token_bucket.lua and read_click_deltas.lua were not read\"; cleanliness \"src/main/resources/redis/*.lua ... reviewed only for existence and call sites, not line by line\"; security read them \"for injection and error-handling only, not audited for atomicity or lost-update behaviour\"; performance read read_click_deltas.lua for cost only and \"took the non-destructive read/settle invariant on trust rather than reasoning through every interleaving\" under multiple replicas. token_bucket.lua (55 lines) has been read line-by-line by nobody. This sits directly under AC3 and AC19.",
-      "item": "Where nobody looked - the Lua scripts and the flush/settle invariant",
-      "status": "fail"
-    },
-    {
-      "evidence": "Named in both security and performance not_examined lists; performance: \"whether the cache tier is allowed to evict under pressure decides what PERF-2's growing hash actually does\". Not in the repository (docker-compose.yml sets no maxmemory) and not in docs/ (no match for 'maxmemory' in RUNBOOK.md or OPERATIONS.md). This setting decides whether a backed-up pending hash loses click counts.",
-      "item": "Where nobody looked - Redis eviction/maxmemory and deployment topology",
-      "status": "fail"
-    },
-    {
-      "evidence": "Security not_examined: TLS termination, HSTS, whether the edge forces HTTPS on the redirect path, whether the edge blocks /actuator, and Tomcat-vs-edge HTTP parser differentials (\"needs a live service and a fuzzing tool I do not have here\"). Test lens: per-source rate-limit isolation untestable from loopback. docs/RUNBOOK.md:87-95 documents the actuator surface as outside the auth filter but states no edge responsibility. No document in the repo says what the edge owns.",
-      "item": "Where nobody looked - the edge proxy contract",
-      "status": "fail"
-    },
-    {
-      "evidence": "Security not_examined: \"no SCA tool or advisory feed was reachable, so jjwt 0.12.6, bcprov-jdk18on 1.81, Spring Boot 3.5.16 and their transitives were not checked for known CVEs\"; cleanliness explicitly deferred service/pom.xml dependency and version choices to that lens. No SCA gate exists in the pipeline. Settled by running an SCA scan (OWASP dependency-check / osv-scanner) against service/pom.xml.",
-      "item": "Where nobody looked - dependency/supply-chain scan",
-      "status": "unknown"
-    },
-    {
-      "evidence": "174 files, +30554/-39 from the root commit. Service main sources: new Spring Boot 3.5.16 URL shortener - redirect hot path (RedirectController, LinkResolver, CachedLink), link management (LinkController, LinkService, UrlValidator, ShortCodeGenerator), auth (SignInController, JwtSessionService, Argon2PasswordHasher), Redis token-bucket rate limiting, two-tier click counting (RedisClickCounter, ClickFlushJob, ClickFlushWriter, two Lua scripts), denylist threat check, abuse reporting, and a single ApiExceptionHandler error surface.",
-      "item": "Diff scope - service implementation",
-      "status": "pass"
-    },
-    {
-      "evidence": "21 behaviour test classes plus a Testcontainers harness (AbstractIntegrationTest, AbstractRestartIntegrationTest, ApiClient, Fixtures, TestInfrastructure), 148 executed methods realising the 129 behaviours in artifacts/test-contract.json. All 129 contract behaviours were mapped by (class, method) to a passing surefire testcase: 0 unexecuted, and every AC1-AC22 has at least 3 mapped behaviours.",
-      "item": "Diff scope - tests",
-      "status": "pass"
-    },
-    {
-      "evidence": "docs/API.md and RUNBOOK.md generated by the docs node (checkpoint 03e7b3c; gates paths_confined 3 files, links_resolve 12 links); docs/TODO.md updated by e9cbc50 to record SEC-1. artifacts/*.json are pipeline records. orchestrator/ (engine, gates, graph, policy, schemas and their tests) also changed in this window - the test lens flagged in not_examined that it did not map those new orchestrator tests to the engine/gates changes they pin.",
-      "item": "Diff scope - docs and pipeline artifacts",
-      "status": "pass"
-    },
-    {
-      "evidence": "CLEAN-6 (medium): docs/IMPLEMENTATION_PLAN.md section 7, the committed plan of record, describes a different service - 410-for-expired, \"Caffeine only - no Redis in the build\", a /stats endpoint, Idempotency-Key, an outbox, 7-character codes (shipped: 22). CacheConfig.LINKS_CACHE cites \"ADR-004\" and docs/adr/ is empty. Not shipped code, but it is in the diff and it misleads.",
-      "item": "Documentation consistent with the delivered system",
-      "status": "fail"
-    },
-    {
-      "evidence": "Greenfield: V1__initial_schema.sql creates the schema and V2__seed_customers_and_denylist.sql seeds it; service/src/main/resources/db/migration contains only those two files and there is no prior deployed schema to be compatible with. Flyway checksum drift, the stale target/classes migration flagged in impact.json, and rollback behaviour are in the security lens's not_examined list. V2's content is the SEC-1 blocker, a security item rather than a compatibility one.",
-      "item": "Database schema changes and backwards compatibility",
-      "status": "n/a"
-    },
-    {
-      "evidence": "Three defaults are wrong-by-default rather than merely unset: SEC-12 - app.base-url defaults to http://localhost:8080 (application.yml:74) and is the source of the self-target check, so a deploy that forgets APP_BASE_URL silently protects localhost; PERF-5 - spring.datasource.hikari.maximum-pool-size is not set, so Hikari runs at its default 10 with nothing sized against expected concurrency; CLEAN-1 - app.links.max-url-length: 2048 is bound to AppProperties.Links.maxUrlLength and read by no code, so changing it does nothing. API-7 adds an unpinned Jackson serialization default under a spec clause that calls the timestamp format frozen.",
-      "item": "Configuration changes and their defaults",
-      "status": "fail"
-    },
-    {
-      "evidence": "Documented in docs/RUNBOOK.md:55: DB_URL/DB_USERNAME/DB_PASSWORD, REDIS_HOST/REDIS_PORT, APP_BASE_URL, APP_DOMAIN, APP_SESSION_PRIVATE_KEY_PEM/APP_SESSION_PUBLIC_KEY_PEM (Ed25519 PKCS#8/X.509 PEM, default empty). JwtSessionService:61-68 generates an ephemeral keypair when they are blank and only logs a WARN - with more than one replica, or across a restart, every token stops verifying. Undocumented and unprovided: Redis maxmemory/eviction policy, the trusted-proxy / forwarded-headers configuration SEC-3 depends on, TLS termination, and whether the edge blocks /actuator (SEC-8/API-5 - metrics and prometheus are unauthenticated on the service port).",
-      "item": "Deploy prerequisites not in the repository",
-      "status": "unknown"
-    },
-    {
-      "evidence": "PERF-1: HLEN clicks:pending - the only signal that the click drain (~100 distinct links/sec/instance) is falling behind - is not exposed as a metric. API-8: RedirectController:86 catches every RuntimeException and answers the documented 404, so a PostgreSQL outage renders every live link as not-found with no alert on that catch block. SEC-9: the abuse-takedown audit trail is an application log into which unescaped CR/LF from the {code} path can be injected.",
-      "item": "Operational visibility for the risks being shipped",
-      "status": "fail"
-    },
-    {
-      "evidence": "This node wrote no files and made no commits; all commands run were reads (git log/diff/status, XML and JSON parsing of existing build output). git status was clean before and remains clean.",
-      "item": "Node stayed within its write allowlist (artifacts/**), propose mode honoured",
-      "status": "pass"
     }
   ],
   "ready": false,
   "residual_risks": [
-    "SEC-1 is open, not fixed. The human approval at journal seq 319 says \"Risk accepted to let the run complete, not resolved\" and \"nothing from this run is to be deployed anywhere reachable until it is closed\". Approving this node does not change that: two customer accounts with plaintexts published in artifacts/openapi.yaml:99-102 are created by V2 on any deploy, there is no registration endpoint so they are the accounts, and SEC-5 makes either one sufficient to permanently take down any link on the service.",
-    "AC21 has a working bypass in the shipped code. A trailing dot (https://malware.example.com./x) defeats the denylist (SEC-2), and SEC-6 defeats the internal-address rule with non-dotted-quad literals (http://2130706433/). Both were confirmed by reading plus a standalone JDK 21 probe, not by a test - and no test in the suite would catch either.",
-    "An unvalidated {code} path variable reaches Redis, PostgreSQL and abuse_reports.code VARCHAR(64) on the two untrusted paths, and ApiExceptionHandler has no fallback handler behind it (SEC-7/API-1/PERF-6 plus API-2). An over-long code on the abuse endpoint yields a 500 with Spring's default body against a spec that declares the error catalogue closed.",
-    "AC3's \"exact for the life of the link\" rests on an unexercised durable write path (TEST-1: delete @Scheduled from ClickFlushJob and the suite stays green), an unread Lua script (token_bucket.lua read line-by-line by nobody; read_click_deltas.lua audited for cost and injection but not atomicity), a drain ceiling of ~100 distinct links/sec/instance nobody measured (PERF-1), and a Redis eviction policy outside this repository that nobody examined.",
-    "Rate limiting is weaker than the contract implies in two ways no test can reveal: the three IP-keyed buckets key on the TCP peer with no forwarded-headers strategy, so behind any load balancer they neither isolate sources nor scale (SEC-3); and the limiter fails open for every bucket including SIGN_IN, so a Redis outage removes brute-force protection while nothing caps concurrent Argon2id at m=16384 KiB across Tomcat's 200 default threads (SEC-4/PERF-8).",
-    "Behaviour under a slow-but-alive Redis is assumed rather than measured. A degraded Redis can hold a Hikari connection for up to 100 seconds on one unmetered list request (PERF-3 with SEC-11) against an unsized default pool of 10 (PERF-5), and adds up to ~3s to a redirect across three sequential round trips (PERF-9). No load has been generated against this build at all.",
-    "The service's contract with its edge proxy does not exist in written form. Whether /actuator/metrics and /actuator/prometheus (unauthenticated, on the service port, absent from openapi.yaml) reach the internet is decided by configuration in neither the repository nor docs/; TLS, HSTS and HTTP parser differentials between Tomcat and the edge were examined by nobody.",
-    "No dependency vulnerability scan has been run by anyone in this pipeline. jjwt 0.12.6, bcprov-jdk18on 1.81, Spring Boot 3.5.16 and their transitives are unchecked against advisories, and no SCA gate exists to catch it on a later run either.",
-    "Two acceptance criteria are shipping without a definition, not merely without a test. AC22's \"fast\" has no published latency number to assert against, and design.json records the threat-check fail-open reading as a blocking ambiguity a human never answered, with TEST-6 confirming neither branch is exercised. Both need a decision from a person.",
-    "The abuse takedown accepted in clarification Q4 rests on assumptions that do not hold as built: \"rate-limited per reporter\" is 60/min (86,400 links/day from one account), the takedown is irreversible with no unblock path and no moderation console, its audit trail is a log an attacker can forge via SEC-9, and an owner's DELETE silently relabels a BLOCKED link as DELETED (API-6). Reversing this reverses a decision a human already signed off.",
-    "If this is deployed anyway, missing APP_SESSION_PRIVATE_KEY_PEM/APP_SESSION_PUBLIC_KEY_PEM produces an ephemeral per-instance keypair with only a WARN - every token breaks on restart or scale-out - and a missing APP_BASE_URL silently makes the self-target check protect localhost (SEC-12).",
-    "Test-suite health is more fragile than 148/148 suggests: TEST-7 documents cross-class coupling through a JVM-wide Redis where several 404 assertions depend on token-bucket state and wall-clock refill. That is the shape of a test that fails once a month and gets muted, so today's green is weaker evidence than a green with isolated fixtures would be.",
-    "Coverage is a line-count (86.9%), not a behaviour measure. The specific paths the review calls unverified - durable click flush, threat-check fail-open/fail-closed, per-source rate-limit isolation, redirect latency - can all be partly line-covered while remaining unasserted."
+    "Rate limiting is unverified where it is actually enforced. redis/token_bucket.lua was read by no lens; bucket atomicity, key expiry, capacity application and the retry-millis behind Retry-After are assumed correct from the Java side. Every new unauthenticated capability names 'there is a bucket' as its mitigation.",
+    "The buckets may not be per-caller at all. Both new endpoints key on HttpServletRequest.getRemoteAddr() and nothing sets server.forward-headers-strategy; behind the edge proxy this service is deployed behind, ANONYMOUS_CREATE's 30/min and SIGN_UP's 60/min are global ceilings, so one caller can deny sign-up and anonymous creation to everyone. docs/RUNBOOK.md:144 now documents the consequence but no code makes it configurable. This is a deployment fact the repository cannot show.",
+    "Unbounded concurrent Argon2id (16 MiB, ~25 ms each) is reachable unauthenticated on POST /api/v1/customers. The limiter fails open on any Redis RuntimeException, Tomcat's default max-threads is 200, and no thread cap or heap size is configured anywhere - worst case ~3.2 GiB transient allocation on the JVM that also serves redirects, during precisely the Redis outage when the click path leans hardest on it. Not covered by any test.",
+    "Connection-pool exhaustion by the same trigger, by a different mechanism: signUp() hashes inside the @Transactional boundary (eager acquisition assumed, not verified) and createAnonymous holds the transaction across a Redis round trip. Pool is the Hikari default of 10, shared with the redirect cache-miss fallback. Fixing either leaves the other.",
+    "V4's ALTER TABLE links takes ACCESS EXCLUSIVE with no lock_timeout, during deploy, on the table the redirect path reads on every cache miss. It queues behind the longest in-flight query and every later query queues behind it, with Flyway blocking startup. One-line fix, not applied.",
+    "A documented 503 can surface as an undocumented 500: no fallback @ExceptionHandler, so a DataAccessException (pool exhaustion being the most likely producer) answers Boot's {timestamp,status,error,path} body, contradicting openapi.yaml's closed ApiError catalogue.",
+    "AC15's refusal half may never have executed - every 503 assertion in AnonymousCreateDegradationTest is conditional, so the service_unavailable envelope is unchecked if creation survives the outage.",
+    "Untested branches that would not fail anything if deleted: DenylistThreatCheck's fail-closed 'cannot canonicalise' path (TEST-2), HostNormalizer's IDN/punycode step (TEST-1), SignUpRequest's @Size(max=320) email boundary (TEST-4), and the accept side of host normalisation for ordinary public IP literals (TEST-3 - an implementation that over-refused every IP-literal target would pass all seventeen AC1/AC2 behaviours).",
+    "Test fragility: AnonymousLinkExpiryTest races a 3-second TTL with ~1.5s of margin on a loaded CI box (TEST-7), and AnonymousLinkCreationTest spends 25 of 30 anonymous-create tokens without pinning the limit (TEST-6), so adding two fixtures - which TEST-3 and SEC-9 both propose - breaks it as an unreadable status mismatch. The suite has also already failed once for harness capacity reasons (11 Spring contexts x pool of 10 against a 100-connection container), fixed by raising capacity, not by reducing contexts.",
+    "Accepted design positions that remain true after approval: the abuse-report takedown is immediate, unmoderated and irreversible with no unblock path and no owner recovery (updateExpiry answers 409 for a non-ACTIVE link), bounded now only by app.abuse.min-reporter-age=P7D - seven days of patience per cohort of minted accounts, not a removal of the attack; 409 account_unavailable remains an account-existence oracle (AC6 admits no non-disclosing wording); A4's 'no retroactive rescan' means every link already minted through the two bypasses this change closes keeps redirecting for up to 30 days while the service refuses to mint the same target.",
+    "Anonymous rows accumulate forever - unowned, undeletable, unreclaimed, each holding a (domain, code) slot and up to 2048 attacker-chosen bytes - with no purge job, no gauge and no alert. Growth rate is set by attacker choice.",
+    "Nobody reviewed adjacent surfaces this change makes more reachable: actuator endpoints sit outside the session filter and were assessed by no lens for what sign-up and anonymous-create volumes they now disclose; JWT issuance/verification was read at interface level only, and app.session.private-key-pem defaults to blank (ephemeral keypair per replica, untraced across replicas); clickCount exactness was not verified against the 'exact and current' promise.",
+    "AC3's failing-run evidence exists only because a human produced it by hand after the fact. The graph still has no node where new tests meet old code, so the next run has the same hole unless the missing node in docs/TODO.md is built.",
+    "Two pre-existing tracked defects (unvalidated {code} path variable with no fallback handler; CR/LF log injection through the same variable) were deliberately not re-reported and nobody confirmed they are still open.",
+    "orchestrator/sdlc/gates.py and orchestrator/tests/test_gates.py changed in this run's history (commit 7753468) and no lens audited that diff. A weakened gate would not have been visible from where any of the five lenses looked - and every mechanical outcome cited above is produced by that code."
   ]
 }
