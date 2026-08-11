@@ -1,390 +1,307 @@
 {
   "risks": [
-    "No human answers to the blocking ambiguities Q1 (60s p99 takedown bound) and Q2 (denylist ThreatCheck, fail open) reached this node; the plan is built on the model's proposed answers. If the business's published takedown number is sub-second, T11/T15/T17 change shape (synchronous multi-tier invalidation, no TTL safety net) and if a real reputation feed is expected, T18 is a materially larger task.",
-    "U4 is unresolved: Argon2PasswordEncoder references BouncyCastle but spring-security-crypto declares no such dependency. If T1 freezes the pom without an explicit bcprov-jdk18on pin, the code compiles and throws NoClassDefFoundError at the first sign-in (AC17), and neither implement nor author-tests may edit pom.xml to fix it.",
-    "U1 is unresolved: if the in-house Redis runs maxmemory-policy allkeys-lru, click counter keys can be evicted before T12's flush, silently losing clicks against AC3 with no error anywhere. Cluster mode additionally invalidates T19's Lua bucket unless every key is single-key or hash-tagged.",
-    "U5 is unresolved: a startup-generated JWT keypair makes a token issued by one instance unverifiable by another and invalidates sessions on restart, which breaks AC18's intent at more than one replica while passing every single-instance test.",
-    "T2 lowers app.cache.spec to <=60s in the same change that adds active invalidation (T15/T17). If the TTL is not lowered, a missed invalidation leaves a deleted or blocked link redirecting for up to five minutes, breaching the AC9 number quoted to fraud teams, and no gate detects it.",
-    "T11 replaces the body of CacheConfig.cacheManager rather than adding a second CacheManager bean. A parallel cache configuration class produces NoUniqueBeanDefinitionException and fails every class extending AbstractIntegrationTest at once, which reads like a broken harness rather than a bean conflict.",
-    "The first build of this run must be `./mvnw clean verify`: a stale service/target/classes/db/migration/V1__create_links.sql from an abandoned branch is on the classpath, is gitignored and invisible in review, and Flyway will apply it and then collide with T3's V1 under ddl-auto: validate.",
-    "T4 adds a second Testcontainer to a static-initialiser singleton pattern whose javadoc records a thirty-minute build caused by getting container lifecycle wrong; no redis image is in the local cache, so a cold pull inside a restricted network surfaces as a harness-wide timeout against verify's 5400s ceiling.",
-    "The routes_match_openapi gate only understands literal-string mappings; T11's root-level catch-all GET /{code} and any constant-valued path can fail the gate while the route is correct, and the redirect must not shadow /actuator/** or the reserved words in T10.",
-    "The no_secrets gate pattern fires on quoted credentials; T3's seeded customer fixture and T2's JWT key must use the existing unquoted ${VAR:default} env-placeholder style or the run halts on a false positive.",
-    "Coverage floor 0.70 is measured over a codebase several times the scaffold's size, and the branches least likely to be exercised by black-box HTTP tests are exactly T18's fail-open path, T19's over-limit path and T20's degraded mode; those need targeted tests, not incidental coverage.",
-    "docker-compose.yml is in no node's write paths and still defines Postgres only. Once the service needs Redis, `docker compose up` yields a service that cannot serve a click and no agent can fix it; it requires the human approving the T1 pom change to add the redis service in the same review."
+    "The two blocking ambiguities (Q1 account name = email, Q2 new 409 account_unavailable) carry no recorded human answer in the upstream context; T7 and T18 are built on the clarification's proposed answers and both change shape if an architect rules otherwise \u2014 a separate username means a customers column, a new sign-in identifier and an edit to a frozen request schema.",
+    "A normaliser that strips too much collapses a public host onto a denylisted parent or an internal address and starts refusing legitimate creation for every existing customer, and url_rejected is deliberately one code with one message, so nobody debugging from outside can tell which check fired (T2/T3).",
+    "InetAddress.getByName is the obvious implementation of T2 and is wrong on JDK 21: 0177.0.0.1 canonicalises to the public 177.0.0.1 while curl reaches 127.0.0.1, and 0x7f000001 / 017700000001 throw. Building on it leaves loopback bypasses open with the fix looking done.",
+    "T3 narrows POST /api/v1/links for existing authenticated callers: numeric, hex, octal and short-form IPv4 targets that return 201 today become 422, with no retroactive rescan, so the service will refuse to mint URLs it is still serving.",
+    "The lower(email) unique index (T5) fails outright on apply if the live customers table already holds two addresses differing only in case; that cannot be checked from this repository and stops the deploy mid-migration.",
+    "Without T5 landing before T6/T7, a case-variant duplicate does not fail at sign-up \u2014 it 500s the frozen sign-in endpoint later through findByEmailIgnoreCase, and would read as an unrelated incident.",
+    "shouldNotFilter is the whole access-control policy for /api/v1/*; a prefix or loose match in T10 unauthenticates link listing, editing and deletion with a green build, since no existing test asserts 401 for a token-free request against a newly exempted neighbour.",
+    "Sign-up puts a 25.6 ms, 16 MiB Argon2id hash and a database insert on an unauthenticated path whose only defence is an IP-keyed bucket that fails open when Redis is down \u2014 during a Redis outage T7 and T13 are unmetered.",
+    "Behind a proxy that does not preserve the source address, every anonymous caller shares one bucket, so the 10/min default is a global ceiling and the anonymous endpoint is effectively closed under real traffic (documented, not fixed, in T18).",
+    "Containers are JVM-wide singletons and nothing truncates PostgreSQL, so sign-up rows accumulate across the suite; duplicate tests in T7 that do not mint unique emails will collide with earlier tests rather than with the code under test.",
+    "Dropping NOT NULL on links.customer_id is one-way in production terms: re-adding it later requires deleting or re-homing every anonymous row, and the rollback plan is to stop creating them and let the TTL drain.",
+    "Both migrations (T5, T9) sit in a pipeline-protected path and will route the run to human approval; the plan depends on that approval landing rather than working around it.",
+    "During a rolling deploy the two new endpoints answer 401 or 201 depending on which pod is hit; no code fixes this, so the endpoints must be announced only after rollout completes."
   ],
   "tasks": [
     {
-      "acceptance_criteria_ids": [],
+      "acceptance_criteria_ids": [
+        "AC3"
+      ],
       "deliverables": [
-        "service/pom.xml"
+        "service/src/test/java/com/example/urlshortener/behaviour/HostEvasionTest.java",
+        "run log entry recording the failing run against pre-change code"
       ],
       "depends_on": [],
       "id": "T1",
-      "title": "Frozen dependency set in service/pom.xml (Redis, KDF, JWT) that both downstream branches build against"
+      "title": "Failing evasion tests for trailing-dot denylist and numeric-IPv4 internal hosts, committed ahead of the fix"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC1",
+        "AC2"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/link/HostNormalizer.java",
+        "service/src/test/java/com/example/urlshortener/link/HostNormalizerTest.java"
+      ],
+      "depends_on": [],
+      "id": "T2",
+      "title": "HostNormalizer producing one canonical host from lower-case, trailing-dot strip, IDN ToASCII and hand-parsed numeric IPv4 forms"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC1",
+        "AC2",
+        "AC17"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/link/UrlValidator.java",
+        "service/src/main/java/com/example/urlshortener/threat/DenylistThreatCheck.java",
+        "INFO log line for a target refused by host normalisation"
+      ],
+      "depends_on": [
+        "T1",
+        "T2"
+      ],
+      "id": "T3",
+      "title": "Both host-policy decisions consume the normalised host, failing closed to 422 url_rejected"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC17"
+      ],
+      "deliverables": [
+        "service/src/test/java/com/example/urlshortener/behaviour/CreateLinkTest.java (label-boundary denylist cases, 400-vs-422 split, byte-identical stored longUrl and Location)"
+      ],
+      "depends_on": [
+        "T3"
+      ],
+      "id": "T4",
+      "title": "Existing create-path and redirect behaviour pinned unchanged under normalisation"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC6",
+        "AC16"
+      ],
+      "deliverables": [
+        "service/src/main/resources/db/migration/V3__unique_lower_email.sql",
+        "migration review note carrying the SELECT lower(email) HAVING count(*)>1 result"
+      ],
+      "depends_on": [],
+      "id": "T5",
+      "title": "Flyway migration adding the unique index over lower(email) on customers, with the pre-apply duplicate check recorded"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC4",
+        "AC6",
+        "AC7"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/domain/CustomerEntity.java",
+        "service/src/main/java/com/example/urlshortener/auth/SignUpService.java"
+      ],
+      "depends_on": [
+        "T5"
+      ],
+      "id": "T6",
+      "title": "Customer creation persisting an Argon2id hash through the existing PasswordHasher, duplicates decided by the constraint violation"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC4",
+        "AC6"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/auth/CustomerController.java",
+        "service/src/main/java/com/example/urlshortener/api/SignUpRequest.java",
+        "service/src/main/java/com/example/urlshortener/api/SignUpResponse.java",
+        "service/src/main/java/com/example/urlshortener/error/ErrorCode.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/SignUpTest.java (including the concurrent-duplicate case with minted unique emails)"
+      ],
+      "depends_on": [
+        "T6",
+        "T8",
+        "T10"
+      ],
+      "id": "T7",
+      "title": "POST /api/v1/customers answering 201 with the created account, 400 on password rules, 409 account_unavailable on a taken address"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC14"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/config/AppProperties.java",
+        "service/src/main/java/com/example/urlshortener/ratelimit/RateLimitBucket.java",
+        "service/src/main/java/com/example/urlshortener/ratelimit/RedisTokenBucketRateLimiter.java"
+      ],
+      "depends_on": [],
+      "id": "T8",
+      "title": "Configurable anonymous TTL and IP-keyed sign-up and anonymous-create buckets in the existing property style"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC9"
+      ],
+      "deliverables": [
+        "service/src/main/resources/db/migration/V4__links_customer_id_nullable.sql"
+      ],
+      "depends_on": [],
+      "id": "T9",
+      "title": "Flyway migration relaxing links.customer_id to nullable, shippable ahead of the code"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC4",
+        "AC9",
+        "AC17"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/auth/SessionAuthenticationFilter.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/UnauthenticatedSurfaceTest.java (401 with WWW-Authenticate on POST /api/v1/links; GET/DELETE on the exempted paths reach 405)"
+      ],
+      "depends_on": [],
+      "id": "T10",
+      "title": "Session filter exempting exactly the two new paths, with the neighbouring routes still 401"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC5",
+        "AC16"
+      ],
+      "deliverables": [
+        "service/src/test/java/com/example/urlshortener/behaviour/SignUpThenSignInTest.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/PasswordStorageTest.java (seeded accounts still sign in)"
+      ],
+      "depends_on": [
+        "T7"
+      ],
+      "id": "T11",
+      "title": "A self-signed-up account signs in through the unchanged session endpoint and its token is accepted everywhere"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC8"
+      ],
+      "deliverables": [
+        "service/src/test/java/com/example/urlshortener/behaviour/TenantIsolationTest.java (sign-up customer cases: 404 on another customer's code, list contains only own links)"
+      ],
+      "depends_on": [
+        "T7"
+      ],
+      "id": "T12",
+      "title": "A self-signed-up customer is as isolated as a seeded one"
     },
     {
       "acceptance_criteria_ids": [
         "AC9",
         "AC10",
-        "AC11",
-        "AC19"
+        "AC15"
       ],
       "deliverables": [
-        "service/src/main/resources/application.yml",
-        "service/src/main/java/com/example/urlshortener/config/AppProperties.java"
+        "service/src/main/java/com/example/urlshortener/link/PublicLinkController.java",
+        "service/src/main/java/com/example/urlshortener/api/CreateAnonymousLinkRequest.java",
+        "service/src/main/java/com/example/urlshortener/link/LinkService.java (null-owner path, anonymous expiry, owner-free log line)",
+        "service/src/main/java/com/example/urlshortener/domain/LinkEntity.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/AnonymousCreateTest.java (201 shape, no Location, alias/expiresAt answer 400, expiry then 404, 503 when the resolution cache cannot be invalidated)"
       ],
       "depends_on": [
-        "T1"
+        "T8",
+        "T9",
+        "T10"
       ],
-      "id": "T2",
-      "title": "Application configuration surface: Redis connection, JWT key placeholder and 24h TTL, rate-limit buckets, 30-day default expiry, public base URL, cache TTL <= 60s"
+      "id": "T13",
+      "title": "POST /api/v1/public/links creating an unowned link with the anonymous TTL through the existing create sequence"
     },
     {
       "acceptance_criteria_ids": [
-        "AC11",
-        "AC17"
+        "AC13"
       ],
       "deliverables": [
-        "service/src/main/resources/db/migration/V1__initial_schema.sql",
-        "service/src/main/resources/db/migration/V2__seed_customers_and_denylist.sql"
-      ],
-      "depends_on": [],
-      "id": "T3",
-      "title": "V1 schema: customers, links (domain,code unique; status; expires_at), click totals, abuse reports, threat denylist, seeded customer fixture"
-    },
-    {
-      "acceptance_criteria_ids": [],
-      "deliverables": [
-        "service/src/test/java/com/example/urlshortener/support/AbstractIntegrationTest.java",
-        "service/src/test/java/com/example/urlshortener/support/TestAuth.java"
+        "service/src/test/java/com/example/urlshortener/behaviour/AnonymousLinkInvisibilityTest.java (GET/PATCH/DELETE answer 404 for signed-in and unauthenticated callers; absent from every link list)"
       ],
       "depends_on": [
-        "T1"
+        "T13"
       ],
-      "id": "T4",
-      "title": "Integration test harness with singleton Redis container alongside Postgres and a signed-in-session helper"
+      "id": "T14",
+      "title": "An anonymous code is unreadable and unlistable for every caller"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC12"
+      ],
+      "deliverables": [
+        "service/src/test/java/com/example/urlshortener/behaviour/AnonymousCreateSafetyTest.java (denylisted, internal, trailing-dot and numeric-IPv4 targets answer 422 url_rejected)"
+      ],
+      "depends_on": [
+        "T3",
+        "T13"
+      ],
+      "id": "T15",
+      "title": "The anonymous path refuses the same targets as the authenticated one, including the two evasion forms"
     },
     {
       "acceptance_criteria_ids": [
         "AC11"
       ],
       "deliverables": [
-        "service/src/main/java/com/example/urlshortener/domain/*.java",
-        "service/src/main/java/com/example/urlshortener/repository/*.java"
+        "service/src/test/java/com/example/urlshortener/behaviour/RedirectTest.java (anonymous code: 302, verbatim Location, same Cache-Control, exact count through the Redis delta and flush)"
       ],
       "depends_on": [
-        "T3"
-      ],
-      "id": "T5",
-      "title": "JPA entities and repositories matching V1 exactly under ddl-auto: validate"
-    },
-    {
-      "acceptance_criteria_ids": [
-        "AC12",
-        "AC17",
-        "AC18"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/auth/SignInController.java",
-        "service/src/main/java/com/example/urlshortener/auth/PasswordHasher.java",
-        "service/src/main/java/com/example/urlshortener/auth/JwtIssuer.java",
-        "service/src/test/java/com/example/urlshortener/auth/SignInIT.java"
-      ],
-      "depends_on": [
-        "T1",
-        "T5"
-      ],
-      "id": "T6",
-      "title": "Sign-in endpoint issuing an asymmetrically signed 24h JWT, with Argon2id/BCrypt password verification"
-    },
-    {
-      "acceptance_criteria_ids": [
-        "AC12",
-        "AC14",
-        "AC18"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/auth/SessionFilter.java",
-        "service/src/main/java/com/example/urlshortener/auth/JwtVerifier.java",
-        "service/src/main/java/com/example/urlshortener/auth/CurrentCustomer.java",
-        "service/src/test/java/com/example/urlshortener/auth/SessionEnforcementIT.java"
-      ],
-      "depends_on": [
-        "T6"
-      ],
-      "id": "T7",
-      "title": "Local-only session verification on /api/v1/** with the click path and actuator left unauthenticated"
-    },
-    {
-      "acceptance_criteria_ids": [
-        "AC16"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/link/ShortCodeGenerator.java",
-        "service/src/test/java/com/example/urlshortener/link/ShortCodeGeneratorTest.java"
-      ],
-      "depends_on": [],
-      "id": "T8",
-      "title": "Unguessable short-code generator: 128-bit CSPRNG base62, no derivation from row/time/URL, unique-constraint retry"
-    },
-    {
-      "acceptance_criteria_ids": [
-        "AC1",
-        "AC10",
-        "AC12",
-        "AC21"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/link/CreateLinkController.java",
-        "service/src/main/java/com/example/urlshortener/link/LinkService.java",
-        "service/src/main/java/com/example/urlshortener/link/UrlValidator.java",
-        "service/src/test/java/com/example/urlshortener/link/CreateLinkIT.java"
-      ],
-      "depends_on": [
-        "T5",
-        "T7",
-        "T8",
-        "T18"
-      ],
-      "id": "T9",
-      "title": "Create-link endpoint returning code and fully-qualified short URL, with URL validation, threat check and 30-day default expiry"
-    },
-    {
-      "acceptance_criteria_ids": [
-        "AC5",
-        "AC6",
-        "AC16"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/link/AliasPolicy.java",
-        "service/src/test/java/com/example/urlshortener/link/AliasIT.java"
-      ],
-      "depends_on": [
-        "T9"
-      ],
-      "id": "T10",
-      "title": "Customer-chosen alias in the shared code namespace: charset and reserved-word rules, 409 on collision with no owner/target disclosure"
-    },
-    {
-      "acceptance_criteria_ids": [
-        "AC2",
-        "AC4",
-        "AC8",
-        "AC10",
-        "AC14",
-        "AC15",
-        "AC22"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/redirect/RedirectController.java",
-        "service/src/main/java/com/example/urlshortener/redirect/LinkResolver.java",
-        "service/src/main/java/com/example/urlshortener/config/CacheConfig.java",
-        "service/src/test/java/com/example/urlshortener/redirect/RedirectIT.java"
-      ],
-      "depends_on": [
-        "T2",
-        "T5"
-      ],
-      "id": "T11",
-      "title": "Root redirect GET/HEAD /{code}: 302 with no-store headers, Redis-backed resolution cache with negative caching, identical 404 for unknown/expired/deleted/blocked, 405 otherwise"
-    },
-    {
-      "acceptance_criteria_ids": [
-        "AC3",
-        "AC4",
-        "AC20",
-        "AC22"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/click/ClickCounter.java",
-        "service/src/main/java/com/example/urlshortener/click/ClickFlushJob.java",
-        "service/src/test/java/com/example/urlshortener/click/ClickCountingIT.java"
-      ],
-      "depends_on": [
-        "T11"
-      ],
-      "id": "T12",
-      "title": "Exact click counting: Redis increment on the hot path, batched durable flush to PostgreSQL, no counting of 404s"
-    },
-    {
-      "acceptance_criteria_ids": [
-        "AC3",
-        "AC7",
-        "AC12",
-        "AC13"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/link/LinkPerformanceController.java",
-        "service/src/test/java/com/example/urlshortener/link/LinkPerformanceIT.java"
-      ],
-      "depends_on": [
-        "T7",
-        "T12"
-      ],
-      "id": "T13",
-      "title": "Owner-scoped link performance endpoint returning PostgreSQL total plus un-flushed Redis delta, 404 for links that are not yours"
-    },
-    {
-      "acceptance_criteria_ids": [
-        "AC7",
-        "AC13"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/link/LinkListController.java",
-        "service/src/test/java/com/example/urlshortener/link/LinkListIT.java"
-      ],
-      "depends_on": [
-        "T5",
-        "T7"
-      ],
-      "id": "T14",
-      "title": "Owner-scoped paginated list of a customer's own links"
-    },
-    {
-      "acceptance_criteria_ids": [
-        "AC8",
-        "AC9",
-        "AC13"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/link/DeleteLinkController.java",
-        "service/src/main/java/com/example/urlshortener/redirect/CacheInvalidator.java",
-        "service/src/test/java/com/example/urlshortener/link/DeleteLinkIT.java"
-      ],
-      "depends_on": [
-        "T7",
-        "T11"
-      ],
-      "id": "T15",
-      "title": "Owner-scoped soft delete with active cache invalidation, verified to stop redirecting inside the 60s bound"
-    },
-    {
-      "acceptance_criteria_ids": [
-        "AC10",
-        "AC11",
-        "AC13"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/link/UpdateExpiryController.java",
-        "service/src/test/java/com/example/urlshortener/link/UpdateExpiryIT.java"
-      ],
-      "depends_on": [
-        "T7",
-        "T11"
+        "T13"
       ],
       "id": "T16",
-      "title": "Owner-scoped expiry-only PATCH on a link, with the target URL immutable and cache invalidation on change"
+      "title": "An anonymous code redirects and counts clicks identically to an owner-created one"
     },
     {
       "acceptance_criteria_ids": [
-        "AC9",
-        "AC12",
-        "AC21"
+        "AC14"
       ],
       "deliverables": [
-        "service/src/main/java/com/example/urlshortener/abuse/AbuseReportController.java",
-        "service/src/main/java/com/example/urlshortener/abuse/AbuseReportService.java",
-        "service/src/test/java/com/example/urlshortener/abuse/AbuseReportIT.java"
+        "service/src/main/java/com/example/urlshortener/ratelimit/RateLimitGuard.java call sites in PublicLinkController and CustomerController",
+        "service/src/test/java/com/example/urlshortener/behaviour/AnonymousCreateRateLimitTest.java (429 rate_limited with non-zero whole-second Retry-After; exhausting the anonymous bucket leaves WRITE untouched and vice versa)"
       ],
       "depends_on": [
         "T7",
-        "T11",
-        "T19"
+        "T8",
+        "T13"
       ],
       "id": "T17",
-      "title": "Authenticated, rate-limited abuse report that blocks the link immediately and records reporter id and timestamp"
+      "title": "Anonymous creation and sign-up metered by their own IP-keyed buckets, spending no authenticated allowance"
     },
     {
       "acceptance_criteria_ids": [
-        "AC20",
-        "AC21"
+        "AC4",
+        "AC9",
+        "AC17"
       ],
       "deliverables": [
-        "service/src/main/java/com/example/urlshortener/threat/ThreatCheck.java",
-        "service/src/main/java/com/example/urlshortener/threat/DenylistThreatCheck.java",
-        "service/src/main/java/com/example/urlshortener/threat/NoOpThreatCheck.java",
-        "service/src/test/java/com/example/urlshortener/threat/ThreatCheckIT.java"
+        "artifacts/openapi.yaml (new paths, 409 account_unavailable row, info.version bump, removal of the 'no registration endpoint' claim)",
+        "docs/API.md",
+        "docs/RUNBOOK.md (anonymous TTL, new buckets, getRemoteAddr-behind-a-proxy shared-bucket note)",
+        "docs/TODO.md"
       ],
       "depends_on": [
-        "T5"
+        "T7",
+        "T8",
+        "T13"
       ],
       "id": "T18",
-      "title": "ThreatCheck port with Postgres denylist and no-op implementations, failing open with a log line when unavailable"
+      "title": "Contract and operator docs describing the two new endpoints, the new error code and the new properties"
     },
     {
       "acceptance_criteria_ids": [
         "AC16",
-        "AC19",
-        "AC22"
+        "AC17"
       ],
       "deliverables": [
-        "service/src/main/java/com/example/urlshortener/ratelimit/TokenBucketLimiter.java",
-        "service/src/main/resources/redis/token_bucket.lua",
-        "service/src/main/java/com/example/urlshortener/ratelimit/RateLimitFilter.java",
-        "service/src/test/java/com/example/urlshortener/ratelimit/RateLimitIT.java"
-      ],
-      "depends_on": [
-        "T2"
-      ],
-      "id": "T19",
-      "title": "Redis token-bucket rate limiting: per-IP click bucket, tighter 404/enumeration bucket, per-customer write bucket, 429 with Retry-After"
-    },
-    {
-      "acceptance_criteria_ids": [
-        "AC20"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/redirect/DegradedModeFallback.java",
-        "service/src/test/java/com/example/urlshortener/redirect/DegradedModeIT.java"
-      ],
-      "depends_on": [
-        "T11",
-        "T12"
-      ],
-      "id": "T20",
-      "title": "Degraded-mode behaviour: clicks served and counted best-effort when Redis or the create path's dependencies are down, health reports the truth"
-    },
-    {
-      "acceptance_criteria_ids": [
-        "AC3",
-        "AC9",
-        "AC13",
-        "AC15",
-        "AC16",
-        "AC19",
-        "AC20",
-        "AC22"
-      ],
-      "deliverables": [
-        "service/src/test/java/com/example/urlshortener/acceptance/TakedownBoundIT.java",
-        "service/src/test/java/com/example/urlshortener/acceptance/IndistinguishableNotFoundIT.java",
-        "service/src/test/java/com/example/urlshortener/acceptance/EnumerationResistanceIT.java",
-        "service/src/test/java/com/example/urlshortener/acceptance/HotLinkSpikeIT.java"
+        "full suite run log",
+        "startup log against the migrated schema",
+        "evidence that a pre-change build starts against the post-change schema and serves a click on an anonymous code"
       ],
       "depends_on": [
         "T4",
+        "T5",
         "T9",
-        "T11",
-        "T12",
-        "T15",
-        "T17",
-        "T19"
+        "T13",
+        "T18"
       ],
-      "id": "T21",
-      "title": "Acceptance suite pinning the cross-cutting guarantees: takedown bound, 404 indistinguishability, code unguessability, counting exactness under repeat clicks, hot-link spike"
-    },
-    {
-      "acceptance_criteria_ids": [],
-      "deliverables": [
-        "docs/IMPLEMENTATION_PLAN.md",
-        "docs/REQUIREMENTS_BRIEF.md"
-      ],
-      "depends_on": [
-        "T1"
-      ],
-      "id": "T22",
-      "title": "Design docs reconciled with the frozen assumptions so reviewers are not reading superseded decisions"
+      "id": "T19",
+      "title": "Green existing suite, clean startup under ddl-auto validate, and a demonstrated schema-first rollout"
     }
   ]
 }
