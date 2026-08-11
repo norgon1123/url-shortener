@@ -1049,6 +1049,24 @@ class TestTriageEscalates:
         assert "low confidence" in h.events("triage_verdict")[0].payload["reason"]
 
 
+class TestHandlersDoNotBlockCompletion:
+    def test_a_run_completes_with_its_handler_never_invoked(
+        self, tmp_path: Path
+    ) -> None:
+        """A handler that never ran is the good case, not an incomplete run.
+
+        Every scheduled node passed and the run still reported FAILED, because
+        `triage` sat at PENDING -- having never been asked to do anything.
+        """
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(IMPL_VERDICT))
+        # `verify` is deterministic -- it never calls a backend, so the only way
+        # to make it pass is to satisfy its gate in the workspace.
+        green = h.git.root / "artifacts" / "green.txt"
+        green.parent.mkdir(parents=True, exist_ok=True)
+        green.write_text("ok")
+        assert h.run() is RunStatus.COMPLETED
+        assert h.status("triage") is NodeStatus.PENDING
+
 class TestRepairBudget:
     """Asymmetric on purpose, and durable across the process."""
 

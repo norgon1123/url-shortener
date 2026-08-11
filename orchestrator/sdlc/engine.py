@@ -204,9 +204,18 @@ class Engine:
     def _finish(self) -> RunStatus:
         states = self.store.node_states(self.run_id)
         incomplete = [
-            nid
-            for nid in self.pipeline.node_ids
-            if states.get(nid) is None or states[nid].status is not NodeStatus.PASSED
+            node.id
+            for node in self.pipeline.nodes
+            # A handler is invoked by a failure and never scheduled, so it has
+            # no business being *required*. `_ready_nodes` has always skipped
+            # them; requiring them here meant a run where every scheduled node
+            # passed still reported FAILED -- because `triage` had never been
+            # asked to do anything, which is the good case.
+            if node.kind is not NodeKind.HANDLER
+            and (
+                states.get(node.id) is None
+                or states[node.id].status is not NodeStatus.PASSED
+            )
         ]
         if incomplete:
             self._record("run_failed", incomplete=incomplete)
