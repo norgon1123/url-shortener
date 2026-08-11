@@ -2,6 +2,7 @@ package com.example.urlshortener.support;
 
 import com.example.urlshortener.UrlShortenerApplication;
 import com.example.urlshortener.api.LinkResponse;
+import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -84,6 +85,53 @@ public abstract class AbstractRestartIntegrationTest {
     /** One live link owned by the given customer. */
     protected LinkResponse givenLink(String bearer) {
         return ApiClient.asLink(api.createLink(bearer, Fixtures.TARGET_URL));
+    }
+
+    /**
+     * One live link owned by nobody, created with no credential.
+     *
+     * <p>Present here as well as on {@link AbstractIntegrationTest} because an
+     * anonymous link is a row like any other and the durability question applies
+     * to it too: it must still redirect after the process that minted it is gone,
+     * and its fixed expiry must survive with it. An implementation that held
+     * anonymous links in memory - tempting, since nothing ever reads them back -
+     * would satisfy every other test in this suite.
+     */
+    protected com.example.urlshortener.api.AnonymousLinkResponse givenAnonymousLink() {
+        HttpResponse<String> response = api.createAnonymousLink(Fixtures.TARGET_URL);
+        if (response.statusCode() != 201) {
+            throw new IllegalStateException(
+                    "could not create an anonymous link: HTTP " + response.statusCode()
+                            + " " + response.body());
+        }
+        return ApiClient.asAnonymousLink(response);
+    }
+
+    /**
+     * An account created against the running process, with an address nobody has
+     * taken.
+     *
+     * <p>A session obtained before a restart may or may not verify after one - the
+     * signing key is ephemeral when none is configured - so a test that needs a
+     * session after the restart signs in again with {@link #sessionFor}. That is
+     * exactly the AC5 claim worth making durable: the account, not the token,
+     * is what has to survive.
+     */
+    protected Fixtures.NewAccount givenAccount() {
+        String email = Fixtures.uniqueEmail("carol");
+        HttpResponse<String> response = api.signUp(email, Fixtures.NEW_ACCOUNT_PASSWORD);
+        if (response.statusCode() != 201) {
+            throw new IllegalStateException(
+                    "could not create the account " + email + ": HTTP " + response.statusCode()
+                            + " " + response.body());
+        }
+        return new Fixtures.NewAccount(
+                ApiClient.asAccount(response).customerId(), email, Fixtures.NEW_ACCOUNT_PASSWORD);
+    }
+
+    /** A session for an account this suite created, against the running process. */
+    protected String sessionFor(Fixtures.NewAccount account) {
+        return api.sessionFor(account.email(), account.password());
     }
 
     /** Clicks a code the given number of times, sequentially, and returns nothing but the count attempted. */

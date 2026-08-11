@@ -1,17 +1,26 @@
 package com.example.urlshortener.support;
 
+import com.example.urlshortener.api.AnonymousLinkResponse;
 import com.example.urlshortener.api.LinkResponse;
+import com.example.urlshortener.domain.CustomerEntity;
+import com.example.urlshortener.repository.CustomerRepository;
 import java.net.http.HttpResponse;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.function.BooleanSupplier;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -103,6 +112,22 @@ public abstract class AbstractIntegrationTest {
     @Autowired
     protected RedisConnectionFactory redisConnectionFactory;
 
+    /**
+     * Accounts as they are stored. Injected because AC6 (never two accounts with
+     * one name) and AC7 (the stored form of a password) are claims about storage
+     * that no response can show; see {@link #storedAccountsNamed(String)}.
+     */
+    @Autowired
+    protected CustomerRepository customerRepository;
+
+    /**
+     * The system of record, for the two numbers this API deliberately never
+     * reports: an anonymous link's click count and its (absent) owner. See
+     * {@link #storedClickCount(String)}.
+     */
+    @Autowired
+    protected DataSource dataSource;
+
     /** The only way a test reaches the service. */
     protected ApiClient api;
 
@@ -131,6 +156,162 @@ public abstract class AbstractIntegrationTest {
     /** A session for the second seeded customer, who owns nothing the first one owns. */
     protected String bob() {
         return api.signInFor(Fixtures.BOB);
+    }
+
+    // ---- accounts a test creates for itself -------------------------------
+
+    /**
+     * An account created through {@code POST /api/v1/customers}, with an address
+     * nobody has taken, ready to sign in with.
+     *
+     * <p>The address is drawn from {@link Fixtures#uniqueEmail(String)} because
+     * the database outlives a test class: a hard-coded address is free on the
+     * first run of a class and taken on the second, and the resulting 409 reads
+     * like a defect in uniqueness rather than in the fixture.
+     *
+     * <p>Fails loudly when sign-up did not answer 201, for the reason
+     * {@link ApiClient#signInFor} does: a test whose precondition silently failed
+     * blames whatever it touches next.
+     */
+    protected Fixtures.NewAccount givenAccount() {
+        return givenAccount(Fixtures.uniqueEmail("carol"), Fixtures.NEW_ACCOUNT_PASSWORD);
+    }
+
+    /** An account with an address and password of the test's choosing. */
+    protected Fixtures.NewAccount givenAccount(String email, String password) {
+        HttpResponse<String> response = api.signUp(email, password);
+        if (response.statusCode() != 201) {
+            throw new IllegalStateException(
+                    "could not create the account " + email + ": HTTP " + response.statusCode()
+                            + " " + response.body());
+        }
+        return new Fixtures.NewAccount(ApiClient.asAccount(response).customerId(), email, password);
+    }
+
+    /** A session for an account this suite created. */
+    protected String sessionFor(Fixtures.NewAccount account) {
+        return api.sessionFor(account.email(), account.password());
+    }
+
+    /**
+     * Fires {@code attempts} sign-ups for the same address as close to
+     * simultaneously as this JVM can manage, and returns every response.
+     *
+     * <p>AC6 is explicit that the concurrent case has to resolve the same way the
+     * sequential one does, and "exactly one succeeds" is not observable if the
+     * requests are merely issued in a loop - each would complete before the next
+     * began, and a read-then-write implementation would pass. The threads are
+     * therefore released together from a {@link CountDownLatch} after each has
+     * built its request, so the inserts genuinely race.
+     */
+    protected List<HttpResponse<String>> signUpConcurrently(String email, String password, int attempts) {
+        ExecutorService pool = Executors.newFixedThreadPool(attempts);
+        CountDownLatch ready = new CountDownLatch(attempts);
+        CountDownLatch go = new CountDownLatch(1);
+        try {
+            List<Future<HttpResponse<String>>> pending = new ArrayList<>(attempts);
+            for (int i = 0; i < attempts; i++) {
+                pending.add(pool.submit(() -> {
+                    ready.countDown();
+                    go.await();
+                    return api.signUp(email, password);
+                }));
+            }
+            ready.await();
+            go.countDown();
+            List<HttpResponse<String>> responses = new ArrayList<>(attempts);
+            for (Future<HttpResponse<String>> future : pending) {
+                responses.add(future.get());
+            }
+            return responses;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("interrupted during a concurrent sign-up", e);
+        } catch (ExecutionException e) {
+            throw new IllegalStateException("a concurrent sign-up failed to complete", e);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    // ---- what is actually stored ------------------------------------------
+
+    /**
+     * Every stored account whose address matches {@code email} ignoring case.
+     *
+     * <p>AC6 says the stored data must never contain two accounts with the same
+     * account name, and AC7 is a claim about a stored representation. Neither can
+     * be observed through any response - a service that wrote two rows and only
+     * ever read the first would answer every HTTP request correctly - so this is
+     * one of the two places the suite is allowed to look past the API.
+     *
+     * <p>It looks through the frozen {@link CustomerRepository} rather than at the
+     * table, on the same reasoning {@code PasswordStorageTest} uses for
+     * {@code PasswordHasher}: the repository is part of the contract both branches
+     * were built against, the schema is not.
+     */
+    protected List<CustomerEntity> storedAccountsNamed(String email) {
+        return customerRepository.findAll().stream()
+                .filter(c -> c.getEmail() != null && c.getEmail().equalsIgnoreCase(email))
+                .toList();
+    }
+
+    /** The stored credential of an account, or empty when there is no such account. */
+    protected Optional<String> storedPasswordHash(String email) {
+        return storedAccountsNamed(email).stream().findFirst().map(CustomerEntity::getPasswordHash);
+    }
+
+    /**
+     * The durable click total recorded against a code, or empty when no such row
+     * exists.
+     *
+     * <p>The second place the suite looks past the API, and the only one that
+     * touches SQL. AC11 requires an anonymous link's clicks to be counted by the
+     * same mechanism as an owned link's, and no endpoint will ever report that
+     * number: {@code GET /api/v1/links/{code}} answers 404 for an anonymous code
+     * for every caller, deliberately and permanently (AC13). Reading the durable
+     * column is what is left. It is raw SQL rather than a repository call because
+     * the repository's owner-scoped queries are implementation surface that the
+     * implementing branch may reshape, whereas {@code links.code} and
+     * {@code links.click_count} are columns the migration for this change does not
+     * touch.
+     *
+     * <p>Counting is asynchronous by design: clicks land in Redis and are drained
+     * on {@code app.click.flush-interval}, so pair this with
+     * {@link #awaitClickFlush()} or with {@link #observeUntil} rather than reading
+     * it immediately after a click.
+     */
+    protected Optional<Long> storedClickCount(String code) {
+        return queryForSingleValue("SELECT click_count FROM links WHERE code = ?", code, Long.class);
+    }
+
+    /**
+     * Whether the stored link for a code has no owner.
+     *
+     * <p>"Nobody owns it" is the whole of AC13 and it is a property of the row,
+     * not of a response: an implementation that quietly homed anonymous links on
+     * some placeholder account would answer 404 to every request in this suite and
+     * still be wrong, because that account's list would contain them and its owner
+     * could delete them. Empty when there is no such row.
+     */
+    protected Optional<Boolean> storedLinkIsUnowned(String code) {
+        return queryForSingleValue(
+                "SELECT (customer_id IS NULL) FROM links WHERE code = ?", code, Boolean.class);
+    }
+
+    private <T> Optional<T> queryForSingleValue(String sql, String argument, Class<T> type) {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, argument);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) {
+                    return Optional.empty();
+                }
+                return Optional.ofNullable(type.cast(rows.getObject(1)));
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("could not read the stored link for " + argument, e);
+        }
     }
 
     // ---- creating links a test can act on ---------------------------------
@@ -188,6 +369,54 @@ public abstract class AbstractIntegrationTest {
         return link;
     }
 
+    /**
+     * The anonymous precondition: one live link created with no credential at all,
+     * pointing at {@link Fixtures#TARGET_URL}.
+     *
+     * <p>Returns the parsed {@link AnonymousLinkResponse}, which is the only copy
+     * of this link's details anybody will ever hold: there is no endpoint that
+     * reads it back.
+     */
+    protected AnonymousLinkResponse givenAnonymousLink() {
+        return givenAnonymousLink(Fixtures.TARGET_URL);
+    }
+
+    /** As {@link #givenAnonymousLink()}, pointing at a target of the caller's choosing. */
+    protected AnonymousLinkResponse givenAnonymousLink(String longUrl) {
+        HttpResponse<String> response = api.createAnonymousLink(longUrl);
+        if (response.statusCode() != 201) {
+            throw new IllegalStateException(
+                    "could not create an anonymous link for " + longUrl + ": HTTP "
+                            + response.statusCode() + " " + response.body());
+        }
+        return ApiClient.asAnonymousLink(response);
+    }
+
+    /**
+     * An anonymous link that has already expired.
+     *
+     * <p>Only usable from a class that has configured
+     * {@link Fixtures#ANONYMOUS_TTL_KEY} down to {@link Fixtures#SHORT_ANONYMOUS_TTL_VALUE}:
+     * the anonymous expiry is fixed by the service and is never caller-supplied,
+     * so unlike {@link #givenExpiredLink(String)} there is no request a test can
+     * make to bring it forward. Without that override this method would sit for
+     * thirty days.
+     */
+    protected AnonymousLinkResponse givenExpiredAnonymousLink() {
+        AnonymousLinkResponse link = givenAnonymousLink();
+        awaitExpiryOf(link.expiresAt());
+        return link;
+    }
+
+    /** Creates anonymously {@code times} in a row from this one client, sequentially. */
+    protected List<HttpResponse<String>> createAnonymouslyRepeatedly(int times) {
+        List<HttpResponse<String>> responses = new ArrayList<>(times);
+        for (int i = 0; i < times; i++) {
+            responses.add(api.createAnonymousLink(Fixtures.TARGET_URL));
+        }
+        return responses;
+    }
+
     /** A link of this customer's that they have deleted. */
     protected LinkResponse givenDeletedLink(String bearer) {
         LinkResponse link = givenLink(bearer);
@@ -215,8 +444,31 @@ public abstract class AbstractIntegrationTest {
      * resolution cache.
      */
     protected void awaitExpiry(LinkResponse link) {
-        awaitInstant(link.expiresAt().plusMillis(500));
+        awaitExpiryOf(link.expiresAt());
+    }
+
+    /**
+     * As {@link #awaitExpiry(LinkResponse)}, for any expiry instant - in practice
+     * an anonymous link's, which arrives on a different response type and can
+     * never be read back.
+     */
+    protected void awaitExpiryOf(Instant expiresAt) {
+        awaitInstant(expiresAt.plusMillis(500));
         evictResolutionCache();
+    }
+
+    /**
+     * Waits long enough that a click already served has been drained from Redis
+     * into PostgreSQL, so that {@link #storedClickCount(String)} is meaningful.
+     *
+     * <p>Two flush intervals plus a margin, because a click can land just after a
+     * drain began. A class that wants this to be quick overrides
+     * {@link Fixtures#CLICK_FLUSH_INTERVAL_KEY} - but note that the interval it
+     * then waits is still this one, so lowering the property without lowering the
+     * wait only costs time, never correctness.
+     */
+    protected void awaitClickFlush() {
+        sleep(Fixtures.CLICK_FLUSH_INTERVAL.multipliedBy(2).plusMillis(500));
     }
 
     /** Blocks until the given instant, or returns immediately if it has passed. */

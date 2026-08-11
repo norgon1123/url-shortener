@@ -1428,48 +1428,160 @@ class TestContractFrozenSpansArtifacts:
 
 
 class TestSkeletonHasNoAssertions:
-    """The line that stops two authors collapsing into one."""
+    """The line that stops two authors collapsing into one.
 
-    def _write(self, tmp_path: Path, rel: str, body: str) -> None:
-        f = tmp_path / "service/src/test" / rel
+    Against a real repository, because the gate asks git what this node added.
+    Scanning the whole test tree was fine while the tree was always empty at
+    this point; the first brownfield run put 148 inherited tests and 880
+    inherited assertions in front of it and it failed the node for all of them.
+    """
+
+    @staticmethod
+    def _repo(tmp_path: Path) -> Path:
+        root = tmp_path / "workspace"
+        root.mkdir()
+        git = Git(root=root)
+        git._git("init", "-b", "main")
+        git._git("config", "user.email", "o@example.com")
+        git._git("config", "user.name", "SDLC")
+        (root / "README.md").write_text("# workspace\n")
+        git._git("add", "-A")
+        git._git("commit", "-m", "initial")
+        return root
+
+    def _write(self, root: Path, rel: str, body: str) -> None:
+        f = root / "service/src/test" / rel
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(body)
 
+    def _ctx(self, root: Path, policy: Policy, **kw) -> GateContext:
+        ctx = make_ctx(root, policy, node_id="test-contract", **kw)
+        ctx.run = subprocess_runner
+        return ctx
+
+    def _commit(self, root: Path, message: str, node_id: str = "author-tests") -> None:
+        git = Git(root=root)
+        git._git("add", "-A")
+        git._git("commit", "-m", f"{message}\n\nNode-Id: {node_id}")
+
     def test_a_structural_skeleton_passes(self, tmp_path: Path, policy: Policy) -> None:
+        root = self._repo(tmp_path)
         self._write(
-            tmp_path,
+            root,
             "java/RedirectTest.java",
             "class RedirectTest {\n @Test void expiredLinkReturns410() {\n"
             "  fail(\"not implemented\");\n }\n}",
         )
-        assert run("no_assertions", make_ctx(tmp_path, policy)).outcome is PASS
+        assert run("no_assertions", self._ctx(root, policy)).outcome is PASS
 
     def test_an_assertion_in_the_skeleton_fails(self, tmp_path: Path, policy: Policy) -> None:
         """Deciding what counts as proof is author-tests' job, not this node's."""
+        root = self._repo(tmp_path)
         self._write(
-            tmp_path,
+            root,
             "java/RedirectTest.java",
             "class RedirectTest {\n @Test void expiredLinkReturns410() {\n"
             "  assertEquals(410, response.getStatusCode());\n }\n}",
         )
-        result = run("no_assertions", make_ctx(tmp_path, policy))
+        result = run("no_assertions", self._ctx(root, policy))
         assert result.outcome is FAIL and "author-tests" in result.detail
 
     def test_the_hand_written_harness_is_exempt(self, tmp_path: Path, policy: Policy) -> None:
+        root = self._repo(tmp_path)
         self._write(
-            tmp_path,
+            root,
             "java/support/AbstractIntegrationTest.java",
             "class AbstractIntegrationTest {\n assertTrue(POSTGRES.isRunning());\n}",
         )
-        assert run("no_assertions", make_ctx(tmp_path, policy)).outcome is PASS
+        assert run("no_assertions", self._ctx(root, policy)).outcome is PASS
 
     def test_a_commented_assertion_is_not_one(self, tmp_path: Path, policy: Policy) -> None:
+        root = self._repo(tmp_path)
         self._write(
-            tmp_path,
+            root,
             "java/RedirectTest.java",
             "class RedirectTest {\n // assertEquals(410, x);\n @Test void a() { fail(); }\n}",
         )
-        assert run("no_assertions", make_ctx(tmp_path, policy)).outcome is PASS
+        assert run("no_assertions", self._ctx(root, policy)).outcome is PASS
+
+    def test_assertions_inherited_from_earlier_runs_are_not_this_node_doing(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        """The brownfield case. A skeleton is added *beside* a finished suite."""
+        root = self._repo(tmp_path)
+        self._write(
+            root,
+            "java/RedirectTest.java",
+            "class RedirectTest {\n @Test void a() {\n  assertEquals(410, r.code());\n }\n}",
+        )
+        self._commit(root, "author-tests: a finished suite from the last run")
+        self._write(
+            root,
+            "java/SignUpTest.java",
+            "class SignUpTest {\n @Test void b() {\n  fail(\"not implemented\");\n }\n}",
+        )
+        assert run("no_assertions", self._ctx(root, policy)).outcome is PASS
+
+    def test_an_assertion_added_to_an_inherited_file_still_fails(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        """Extending someone else's test class does not launder the assertion."""
+        root = self._repo(tmp_path)
+        self._write(root, "java/RedirectTest.java", "class RedirectTest {\n}")
+        self._commit(root, "author-tests: a finished suite from the last run")
+        self._write(
+            root,
+            "java/RedirectTest.java",
+            "class RedirectTest {\n @Test void b() {\n  assertEquals(1, x);\n }\n}",
+        )
+        result = run("no_assertions", self._ctx(root, policy))
+        assert result.outcome is FAIL and "RedirectTest.java" in result.detail
+
+    def test_it_does_not_pass_itself_on_a_re_gate(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        """Committed work is still this node's work.
+
+        Re-gating after a resume happens with the checkpoint already made. A
+        gate that diffed against the working tree would find nothing to look at
+        and pass -- having compared the node's output against itself.
+        """
+        root = self._repo(tmp_path)
+        self._write(
+            root,
+            "java/SignUpTest.java",
+            "class SignUpTest {\n @Test void b() {\n  assertEquals(1, x);\n }\n}",
+        )
+        self._commit(root, "test-contract: checkpointed", node_id="test-contract")
+        assert run("no_assertions", self._ctx(root, policy)).outcome is FAIL
+
+
+class TestTheBaselineIsThisRunsSuite:
+    """A floor inherited from the previous run is not a floor for this one."""
+
+    def _suite(self, tmp_path: Path, tests: int) -> None:
+        d = tmp_path / "service/src/test/java"
+        d.mkdir(parents=True, exist_ok=True)
+        body = "".join(f"@Test void t{i}() {{ assertEquals(1, 1); }}\n" for i in range(tests))
+        (d / "Suite.java").write_text("class Suite {\n" + body + "}")
+
+    def test_record_overwrites_a_stale_baseline(
+        self, tmp_path: Path, policy: Policy
+    ) -> None:
+        """greenfield left 130; the tree brownfield was handed held 148."""
+        (tmp_path / "artifacts").mkdir()
+        (tmp_path / "artifacts/test-baseline.json").write_text(
+            json.dumps({"tests": 130, "asserts": 131, "disabled": 0})
+        )
+        self._suite(tmp_path, 148)
+        result = run("tests_not_weakened", make_ctx(tmp_path, policy), record=True)
+        assert result.outcome is PASS and "baseline recorded" in result.detail
+        recorded = json.loads((tmp_path / "artifacts/test-baseline.json").read_text())
+        assert recorded["tests"] == 148
+
+        # And the new floor is the one that binds: dropping to 140 now fails.
+        self._suite(tmp_path, 140)
+        assert run("tests_not_weakened", make_ctx(tmp_path, policy)).outcome is FAIL
 
 
 class TestTestsNotWeakened:

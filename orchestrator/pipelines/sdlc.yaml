@@ -236,8 +236,10 @@ nodes:
       - {check: no_assertions, gate_class: mechanical}
       # Records the starting size of the suite, so a later repair cannot shrink
       # it. Written by the gate: a baseline the audited party supplies is not
-      # a baseline.
-      - {check: tests_not_weakened, gate_class: mechanical}
+      # a baseline. `record` because this is the freeze -- on a brownfield run
+      # the floor has to be the suite this run inherited, not the one the last
+      # run happened to leave behind.
+      - {check: tests_not_weakened, gate_class: mechanical, record: true}
       - {check: paths_confined, gate_class: mechanical}
       # The single approval covers both halves: the API, and the plan for
       # proving it works. Reviewing them together is the highest-leverage

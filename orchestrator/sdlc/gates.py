@@ -849,6 +849,70 @@ _ASSERTION = re.compile(
     r"\b(assert\w*|verify|expectThat|shouldBe|assertThat|then\()", re.IGNORECASE
 )
 
+_HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+
+
+def _node_base(ctx: GateContext) -> str:
+    """The newest commit this node did not make.
+
+    Everything after it in the working tree is this node's production, whether
+    or not it has been checkpointed yet. Using it as the diff base is what makes
+    a content gate mean the same thing on a first pass (work uncommitted) and on
+    a re-gate after a resume (work committed) -- the alternative silently passes
+    the second time, having compared the node's output against itself.
+    """
+    fmt = "%H%x00%(trailers:key=Node-Id,valueonly,separator=%x2C)"
+    out = ctx.run(["git", "log", "-n", "60", f"--format={fmt}"], cwd=ctx.workspace)
+    fallback = ""
+    for line in out.stdout.splitlines():
+        sha, _, trailer = line.partition("\0")
+        if not sha:
+            continue
+        fallback = sha
+        if trailer.strip() != ctx.node.id:
+            return sha
+    return fallback
+
+
+def _added_lines(ctx: GateContext, root_rel: str) -> list[tuple[str, int, str]]:
+    """Lines this node added under `root_rel`, as (path, lineno, text).
+
+    Two sources, because git reports them differently: a unified diff from the
+    node's base for files that already existed, and whole files for anything
+    still untracked. Missing the second would make the gate blind in exactly the
+    case it was written for -- a greenfield skeleton is entirely new files.
+    """
+    added: list[tuple[str, int, str]] = []
+    base = _node_base(ctx)
+    if base:
+        diff = ctx.run(
+            ["git", "diff", "--unified=0", "--no-color", base, "--", root_rel],
+            cwd=ctx.workspace,
+        )
+        path, lineno = "", 0
+        for line in diff.stdout.splitlines():
+            if line.startswith("+++ b/"):
+                path = line[6:]
+            elif match := _HUNK.match(line):
+                lineno = int(match.group(1))
+            elif line.startswith("+") and not line.startswith("+++"):
+                added.append((path, lineno, line[1:]))
+                lineno += 1
+
+    untracked = ctx.run(
+        ["git", "ls-files", "--others", "--exclude-standard", "--", root_rel],
+        cwd=ctx.workspace,
+    )
+    for rel in untracked.stdout.split():
+        file = ctx.path(rel)
+        if not file.is_file():
+            continue
+        for number, text in enumerate(
+            file.read_text(encoding="utf-8").splitlines(), 1
+        ):
+            added.append((rel, number, text))
+    return added
+
 
 @check("no_assertions")
 def _no_assertions(ctx: GateContext, params: dict[str, Any]) -> GateResult:
@@ -865,26 +929,30 @@ def _no_assertions(ctx: GateContext, params: dict[str, Any]) -> GateResult:
     failure call is how a skeleton says "not implemented", and neither asserts
     anything about the service.
     """
-    root = ctx.path(params.get("root", "service/src/test"))
-    if not root.is_dir():
-        return _result(ctx, "no_assertions", _MECH, _FAIL, f"no test sources at {root}")
+    root_rel = params.get("root", "service/src/test")
+    if not ctx.path(root_rel).is_dir():
+        return _result(
+            ctx, "no_assertions", _MECH, _FAIL, f"no test sources at {root_rel}"
+        )
 
     offenders: list[str] = []
-    scanned = 0
-    for path in sorted(root.rglob("*.java")):
+    touched: set[str] = set()
+    for rel, lineno, line in _added_lines(ctx, root_rel):
         # The hand-written harness is scaffold, not skeleton, and it legitimately
         # asserts on its own wiring.
-        if any(part in params.get("exclude", ["support"]) for part in path.parts):
+        if any(part in params.get("exclude", ["support"]) for part in rel.split("/")):
             continue
-        scanned += 1
-        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            stripped = line.strip()
-            if stripped.startswith(("*", "//", "/*")):
-                continue
-            if "fail(" in stripped or "UnsupportedOperation" in stripped:
-                continue  # "not implemented yet" is not an assertion
-            if _ASSERTION.search(stripped):
-                offenders.append(f"{path.relative_to(ctx.workspace)}:{lineno}")
+        if not rel.endswith(".java"):
+            continue
+        touched.add(rel)
+        stripped = line.strip()
+        if stripped.startswith(("*", "//", "/*")):
+            continue
+        if "fail(" in stripped or "UnsupportedOperation" in stripped:
+            continue  # "not implemented yet" is not an assertion
+        if _ASSERTION.search(stripped):
+            offenders.append(f"{rel}:{lineno}")
+    scanned = len(touched)
 
     if offenders:
         return _result(
@@ -921,10 +989,15 @@ def _tests_not_weakened(ctx: GateContext, params: dict[str, Any]) -> GateResult:
         return _result(ctx, "tests_not_weakened", _MECH, _FAIL, f"no test sources at {root}")
 
     counts = _count_tests(root)
-    if not baseline.is_file():
-        # First pass: nothing to compare against, so record and allow. The
-        # baseline is written by the gate rather than by a node, because a
-        # number the audited party supplies is not a baseline.
+    # `record` marks the node that establishes the floor -- the freeze, where
+    # the suite as inherited is the truth. Without it the file simply persists,
+    # and a brownfield run inherits the *previous* run's floor: greenfield left
+    # 130, the tree it was handed held 148, and eighteen tests could have been
+    # deleted with the gate reporting no weakening at all.
+    if params.get("record") or not baseline.is_file():
+        # Nothing to compare against, so record and allow. The baseline is
+        # written by the gate rather than by a node, because a number the
+        # audited party supplies is not a baseline.
         baseline.parent.mkdir(parents=True, exist_ok=True)
         baseline.write_text(json.dumps(counts, indent=2, sort_keys=True), encoding="utf-8")
         return _result(
