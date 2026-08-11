@@ -2,155 +2,156 @@
   "ambiguities": [
     {
       "id": "Q1",
-      "proposed_answer": "60 seconds, at the 99th percentile, measured from the API accepting the delete or report. This is achievable with active Redis invalidation plus a cache TTL capped at 60s. Note the number is load-bearing on the architecture, not cosmetic: a sub-second bound forces synchronous invalidation across every cache tier and rules out TTL-only safety nets, while a 5-minute bound would let us drop active invalidation entirely. The business owns this figure because it is the one quoted to fraud teams.",
-      "question": "What is the published takedown time bound in AC9 \u2014 the specific number the business will be held to for a deleted or abuse-reported link to stop redirecting, measured from the delete/report?",
+      "proposed_answer": "It is the email. Sign-up takes {email, password}; POST /api/v1/sessions, SignInRequest and SignInResponse are unchanged; uniqueness is over the lower-cased email. A separate username changes the shape of the work: a new customers column, a new sign-in identifier, a change to a frozen request schema, and a decision about which of the two is the login key for the seeded accounts (AC16). If a distinct username is really wanted, this needs answering before design, not after.",
+      "question": "Is the 'account name' at sign-up the existing email address, or a new separate username that is distinct from the email used to sign in?",
       "severity": "blocking"
     },
     {
       "id": "Q2",
-      "proposed_answer": "Define a ThreatCheck port with two implementations in this build: a Postgres-backed domain/URL denylist (synchronous, on the create path) and a no-op. Fail open on checker unavailability, consistent with AC20's preference for availability, and log it. No third-party reputation vendor is integrated, since none is named in the constraints and adding a paid external dependency on the create path is a procurement and latency decision, not an engineering one. Re-scanning already-issued links is handled by the takedown path (Q1), not by a background crawler. If a real reputation feed is expected in this build, that is a materially larger piece of work and the design must change.",
-      "question": "AC21 requires that a phishing/malware URL never becomes a working link and that an existing link found to point at one stops redirecting. What decides that a URL is phishing or malware \u2014 an external reputation service (e.g. Google Safe Browsing), an internally maintained blocklist, or only inbound abuse reports? And if that source is unreachable at creation time, do we fail open (accept the link) or fail closed (refuse it)?",
+      "proposed_answer": "Accept the disclosure as inherent to AC6 and add one value to the catalogue: 409 account_unavailable, 'That account name is not available.', documented in openapi.yaml and blunted by the IP-keyed sign-up limit (A14). This grows a frozen contract artifact and knowingly trades away one enumeration property, so it is the architect's or requester's call rather than the implementer's. Fallback if the catalogue must not grow: 400 invalid_request with fields {email: 'unavailable'} \u2014 same disclosure, no new code, but a semantically wrong status.",
+      "question": "How should a duplicate sign-up be refused on the wire, given the error catalogue is closed and no existing code fits, and given that any visible refusal makes sign-up an account-existence oracle in a service that goes to deliberate lengths elsewhere (identical 401s, timing-equalised sign-in, no 403/410) to avoid being one?",
       "severity": "blocking"
     },
     {
       "id": "Q3",
-      "proposed_answer": "Expiry is settable in the create request and additionally changeable via a narrow owner-scoped PATCH on the link that accepts only the expiry field. The target URL remains immutable, which is what 'editing a link' was excluded to protect. This satisfies AC11 literally without reopening link editing.",
-      "question": "AC11 says a link's expiry can be 'set or changed' per link, but editing a link after creation is listed as out of scope. Is there an endpoint to change the expiry of an existing link, or does 'changed' only mean 'chosen per link at creation and adjustable in the database'?",
+      "proposed_answer": "30 days, as a new app.links.anonymous-ttl defaulting to P30D. The codebase already reads 'about a month' as exactly 30 days for owner links, and a separate property means the anonymous figure can be tuned down for abuse reasons without changing what customers get.",
+      "question": "Does 'expires one month after it is created' mean 30 days (matching the existing app.links.default-ttl of P30D) or a calendar month (P1M, so a link made on 31 January expires 28 February)?",
       "severity": "advisory"
     },
     {
       "id": "Q4",
-      "proposed_answer": "Yes \u2014 a report immediately transitions the link to a blocked state, per AC9, since no moderation console exists in this build. To keep that from being a trivial way to kill any competitor's link, reports require a signed-in session, are rate-limited per reporter, and the reporter id plus timestamp are recorded for the future review process. Flag for the reviewer: an open, unauthenticated report endpoint with automatic takedown would make the service self-weaponizable, so we are deliberately not building that.",
-      "question": "AC9 implies that reporting a link as abusive stops it working within the SLA, but who may file a report and whether any human review intervenes are both out of scope. Does a single report immediately disable the link?",
+      "proposed_answer": "Client IP via request.getRemoteAddr(), the same key the CLICK, NOT_FOUND and SIGN_IN buckets already use, as a new ANONYMOUS_CREATE bucket with app.rate-limit.anonymous-create-per-minute defaulting to 10 \u2014 an order of magnitude under write-per-minute, so the anonymous path is never the cheaper way to create links.",
+      "question": "Which key should the existing rate limiter use for an anonymous creator, and at what default, since there is no customer id?",
       "severity": "advisory"
     },
     {
       "id": "Q5",
-      "proposed_answer": "The click is always served; counting is durable but not transactional with the redirect. Redis runs with AOF (appendfsync everysec) as the buffer and flushes to Postgres in batches, so counts survive process restart and Postgres outages, with at most a ~1s window at risk on catastrophic Redis node loss. AC20 already states the preference explicitly: serve the click. 'Exact' is read as 'measured, never sampled or estimated', not 'survives total infrastructure loss'.",
-      "question": "AC3 requires exact click counts 'for the life of the link', while AC20 requires clicks to keep being served and counted during backend failure. If the counting store loses in-flight increments during an infrastructure failure, is a bounded count loss acceptable, or must a click that cannot be durably counted be refused?",
+      "proposed_answer": "No. Keep getRemoteAddr, unchanged from today. Trusting a client-supplied header without a configured trusted-proxy list makes every IP-keyed limit spoofable, which is worse than the alternative. Record in the runbook that behind a load balancer every anonymous caller shares one bucket unless the proxy is configured to preserve the source address, and that this makes the default of 10/min a global figure rather than a per-caller one.",
+      "question": "Should the IP-keyed buckets start trusting X-Forwarded-For now that an unauthenticated write endpoint depends on the IP key for its whole defence?",
       "severity": "advisory"
     },
     {
       "id": "Q6",
-      "proposed_answer": "302 for GET and HEAD; 405 for other methods. 302 is what every intermediary handles predictably and, with no-store headers, satisfies AC4. 307's method-preserving semantics are irrelevant because clicks are browser GETs.",
-      "question": "Should the redirect be 302 or 307, and should non-GET methods on a short code be handled?",
+      "proposed_answer": "POST /api/v1/customers for sign-up (a resource in the noun style the API already uses) and POST /api/v1/public/links for anonymous creation (the /public/ segment makes the unauthenticated surface visible in the route table and in the filter exemption, which is where a reviewer looks for it).",
+      "question": "What should the two new endpoints be called?",
       "severity": "advisory"
     },
     {
       "id": "Q7",
-      "proposed_answer": "Return both: the code and the fully-qualified short URL built from a configured base domain. Callers want a paste-ready URL, and keeping the code as a separate field means a future customer-owned-domain feature changes the URL field's host without breaking clients that key on the code.",
-      "question": "What is returned in the create response \u2014 the bare code, or the full short URL \u2014 and where does the base domain come from?",
+      "proposed_answer": "Only the account: 201 with {customerId, email, createdAt} and a Location of /api/v1/customers/{id}. AC5 describes signing in as a separate subsequent step, and issuing a token from an endpoint that is not the session endpoint duplicates the issuing path for no stated benefit.",
+      "question": "Does sign-up return a session token, or only the created account?",
       "severity": "advisory"
     },
     {
       "id": "Q8",
-      "proposed_answer": "24 hours, non-refreshable, no revocation list. Short enough that a leaked token has a bounded blast radius, long enough not to need refresh machinery that was not requested. The value is configuration, so it can be tightened without a code change.",
-      "question": "How long is a session token valid, given that session lifetime, sign-out and revocation are all out of scope?",
+      "proposed_answer": "Minimum 12 characters, maximum 256 (matching SignInRequest), no composition rules, no denylist; a violation is 400 invalid_request with fields.password. The requirement speaks only to how passwords are held, so this is the smallest defensible rule that stops a one-character password.",
+      "question": "What password rules apply at sign-up \u2014 minimum length, maximum, character classes?",
       "severity": "advisory"
     },
     {
       "id": "Q9",
-      "proposed_answer": "No quota entity is modelled. Junk-link storage burn is handled purely by the per-customer create rate limit (A13), which is configuration. This keeps quotas out of the data model, as intake directed, while still satisfying AC19.",
-      "question": "Is there a cap on how many links one customer may create, given that quotas and plan enforcement are out of scope but 'storage-burning junk links' is named as an attack to resist?",
+      "proposed_answer": "201 with {code, shortUrl, longUrl, createdAt, expiresAt} and no Location. Location: /api/v1/links/{code} would point at a resource that answers 401 or 404 for every caller including the creator, which is a misleading contract. status and clickCount are omitted because AC13 says nobody may read an anonymous link's numbers, and a body shape that includes them invites a client to expect to fetch them later.",
+      "question": "What does anonymous creation return, and does it carry a Location header?",
       "severity": "advisory"
     },
     {
       "id": "Q10",
-      "proposed_answer": "Provide an owner-scoped, paginated list endpoint in addition to fetch-by-code. Without a UI, a customer who loses a code otherwise has no way to reach their own link, and the endpoint is owner-filtered so it creates no cross-tenant exposure.",
-      "question": "Does listing a customer's own links fall under 'letting a customer see how a link has performed', or is retrieval only ever by known short code?",
+      "proposed_answer": "No. Scope is textual and numeric equivalent forms of what is written. The current code documents why DNS is off the create path \u2014 a name resolving publicly at create time can resolve internally at click time, and a lookup adds a dependency to a write path AC15/AC20 want kept thin. Adding resolution would be a new, separately-reviewable decision about SSRF, not part of closing these bypasses.",
+      "question": "Does 'resist equivalent-form evasion generally' extend to resolving DNS at create time, so that a hostname pointing at 127.0.0.1 or an RFC1918 address is refused?",
+      "severity": "advisory"
+    },
+    {
+      "id": "Q11",
+      "proposed_answer": "Yes, expect the run to go to approval on the migration. With ddl-auto: validate there is no other way to make these changes, and both are one-way in production terms (relaxing a NOT NULL, and adding a constraint that can fail if case-variant emails already exist), so a human on the diff is the right routing rather than something to design around.",
+      "question": "The schema changes this needs (customer_id nullable on links, a lower(email) unique constraint on customers) land in the Flyway migration directory, which the pipeline treats as protected. Is a human approval on those migrations expected as part of this run?",
       "severity": "advisory"
     }
   ],
   "assumptions": [
     {
       "id": "A1",
-      "rationale": "AC4 forbids browsers/intermediaries short-circuiting us. 301 is cached indefinitely by default and would silently lose clicks; 302 plus explicit no-store headers is the standard way to force every click back to the service.",
-      "statement": "Redirects use HTTP 302 (GET/HEAD only) with Cache-Control: no-store, no-cache, must-revalidate, Pragma: no-cache and Expires: 0; 301 is never emitted."
+      "rationale": "AC1/AC2 are named as examples of a weak check, not the list. Today UrlValidator.isIpLiteral only matches dotted-quad or IPv6, so 2130706433 is never handed to InetAddress; and DenylistThreatCheck walks parents of the raw host, so 'malware.example.com.' never equals the seeded row. One normalisation point shared by both checks is what makes 'resists equivalent-form evasion generally' something a reviewer can verify.",
+      "statement": "Host normalisation is added at one point, applied before both the internal-host check and the denylist lookup, and covers: lower-casing, stripping trailing dot(s), IDN ToASCII/punycode, and parsing every numeric IPv4 form (decimal 2130706433, octal 0177.0.0.1, hex 0x7f.0.0.1, short forms 127.1) plus IPv4-mapped/compatible IPv6."
     },
     {
       "id": "A2",
-      "rationale": "AC16 treats codes as secrets. Sequential or hash-derived codes are enumerable. 128 bits makes guessing at 100M links/day statistically hopeless while keeping the code short enough to be a usable short link.",
-      "statement": "Generated short codes are 128 bits of CSPRNG output rendered as ~11 base62 characters, with no derivation from row id, creation time, or the long URL; collisions are handled by a unique-constraint insert retry."
+      "rationale": "RedirectController deliberately sets Location verbatim rather than via location(URI) 'so what was submitted is what is sent back'. Rewriting targets would change documented behaviour (AC17) and could re-point a shared link.",
+      "statement": "Normalisation is used for checking only. The stored long_url and the Location header remain byte-identical to what was submitted."
     },
     {
       "id": "A3",
-      "rationale": "A brand-readable alias is by definition guessable; AC5 and AC16 cannot both hold for customer-chosen strings. Sharing one namespace is required so AC6's collision rejection is meaningful. Reserved words prevent an alias shadowing an API route.",
-      "statement": "Customer-chosen aliases live in the same namespace as generated codes, restricted to [A-Za-z0-9_-]{3,64}, checked against a reserved-word list (api, health, admin, static, metrics, robots.txt, etc.), and AC16's unguessability guarantee is understood to apply only to codes we generate."
+      "rationale": "Fail closed on a security check. 400 would additionally tell a probing caller which forms parse, and AC1 explicitly requires the trailing-dot form to answer 422, i.e. it must be normalised rather than treated as a syntax error.",
+      "statement": "A host that cannot be normalised unambiguously is refused with 422 url_rejected, not accepted and not 400."
     },
     {
       "id": "A4",
-      "rationale": "AC13 and AC15 require indistinguishability. A 403/404 split leaks existence, which is exactly the enumeration oracle AC16 is trying to close.",
-      "statement": "Unknown, expired, deleted, blocked and other-customer codes all produce an identical 404 with an identical body on both the click path and the owner-scoped management endpoints; 403 is never returned for a link that exists but is not yours."
+      "rationale": "ThreatCheck's own javadoc records that the 'existing link found to point at one stops redirecting' half is served by the takedown path, not a rescan. Adding a sweeper is new machinery nobody asked for.",
+      "statement": "Item 1 is create-time only: no background rescan or retroactive re-evaluation of links created before the fix."
     },
     {
       "id": "A5",
-      "rationale": "AC18 forbids a per-request call to the login system, which rules out opaque tokens needing introspection. Asymmetric signing lets future services verify without holding the signing key. Sign-out and revocation are explicitly out of scope, so no denylist is built.",
-      "statement": "Sessions are stateless JWTs signed with an asymmetric key (EdDSA/RS256), verified locally against a published public key, with a 24-hour expiry and no revocation list."
+      "rationale": "AC5 requires the new credentials to sign in through the existing endpoint, which is email-keyed and frozen in openapi.yaml. A separate username column would mean a new sign-in field and a contract change to a documented endpoint, which AC17 and the out-of-scope list both push against. See ambiguity Q1.",
+      "statement": "'Account name' is the existing email field: sign-up posts {email, password}, and SignInRequest/SignInResponse and POST /api/v1/sessions are untouched."
     },
     {
       "id": "A6",
-      "rationale": "AC17 requires stolen-database resistance. A memory-hard KDF is the current baseline. A pepper adds key-management burden that the requirement never asks for and that breaks if the key is lost.",
-      "statement": "Passwords are hashed with Argon2id at OWASP-recommended parameters (bcrypt cost 12 as fallback if Argon2 is unavailable in the deployment image); no application-side pepper."
+      "rationale": "AC6's concurrency clause cannot be met by a read-then-write. LinkService.insertWithAlias already uses exactly this pattern for aliases. The existing ux_customers_email is case-sensitive while SignInService uses findByEmailIgnoreCase, so without a lower(email) constraint two case-variant sign-ups both insert and the next sign-in for either fails on a non-unique result.",
+      "statement": "Uniqueness is enforced by a database constraint over the lower-cased email, added by a Flyway migration, and the concurrent-duplicate case is decided by catching the constraint violation rather than by a pre-check."
     },
     {
       "id": "A7",
-      "rationale": "AC10 says 'about a month'; 30 days is the least surprising reading. Per-row absolute timestamps satisfy AC11 (data-driven, not code change) and leave room for the future never-expiring paid tier as a NULL expires_at without a schema change.",
-      "statement": "Default link expiry is exactly 30 days from creation, stored as an absolute expires_at timestamp on each link row and overridable per link in the create request; there is no global compile-time constant."
+      "rationale": "AC7 says the stored representation is produced by the same mechanism the seeded accounts use. Reusing the bean rather than restating parameters also keeps the seeded V2 hashes verifiable.",
+      "statement": "Sign-up hashes through the existing PasswordHasher bean at its existing parameters; the raw password is never logged, never returned, and appears in no response body."
     },
     {
       "id": "A8",
-      "rationale": "Intake put analytics beyond the click count out of scope. The count is the only performance figure the goal statement commits to.",
-      "statement": "'How a link has performed' (AC7) returns exactly: short code/URL, long URL, created_at, expires_at, status, and total click count. No time series, referrer, geography, device or unique-visitor data."
+      "rationale": "findOwnedBy and findByDomainAndCodeAndCustomerId are both equality-scoped on customer_id, and NULL matches neither, so AC8/AC13 hold by construction rather than by a filter someone must remember. A sentinel customer is an account row that could in principle be signed into and whose list would expose every anonymous link.",
+      "statement": "An anonymous link is a links row with customer_id NULL, via a Flyway migration relaxing the NOT NULL; not a sentinel 'anonymous' customer row."
     },
     {
       "id": "A9",
-      "rationale": "A synchronous Postgres write per click cannot hold at 1B clicks/day and violates AC20 (clicks must survive Postgres trouble). Summing the un-flushed delta at read time keeps AC7's 'reflects clicks already made' true rather than lagging by the flush interval.",
-      "statement": "Clicks increment a Redis counter on the hot path and are flushed to PostgreSQL asynchronously in batches; the reported count is the PostgreSQL total plus the un-flushed Redis delta."
+      "rationale": "Matches the existing app.links.default-ttl reading of 'about a month' as exactly 30 days, keeps the new limit configurable in the existing style, and refuses a caller-chosen expiry on a link nobody owns and nobody can delete. See ambiguity Q3.",
+      "statement": "Anonymous expiry is a new configurable app.links.anonymous-ttl defaulting to P30D, applied at creation as an absolute instant; the anonymous endpoint does not accept a caller-supplied expiresAt."
     },
     {
       "id": "A10",
-      "rationale": "AC22's hot-link spike and AC20's 'clicks survive a degraded backend' both require the click path to avoid Postgres. Bounding TTL by the takedown SLA means a missed invalidation still cannot exceed the published AC9 number.",
-      "statement": "Code-to-URL resolution is served from a Redis cache (including negative caching of unknown codes) with Postgres consulted only on miss; cache entry TTL is set at or below the takedown SLA and entries are actively invalidated on delete, expiry and abuse takedown."
+      "rationale": "SessionAuthenticationFilter is registered for /api/v1/* with only /api/v1/sessions exempt, so an unauthenticated endpoint needs an explicit exemption. Making the existing create endpoint dual-mode would change a documented 401 behaviour, which AC17 forbids.",
+      "statement": "Anonymous creation is a new path, and POST /api/v1/links with no token keeps answering 401 unauthorized. The new path is added to the session filter's exemption list beside /api/v1/sessions."
     },
     {
       "id": "A11",
-      "rationale": "A reissued code would silently redirect traffic from an old link's audience to a new owner's target \u2014 a security problem, not just a tidiness one. Data retention is out of scope, so rows are kept rather than purged.",
-      "statement": "Deletion is a soft delete (tombstone row retained, status flipped); codes are never reissued to another customer, and click counts of deleted links are retained."
+      "rationale": "Aliases share one namespace with generated codes and are never reissued after a soft delete, so an unidentified caller choosing memorable aliases is permanent namespace squatting with no owner to revoke it.",
+      "statement": "The anonymous request body carries longUrl only; alias and expiresAt are unknown properties and answer 400, per the existing strict-body rule."
     },
     {
       "id": "A12",
-      "rationale": "AC3's count is 'clicks made on it' for the life of the link; once the link is dead there is no redirect to attribute. Counting 404s would also let an attacker inflate a competitor's reported figures.",
-      "statement": "Clicks on deleted, expired or blocked links return 404 and are not added to the click count."
+      "rationale": "AC11, AC12 and AC15 then hold because the behaviour is literally the same code, not a parallel implementation that can drift. It also keeps the click path untouched, which is the stated priority.",
+      "statement": "Anonymous creation reuses the existing create path end to end: same UrlValidator, same ThreatCheck, same 22-char CSPRNG code generator and (domain, code) uniqueness, same resolutionCache.invalidateBeforeIssuing, same 503 when that invalidation or a needed dependency fails."
     },
     {
       "id": "A13",
-      "rationale": "AC19 names three distinct attacks \u2014 mining, existence scraping, bulk junk creation \u2014 which have different natural keys. Separating the 404 bucket is what actually stops enumeration without throttling legitimate high-volume clicking on a hot link (AC22).",
-      "statement": "Rate limiting is a Redis token bucket, keyed by client IP for the public click path (with a distinct, much tighter bucket for requests that 404, to catch enumeration) and by customer id for authenticated writes; over-limit returns 429 with Retry-After, and limits are configuration, not code."
+      "rationale": "Uses the existing anti-abuse system rather than a new one (explicitly out of scope), and gives AC14's 'cannot be used to bypass the limits on authenticated creation' a concrete meaning: the anonymous ceiling is strictly tighter than the authenticated one, and neither path can spend the other's tokens.",
+      "statement": "Anonymous creation is charged to a new IP-keyed bucket added to the existing RateLimitBucket enum and RateLimiter, with a property in the existing app.rate-limit.*-per-minute style defaulting well below write-per-minute; the WRITE bucket stays keyed by customer id and is unchanged."
     },
     {
       "id": "A14",
-      "rationale": "Blocks SSRF-flavoured abuse and self-referential redirect loops, and bounds the storage burn from junk-link attacks. 2048 is the pragmatic browser-compatible ceiling.",
-      "statement": "Submitted long URLs must be absolute http/https, at most 2048 characters, and are rejected if the host is a loopback, private, link-local or otherwise internal address, or the shortener's own domain."
+      "rationale": "Sign-up is the other unauthenticated endpoint that writes to PostgreSQL, and the non-functional line about an unauthenticated DB write not becoming an unmetered storage-burn vector applies to the customers table as much as to links.",
+      "statement": "Sign-up is rate limited by the same mechanism, keyed by client IP, even though the requirement only asks for it on item 3."
     },
     {
       "id": "A15",
-      "rationale": "Keeps the click path free of a prefix and clear of API routes. Scoping uniqueness by domain now is a one-column decision that avoids a data migration when customer-owned domains arrive, which the constraints say must not be precluded.",
-      "statement": "Management endpoints are JSON under a versioned prefix (/api/v1/...) while the redirect lives at the root path /{code}; the public base URL for building returned short links is configuration, and code uniqueness is enforced on (domain, code) from day one with a single default domain."
+      "rationale": "That endpoint answers 202 for any well-formed code precisely so it is not an existence oracle; carving out anonymous codes would reintroduce one, and an unowned link is exactly the link most in need of a takedown path.",
+      "statement": "POST /api/v1/links/{code}/abuse-reports continues to answer 202 for an anonymous code, and a report still blocks that link immediately."
     },
     {
       "id": "A16",
-      "rationale": "Roles, teams and multiple users per customer are out of scope. Modelling ownership on a customer id keeps a later user/team split additive.",
-      "statement": "One customer equals one login identity; 'customer' and 'user' are the same entity, and links are owned by that id."
+      "rationale": "The contract constraint says openapi.yaml must continue to describe the service, and the two docs currently assert in several places that registration does not exist and that all creation is authenticated.",
+      "statement": "artifacts/openapi.yaml, docs/API.md and docs/RUNBOOK.md are updated in the same change: new paths, any new error code, the new TTL and rate-limit properties, and the removal of 'no registration endpoint' claims."
     },
     {
       "id": "A17",
-      "rationale": "Deduplication would share a count across customers and leak that another customer already shortened that URL, breaking AC13's isolation.",
-      "statement": "The same long URL submitted twice yields two distinct short links with independent counts."
-    },
-    {
-      "id": "A18",
-      "rationale": "Intake puts provisioning out of scope while AC12/AC17/AC18 require us to hold credentials and issue sessions. Seeding is the smallest thing that makes the system testable without building a sign-up flow nobody asked for.",
-      "statement": "Customer accounts are seeded by database migration/fixture for this build; no public registration endpoint is exposed, but a sign-in endpoint issuing the session token is in scope."
+      "rationale": "The constraint requires the failure to be produced and visible before the fix and the tests retained. @Disabled or a deleted test would satisfy the letter of 'the suite passes' and none of the intent.",
+      "statement": "The AC3 tests land as their own commit ahead of the fix commit, with the failing run recorded in the run log, and remain as ordinary enabled tests afterwards."
     }
   ]
 }
