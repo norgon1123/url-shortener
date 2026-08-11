@@ -107,6 +107,12 @@ shed load, serve stale — it should be a decision.
 
 ### Code generation
 
+> **Overruled by the run, and correctly.** The length argument below contains an
+> arithmetic error — "128 bits as ~11 base62 characters" is about 65 bits — which
+> `design` caught and priced. The build ships 22 characters at 128 bits. See
+> [ADR-004](adr/004-short-codes-are-random-not-sequential.md). The
+> random-not-sequential reasoning stands; the arithmetic did not.
+
 Five years at 100M/day is ~180 billion links.
 
 Base62 at 7 characters is 3.5e12 — enough space, but ~5% occupancy, so random

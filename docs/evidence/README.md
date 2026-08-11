@@ -1,5 +1,9 @@
 # AC3: the tests fail against the code they were written to catch
 
+> **Which AC3.** `brownfield-1`'s third acceptance criterion — "show the failing
+> test before the fix". Unrelated to `greenfield-3`'s AC3 (exact click counts
+> under concurrency), which `docs/TODO.md` lists as unverified.
+
 `brownfield-1` was asked for a bug fix, and the requirement set the terms: *"we
 want to see the failing test before we see the fix, and we want that test kept
 afterwards."* `review-synthesis` promoted the missing half to a blocker
@@ -32,11 +36,16 @@ carry the fix** reverted to the greenfield tip — the code that actually shippe
 with the bypasses:
 
 ```bash
-git worktree add --detach runs/brownfield-1/ac3-evidence HEAD
-git -C runs/brownfield-1/ac3-evidence checkout sdlc/greenfield-3 -- \
+# 0ea1770 is brownfield-1's review-join merge — the tree `verify` passed on.
+#   Baseline for the two files that carry the fix: 7072055, the greenfield-3 tip.
+git worktree add --detach /tmp/ac3-evidence 0ea1770
+git -C /tmp/ac3-evidence checkout 7072055 -- \
   service/src/main/java/com/example/urlshortener/link/UrlValidator.java \
   service/src/main/java/com/example/urlshortener/threat/DenylistThreatCheck.java
-./mvnw -o -Dtest=HostEvasionRefusalTest test        # → ac3-host-evasion-before-fix.log
+cd /tmp/ac3-evidence/service && ./mvnw -Dtest=HostEvasionRefusalTest test
+#   → the log in this directory. Needs a Docker daemon (Testcontainers).
+#   Drop `-o`: the original run used a warmed ~/.m2 and offline mode will fail
+#   on a cold one.
 ```
 
 Reverting to greenfield rather than to the immediately preceding commit matters.

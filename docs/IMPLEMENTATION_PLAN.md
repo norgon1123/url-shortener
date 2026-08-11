@@ -180,6 +180,9 @@ enumeration argument in the brief made it load-bearing rather than an extra.
 
 ### 6.1 DAG
 
+> Rendered, with the human gates and the failure paths marked:
+> [`GRAPH.md`](GRAPH.md).
+
 ```
 intake → clarify → impact-analysis → feasibility → decompose → design → test-contract ─┬→ implement ────┐
                                                                                        └→ author-tests ─┴→ (join) → verify ─┬→ docs ───────────────┐
@@ -377,13 +380,15 @@ decisions rather than drift. The authority is
 | `GET /links/{code}/stats` | click counts ride `LinkResponse` | `design` folded the read into the resource rather than adding a route |
 | Caffeine only, no Redis | **Redis in the build** — click counting, rate limiting, resolution cache | the requirement's click-path scaling section made an in-process cache insufficient across replicas |
 | transactional outbox → consumer | Redis counter buffer with a flush loop | same reason; Kafka remains the documented scale path, not a dependency |
+| 7-character codes | **22 characters, 128 bits** | the brief contradicted itself — "128 bits as ~11 base62 characters" is ~65 bits — and AC16 made entropy the binding half. The run said so in the shipped Javadoc; see [ADR-004](adr/004-short-codes-are-random-not-sequential.md) |
+| **410** expired vs **404** unknown | **404 for both; no 410 anywhere** | either status confirms a code exists, which is the enumeration leak the brief itself names. `API.md` and `openapi.yaml` state it as a rule |
 
 Unchanged from the plan and confirmed in the build: **302 not 301** (301 caches
-the analytics away), random 7-character base62 with a unique-constraint retry
-rather than a sequence ([ADR-004](adr/004-short-codes-are-random-not-sequential.md)),
-the scheme allowlist and internal-address rejection, 410-expired versus
-404-unknown, Actuator and Micrometer, OpenAPI as a first-class artifact, and
-behaviour tests over mocks.
+the analytics away), **random rather than sequential** codes with uniqueness
+enforced by the `(domain, code)` constraint rather than a pre-insert check
+([ADR-004](adr/004-short-codes-are-random-not-sequential.md)), the scheme
+allowlist and internal-address rejection, Actuator and Micrometer, OpenAPI as a
+first-class artifact, and behaviour tests over mocks.
 
 The brownfield run then added self-service sign-up, anonymous links, and the host
 canonicalisation that closed two live filter bypasses.

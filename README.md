@@ -29,11 +29,11 @@ computes about itself and publishes.**
 python -m venv .venv && .venv/bin/pip install -r orchestrator/requirements.txt
 
 # 1. The whole machine, deterministically, in seven seconds. No API key, no spend.
-.venv/bin/pytest orchestrator/tests                 # 429 tests
+.venv/bin/pytest orchestrator/tests                 # 430 tests
 
 # 2. Replay a real run, entry by entry. Still no API key, still no spend.
 export PYTHONPATH=orchestrator
-alias sdlc='.venv/bin/python -m sdlc.cli --runs-dir orchestrator/fixtures/runs'
+sdlc() { .venv/bin/python -m sdlc.cli --runs-dir orchestrator/fixtures/runs "$@"; }
 
 sdlc replay orchestrator/fixtures/runs/greenfield-3   # read the run, entry by entry
 sdlc verify greenfield-3                              # re-check the hash chain yourself
@@ -53,7 +53,7 @@ the failure handling and the metrics end to end, in under a minute.
 |---|---|---|
 | Ask | [build the service](input/greenfield.txt) | [three changes to it](input/brownfield.txt) |
 | Outcome | completed, 148 tests green | completed, 276 tests green |
-| Gate pass rate | 84.6% | 97.0% |
+| Gate pass rate | 84.6% | 97.5% |
 | Human decisions | 7 | 5 |
 | Cost | $108.70 | $98.16 |
 | Rework | $60.51 (56%; **27%** excluding operator-induced staleness) | $51.90 (53%) |
@@ -78,6 +78,9 @@ $249.84.
 
 Full analysis, including what each metric hides: **[`docs/METRICS.md`](docs/METRICS.md)**.
 
+**See the graph**: [`docs/GRAPH.md`](docs/GRAPH.md) — the flow, where a human
+decides, what happens on failure, and one line on what each of the 21 nodes does.
+
 ## The one rule everything else follows from
 
 **The LLM never approves.** It can satisfy a checkable predicate, or it can
@@ -97,7 +100,7 @@ records are [here](docs/adr/).
 | Dependency graph | [`pipelines/sdlc.yaml`](orchestrator/pipelines/sdlc.yaml) — 21 nodes, declarative | both runs, `parallel_groups` in the metrics |
 | Entry / exit gates | [`gates.py`](orchestrator/sdlc/gates.py) — 24 checks | 148 and 125 gate evaluations |
 | Human checkpoints | `human` gate class; `approve` / `reject` / `repair` CLI | 17 recorded decisions across the shipped fixtures, whose answers reach the nodes |
-| Bounded retries | `retry.max_attempts` per node, with the failure fed back into the next prompt | 17 failed attempts, none unbounded |
+| Bounded retries | `retry.max_attempts` per node, with the failure fed back into the next prompt | 17 failed attempts across the two narrated runs, none unbounded |
 | Fallback | `on_failure: fallback` — one more attempt at reduced autonomy, proposing rather than applying | declared on `docs` (`sdlc.yaml:389`); covered by `test_engine.py::TestFallback`; never triggered live |
 | Rollback | `on_failure: rollback` — reset the worktree to the last good checkpoint | covered by `test_engine.py::TestRollback` and `test_checkpoint.py`; declared on no node — see [ENGINEERING_SUMMARY §5](docs/ENGINEERING_SUMMARY.md#5-what-to-build-next) |
 | Safe-stop | budget breach, or `stop` from another process, halting at a node boundary | 4 — one in `greenfield-3`, one in `ambiguous-1`, two in `ambiguous-2` (before and after `f4258e4`) |
@@ -156,6 +159,7 @@ person would have missed, or where it was wrong and the record says so.
 
 | Page | For |
 |---|---|
+| [docs/GRAPH.md](docs/GRAPH.md) | The pipeline illustrated: flow, human gates, failure handling, per-node summary |
 | [docs/ENGINEERING_SUMMARY.md](docs/ENGINEERING_SUMMARY.md) | **What happened**: four runs, seven defects, and what to build next |
 | [docs/METRICS.md](docs/METRICS.md) | The two runs, measured, with what each metric hides |
 | [docs/adr/](docs/adr) | Six decision records — what each cost, and what would reverse it |

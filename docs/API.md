@@ -287,10 +287,28 @@ curl -i -X POST http://localhost:8080/api/v1/links/7Qk2mZa9Xr4Lb0Nc8Tv1Ps/abuse-
 
 `202`, no body. The body is optional (`reason` ≤ 500 characters).
 
-A report **blocks the link immediately** — there is no moderation queue in this
-build. Any signed-in customer can report any code, including one they do not
-own; the per-reporter rate limit and the stored audit row are the whole defence
-against that. Only the link is blocked; its host is not added to the denylist.
+A report from an **eligible** reporter blocks the link immediately — there is no
+moderation queue in this build. Eligible means the reporting account pre-dates
+the link, or has existed for at least `app.abuse.min-reporter-age` (7 days by
+default), so an account minted to take down a link that is already published
+cannot do it. An ineligible report is still recorded and still answered `202`;
+it simply takes nothing down on its own authority. Any signed-in customer can
+report any code, including one they do not own; the age rule, the per-reporter
+rate limit and the stored audit row are the defence against that. Only the link
+is blocked; its host is not added to the denylist.
+
+> The eligibility rule is not decoration: self-service sign-up made accounts
+> free, and without it a rate limit keyed on customer id bounded nothing. See
+> `docs/TODO.md` for what remains open — takedown is still irreversible.
+>
+> **Erratum.** `artifacts/openapi.yaml`'s description of this endpoint still
+> describes the pre-`brownfield-1` behaviour, in which the rate limit and the
+> audit row were "the whole defence". The contract is a frozen artifact produced
+> and hashed by a run; hand-editing it would break the provenance that
+> `contract_frozen` and `routes_match_openapi` check. **This page is correct and
+> the contract's prose is stale**; the *shapes* it declares are accurate. The
+> mismatch is a real gap — no gate checks documentation semantics — and it is
+> recorded in `docs/TODO.md`.
 
 The response is `202` whether or not the code exists, so this endpoint cannot be
 used to discover which codes exist.
