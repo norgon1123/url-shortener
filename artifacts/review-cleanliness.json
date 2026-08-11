@@ -6,52 +6,43 @@
       "id": "CLEAN-1",
       "line": 132,
       "severity": "minor",
-      "suggestion": "Extract `private URI acceptableTarget(String longUrl)` containing the three calls and have both create and createAnonymous call it. The design's reason for two public methods (different request/response types, different expiry) is unaffected \u2014 only the shared acceptance rule moves.",
-      "summary": "The three-call target-acceptance sequence (parseOrThrow / requireShortenable / requirePermittedTarget) is now written twice, in create and createAnonymous. AC12 requires the two paths to accept exactly the same targets, and the javadoc on createAnonymous asserts that in prose, but nothing in the code enforces it: a fourth check added to create in six months is silently absent from the anonymous path. This is duplication of the kind that drifts, and it is the security-relevant kind."
+      "suggestion": "Extract `private URI admittedTarget(String longUrl)` performing the parse, requireShortenable and requirePermittedTarget, and call it from both create() and createAnonymous(). The methods stay separate (which the design justifies); only the rule set is shared.",
+      "summary": "createAnonymous re-types the three-line target-admission sequence from create() (parseOrThrow, requireShortenable, requirePermittedTarget). The javadoc promises the two paths must never differ in what they accept (AC12), but nothing mechanical holds them together: a fourth rule added to create() will silently not apply to the anonymous path."
     },
     {
       "confidence": "high",
       "file": "service/src/main/java/com/example/urlshortener/link/LinkService.java",
       "id": "CLEAN-2",
-      "line": 142,
+      "line": 141,
       "severity": "nit",
-      "suggestion": "Add `private String shortUrl(String code)` and use it from both toResponse and the AnonymousLinkResponse construction; keep the two response builders separate since the DTOs genuinely differ.",
-      "summary": "createAnonymous builds its response inline while every other read path in the class goes through toResponse, and `baseUrl + \"/\" + link.getCode()` is now spelled in two places. The short-URL join is the sort of thing that acquires trailing-slash handling later in one copy only."
-    },
-    {
-      "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/link/UrlValidator.java",
-      "id": "CLEAN-3",
-      "line": 84,
-      "severity": "minor",
-      "suggestion": "Throw IllegalStateException from the constructor when a non-null ownHost does not normalise (it is bean construction, so it fails the context rather than a request), or at minimum log.warn once naming the host and stating that the self-referential check is inactive.",
-      "summary": "`canonicalOwnHost = HostNormalizer.normalize(ownHost).orElse(null)` silently degrades: if app.base-url's host ever fails to canonicalise, the self-referential-target rule disappears at startup with no log line and no failure, and the only symptom is short links pointing at short links. Elsewhere this codebase is careful to log the moment a protection stops applying (see the fail-open warn in LinkService.requirePermittedTarget and JwtSessionService's ephemeral-key warning)."
+      "suggestion": "Add `private String shortUrl(LinkEntity link)` and use it from both response builders.",
+      "summary": "The short URL is now assembled as `baseUrl + \"/\" + link.getCode()` in two places (toResponse and createAnonymous). Small, but it is the kind of duplication that drifts the day baseUrl gains a trailing-slash rule or a path prefix."
     },
     {
       "confidence": "medium",
       "file": "service/src/main/java/com/example/urlshortener/link/HostNormalizer.java",
-      "id": "CLEAN-4",
-      "line": 346,
+      "id": "CLEAN-3",
+      "line": 283,
       "severity": "nit",
-      "suggestion": "Have valueOf take the radix as a parameter (the caller can obtain it once) and return OptionalLong, or keep the long sentinel but name it (`private static final long NOT_AN_ADDRESS_PART = -1L`) so the two failure encodings are at least both self-describing.",
-      "summary": "Two different sentinel conventions live within twenty lines: radixOf returns NOT_A_NUMBER (0) and valueOf returns -1, so asDottedQuad has to test `part < 0` for one failure and callers test `== NOT_A_NUMBER` for the other. valueOf also recomputes radixOf for a part isAddressCandidate has already classified, so the classification exists twice."
+      "suggestion": "Have radixOf return the digit offset alongside the radix (a small private record, or a single `parsePart` returning the value / -1), so the prefix rule exists in exactly one place.",
+      "summary": "The radix rules are encoded twice: radixOf decides base from the 0x/leading-zero prefix, and valueOf re-derives both the radix and the prefix length in a switch. Two encodings of the same rule in one file, and the second only makes sense if you have read the first."
     },
     {
       "confidence": "low",
-      "file": "service/src/main/java/com/example/urlshortener/auth/CustomerController.java",
-      "id": "CLEAN-5",
-      "line": 39,
+      "file": "service/src/main/java/com/example/urlshortener/auth/SignUpService.java",
+      "id": "CLEAN-4",
+      "line": 68,
       "severity": "nit",
-      "suggestion": "Either rename to SignUpController to match SignInController and its service, or leave it and accept that customer-resource endpoints belong here. Worth one line either way; the current pairing is the only inconsistency.",
-      "summary": "CustomerController is named for the resource while its immediate sibling SignInController is named for the action, and it delegates to SignUpService. Nothing is wrong today \u2014 one endpoint, one collaborator \u2014 but the name promises the customer resource generally, so the next customer endpoint (GET /customers/{id}, password change) will land here by name rather than by cohesion."
+      "suggestion": "Log the client address (already available to the controller for the rate-limit key) or the MDC request id with this line.",
+      "summary": "The duplicate-sign-up refusal logs no correlator at all - no client address, no request id - so a spike of 409s cannot be attributed to one caller versus many without a debugger. The email is rightly absent; something joinable is not."
     }
   ],
   "lens": "review-cleanliness",
   "not_examined": [
-    "service/src/test/** \u2014 the test diff (~2,400 lines) is the test-adequacy reviewer's brief; I read it only where it clarified production intent",
-    "artifacts/openapi.yaml and the DTOs under api/ \u2014 frozen contract files owned by the API-contract lens",
-    "Correctness of the IPv4/IDN canonicalisation itself, and of the V3/V4 migrations against a real database \u2014 out of this lens's brief",
-    "Performance of the added query and hashing paths"
+    "service/src/test/** - test structure and adequacy belong to the test-adequacy lens; I read test names only for orientation",
+    "artifacts/openapi.yaml and the endpoint shape - API contract lens",
+    "orchestrator/, docs/, docker-compose.yml - untouched by this change",
+    "Correctness of the IPv4 canonicalisation arithmetic and the security consequences of the new unauthenticated paths - out of brief"
   ],
-  "summary": "Clean change overall, and unusually well documented: the comments say why (NULL owner vs sentinel row in V4, hand-rolled IPv4 parsing, no Location header, the pre-apply duplicate check on V3) rather than what, and they match the house style of the surrounding code. Structure is right \u2014 business rules in SignUpService and LinkService, controllers only rate-limit and delegate; rate-limiting goes through the existing RateLimitGuard in the existing shape; log lines match SignInService's identity-free convention; no swallowed exceptions (the two catches translate a constraint violation and a dependency failure, both commented). The findings worth acting on are CLEAN-1 (the acceptance sequence duplicated between the owned and anonymous create paths, where AC12 requires them to agree and only prose enforces it) and CLEAN-3 (a security check that can silently switch itself off at startup). The remaining three are taste; the rest of the diff's minor points were consistent with the code around them and are not filed."
+  "summary": "The change is clean and, unusually, consistent with the code around it: the two new controllers mirror SignInController and AbuseReportController exactly (full paths on the method, RateLimitGuard charged first, thin controller delegating to a service), business rules stay in LinkService/SignUpService, the new rate-limit bucket is documented in the same voice as the existing ones, and both migrations carry the 'why, and in what order' comments an operator will need. Error handling is deliberate rather than swallowed - the DataIntegrityViolationException catch is narrow and explained, and DenylistThreatCheck's fail-closed-on-uncanonicalisable branch says why it duplicates a check UrlValidator already made. Naming reads in domain vocabulary throughout. My four findings are all structural small change: one duplication (CLEAN-1) that a future validation rule could genuinely diverge through, and three nits. Comments are dense but almost all explain why rather than what; none worth deleting. The rest of what I noticed was minor and internally consistent."
 }
