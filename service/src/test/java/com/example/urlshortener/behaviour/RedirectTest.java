@@ -10,8 +10,12 @@ import com.example.urlshortener.api.LinkResponse;
 import com.example.urlshortener.support.AbstractIntegrationTest;
 import com.example.urlshortener.support.ApiClient;
 import com.example.urlshortener.support.Fixtures;
+import com.fasterxml.jackson.databind.JsonNode;
 import java.net.http.HttpResponse;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -318,11 +322,19 @@ class RedirectTest extends AbstractIntegrationTest {
      * dispatcher, identically whether or not the code resolves - so the refusal is
      * not a way to ask whether a link exists.
      *
+     * <p>What is pinned here is what the contract promises: 405 either way, no
+     * {@code Location} either way, and nothing in the refusal that tells the
+     * caller which of the two codes resolves. It is deliberately <em>not</em>
+     * byte-equality of the two bodies: the refusal is Spring's own, and its body
+     * legitimately echoes the request path the caller just sent and the clock at
+     * the moment it was refused. Neither discloses anything the caller did not
+     * already have. Everything else in the refusal must match.
+     *
      * <p>Demonstrates: AC15.
      */
     @Test
     void aMethodOtherThanGetOrHeadIsRefusedWithoutRevealingWhetherTheCodeExists() {
-        LinkResponse link = givenLink(alice());
+        LinkResponse link = givenLink(alice(), Fixtures.TARGET_URL);
 
         HttpResponse<String> postOnALiveCode = api.rootRequest("POST", "/" + link.code(), "{}");
         HttpResponse<String> postOnAnUnissuedCode = api.rootRequest("POST", "/" + Fixtures.UNISSUED_CODE, "{}");
@@ -333,13 +345,28 @@ class RedirectTest extends AbstractIntegrationTest {
         assertAll(
                 () -> assertEquals(405, postOnALiveCode.statusCode()),
                 () -> assertEquals(postOnALiveCode.statusCode(), postOnAnUnissuedCode.statusCode()),
-                () -> assertEquals(postOnALiveCode.body(), postOnAnUnissuedCode.body()),
+                () -> assertEquals(
+                        refusalDisclosure(postOnALiveCode),
+                        refusalDisclosure(postOnAnUnissuedCode),
+                        "a refused POST must say the same thing for a live code as for an unissued one"),
                 () -> assertEquals(405, deleteOnALiveCode.statusCode()),
                 () -> assertEquals(deleteOnALiveCode.statusCode(), deleteOnAnUnissuedCode.statusCode()),
-                () -> assertEquals(deleteOnALiveCode.body(), deleteOnAnUnissuedCode.body()),
+                () -> assertEquals(
+                        refusalDisclosure(deleteOnALiveCode),
+                        refusalDisclosure(deleteOnAnUnissuedCode),
+                        "a refused DELETE must say the same thing for a live code as for an unissued one"),
                 () -> assertFalse(
                         ApiClient.header(postOnALiveCode, Fixtures.LOCATION).isPresent(),
-                        "a refused method must not redirect anyone"));
+                        "a refused method must not redirect anyone"),
+                () -> assertFalse(
+                        ApiClient.header(deleteOnALiveCode, Fixtures.LOCATION).isPresent(),
+                        "a refused method must not redirect anyone"),
+                () -> assertFalse(
+                        postOnALiveCode.body().contains(Fixtures.TARGET_URL),
+                        "a refusal must not leak the target of the link it was aimed at"),
+                () -> assertFalse(
+                        deleteOnALiveCode.body().contains(Fixtures.TARGET_URL),
+                        "a refusal must not leak the target of the link it was aimed at"));
     }
 
     // ---- helpers ----------------------------------------------------------
@@ -352,5 +379,33 @@ class RedirectTest extends AbstractIntegrationTest {
     /** The {@code Cache-Control} of a response, or empty when it carries none. */
     private String cacheControl(HttpResponse<String> response) {
         return ApiClient.header(response, Fixtures.CACHE_CONTROL).orElse("");
+    }
+
+    /**
+     * Fields of an error body that vary for reasons that have nothing to do with
+     * whether the code resolves: the request path the caller itself sent, and the
+     * instant the refusal was produced.
+     */
+    private static final Set<String> CALLER_KNOWN_ERROR_FIELDS = Set.of("path", "timestamp", "instance");
+
+    /**
+     * Everything a refusal body says other than what the caller already knows -
+     * the shape a test can hold two refusals to without demanding that an echoed
+     * request path and a clock reading be identical. An empty body yields an
+     * empty view, which two empty bodies still compare equal on.
+     */
+    private Map<String, String> refusalDisclosure(HttpResponse<String> response) {
+        String body = response.body();
+        if (body == null || body.isBlank()) {
+            return Map.of();
+        }
+        JsonNode tree = ApiClient.asTree(response);
+        Map<String, String> disclosed = new TreeMap<>();
+        tree.fieldNames().forEachRemaining(name -> {
+            if (!CALLER_KNOWN_ERROR_FIELDS.contains(name)) {
+                disclosed.put(name, tree.get(name).asText());
+            }
+        });
+        return disclosed;
     }
 }
