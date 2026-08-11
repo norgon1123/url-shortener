@@ -125,6 +125,7 @@ person would have missed, or where it was wrong and the record says so.
 
 | Page | For |
 |---|---|
+| [docs/ENGINEERING_SUMMARY.md](docs/ENGINEERING_SUMMARY.md) | **What happened**: four runs, seven defects, and what to build next |
 | [docs/METRICS.md](docs/METRICS.md) | The two runs, measured, with what each metric hides |
 | [docs/adr/](docs/adr) | Six decision records — what each cost, and what would reverse it |
 | [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) | The design, and the plan it was built to |
