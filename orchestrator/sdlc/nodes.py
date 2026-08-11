@@ -43,6 +43,11 @@ class NodeInvocation:
     context: dict[str, Any] = field(default_factory=dict)
     gate_failures: tuple[GateResult, ...] = ()
     rejection_note: str = ""
+    # Answers a human gave at an earlier checkpoint, as (node, approver, id,
+    # text). Run-scoped rather than node-scoped: a decision taken at `clarify`
+    # is a fact about the whole run, and the node that needs it most is usually
+    # several stages downstream.
+    human_answers: tuple[tuple[str, str, str, str], ...] = ()
     autonomy: Autonomy = Autonomy.APPLY
     artifacts_dirname: str = "artifacts"
 
@@ -88,6 +93,9 @@ def render_prompt(invocation: NodeInvocation, root: Path) -> str:
 
     if node.output_schema:
         sections.append(_output_section(node.output_schema))
+
+    if invocation.human_answers:
+        sections.append(_answers_section(invocation))
 
     if invocation.gate_failures:
         sections.append(_failure_section(invocation))
@@ -176,6 +184,34 @@ def _output_section(schema_name: str) -> str:
         f"at the exit gate; a non-conforming object fails the node.\n\n"
         f"```json\n{json.dumps(schema, indent=2)}\n```"
     )
+
+
+def _answers_section(invocation: NodeInvocation) -> str:
+    """Decisions a human has already taken, in their words.
+
+    The gap this closes was invisible for two runs and cost nothing to find in
+    the third. A blocking ambiguity was answered by a person, the gate confirmed
+    an answer *existed*, the run proceeded -- and every downstream node kept
+    reading the model's own `proposed_answer`, because nothing carried the
+    human's text anywhere. In both earlier runs the human had happened to agree
+    with the proposal, so the two were indistinguishable. Answering against the
+    proposal made the pipe visibly broken: the plan cited the proposed answer and
+    recorded the question as unconfirmed.
+
+    Placed late in the prompt and stated as settled, because that is what it is.
+    """
+    lines = [
+        "## Decisions already taken by a human",
+        "",
+        "These questions were escalated and answered by a person. They are "
+        "settled: build to them, and do not re-derive, re-propose or work around "
+        "them. If one of them now looks wrong, say so explicitly rather than "
+        "quietly doing something else.",
+        "",
+    ]
+    for node_id, approver, qid, text in invocation.human_answers:
+        lines.append(f"- **{qid}** (asked at `{node_id}`, answered by {approver}): {text}")
+    return "\n".join(lines)
 
 
 def _failure_section(invocation: NodeInvocation) -> str:
