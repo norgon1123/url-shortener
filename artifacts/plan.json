@@ -1,415 +1,4 @@
 {
-  "tasks": [
-    {
-      "id": "T1",
-      "title": "Frozen dependency set in service/pom.xml: Redis client, password KDF (with explicit BouncyCastle pin), JWT library",
-      "depends_on": [],
-      "deliverables": [
-        "service/pom.xml"
-      ],
-      "acceptance_criteria_ids": []
-    },
-    {
-      "id": "T2",
-      "title": "V1 schema and seed fixture: customers, links with (domain, code) unique and status/expires_at, click totals, abuse reports, threat denylist",
-      "depends_on": [],
-      "deliverables": [
-        "service/src/main/resources/db/migration/V1__initial_schema.sql",
-        "service/src/main/resources/db/migration/V2__seed_customers_and_denylist.sql"
-      ],
-      "acceptance_criteria_ids": [
-        "AC6",
-        "AC11",
-        "AC17"
-      ]
-    },
-    {
-      "id": "T3",
-      "title": "Configuration surface in application.yml and AppProperties: Redis connection, JWT key env placeholder and 24h TTL, rate-limit buckets, 30-day default expiry, public base URL, resolution cache TTL at or below the 60s takedown bound",
-      "depends_on": [
-        "T1"
-      ],
-      "deliverables": [
-        "service/src/main/resources/application.yml",
-        "service/src/main/java/com/example/urlshortener/config/AppProperties.java"
-      ],
-      "acceptance_criteria_ids": [
-        "AC9",
-        "AC10",
-        "AC11",
-        "AC19"
-      ]
-    },
-    {
-      "id": "T4",
-      "title": "Integration test harness carrying a singleton Redis container beside Postgres, plus a signed-in-session helper and HTTP client",
-      "depends_on": [
-        "T1"
-      ],
-      "deliverables": [
-        "service/src/test/java/com/example/urlshortener/support/AbstractIntegrationTest.java",
-        "service/src/test/java/com/example/urlshortener/support/TestInfrastructure.java",
-        "service/src/test/java/com/example/urlshortener/support/ApiClient.java",
-        "service/src/test/java/com/example/urlshortener/support/Fixtures.java"
-      ],
-      "acceptance_criteria_ids": []
-    },
-    {
-      "id": "T5",
-      "title": "JPA entities and repositories that validate against V1 under ddl-auto: validate",
-      "depends_on": [
-        "T2"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/domain/CustomerEntity.java",
-        "service/src/main/java/com/example/urlshortener/domain/LinkEntity.java",
-        "service/src/main/java/com/example/urlshortener/domain/AbuseReportEntity.java",
-        "service/src/main/java/com/example/urlshortener/domain/ThreatDenylistEntity.java",
-        "service/src/main/java/com/example/urlshortener/repository/LinkRepository.java",
-        "service/src/main/java/com/example/urlshortener/repository/CustomerRepository.java",
-        "service/src/main/java/com/example/urlshortener/repository/AbuseReportRepository.java",
-        "service/src/main/java/com/example/urlshortener/repository/ThreatDenylistRepository.java"
-      ],
-      "acceptance_criteria_ids": [
-        "AC11"
-      ]
-    },
-    {
-      "id": "T6",
-      "title": "Sign-in endpoint issuing an asymmetrically signed 24h session token, verifying passwords against the memory-hard KDF",
-      "depends_on": [
-        "T1",
-        "T3",
-        "T5"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/auth/SignInController.java",
-        "service/src/main/java/com/example/urlshortener/auth/SignInService.java",
-        "service/src/main/java/com/example/urlshortener/auth/PasswordHasher.java",
-        "service/src/main/java/com/example/urlshortener/auth/JwtIssuer.java",
-        "service/src/test/java/com/example/urlshortener/behaviour/SignInBehaviourTest.java",
-        "service/src/test/java/com/example/urlshortener/behaviour/PasswordStorageTest.java"
-      ],
-      "acceptance_criteria_ids": [
-        "AC17",
-        "AC18"
-      ]
-    },
-    {
-      "id": "T7",
-      "title": "Local-only session verification on /api/v1/**, with the root click path and actuator reachable without credentials",
-      "depends_on": [
-        "T6"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/auth/SessionAuthenticationFilter.java",
-        "service/src/main/java/com/example/urlshortener/auth/JwtVerifier.java",
-        "service/src/main/java/com/example/urlshortener/auth/CurrentCustomer.java",
-        "service/src/test/java/com/example/urlshortener/behaviour/SessionExpiryTest.java"
-      ],
-      "acceptance_criteria_ids": [
-        "AC12",
-        "AC14",
-        "AC18"
-      ]
-    },
-    {
-      "id": "T8",
-      "title": "Unguessable short-code generator: 128-bit CSPRNG base62, no derivation from row id, time or URL, unique-constraint insert retry",
-      "depends_on": [],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/link/ShortCodeGenerator.java",
-        "service/src/test/java/com/example/urlshortener/behaviour/ShortCodeUnguessabilityTest.java"
-      ],
-      "acceptance_criteria_ids": [
-        "AC16"
-      ]
-    },
-    {
-      "id": "T9",
-      "title": "URL admission control: absolute http/https, length and internal-address rejection, plus a ThreatCheck port with Postgres-denylist and no-op implementations that fails open with a log line",
-      "depends_on": [
-        "T5"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/link/UrlValidator.java",
-        "service/src/main/java/com/example/urlshortener/threat/ThreatCheck.java",
-        "service/src/main/java/com/example/urlshortener/threat/DenylistThreatCheck.java",
-        "service/src/main/java/com/example/urlshortener/threat/NoOpThreatCheck.java",
-        "service/src/test/java/com/example/urlshortener/behaviour/ThreatCheckTest.java"
-      ],
-      "acceptance_criteria_ids": [
-        "AC20",
-        "AC21"
-      ]
-    },
-    {
-      "id": "T10",
-      "title": "Create-link endpoint returning both short code and fully-qualified short URL, applying the 30-day default expiry and refusing threat-listed targets",
-      "depends_on": [
-        "T3",
-        "T5",
-        "T7",
-        "T8",
-        "T9"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/link/LinkController.java",
-        "service/src/main/java/com/example/urlshortener/link/LinkService.java",
-        "service/src/main/java/com/example/urlshortener/api/CreateLinkRequest.java",
-        "service/src/main/java/com/example/urlshortener/api/LinkResponse.java",
-        "service/src/test/java/com/example/urlshortener/behaviour/CreateLinkTest.java",
-        "service/src/test/java/com/example/urlshortener/behaviour/ConfiguredDefaultExpiryTest.java"
-      ],
-      "acceptance_criteria_ids": [
-        "AC1",
-        "AC10",
-        "AC12",
-        "AC21"
-      ]
-    },
-    {
-      "id": "T11",
-      "title": "Customer-chosen alias in the shared code namespace: charset and reserved-word rules, rejection on collision without disclosing owner or target",
-      "depends_on": [
-        "T10"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/link/AliasPolicy.java",
-        "service/src/test/java/com/example/urlshortener/behaviour/CustomAliasTest.java"
-      ],
-      "acceptance_criteria_ids": [
-        "AC5",
-        "AC6",
-        "AC16"
-      ]
-    },
-    {
-      "id": "T12",
-      "title": "Redis-backed code resolution cache replacing the body of CacheConfig.cacheManager, with negative caching, TTL bounded by the takedown SLA and an explicit invalidation entry point",
-      "depends_on": [
-        "T3",
-        "T5"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/config/CacheConfig.java",
-        "service/src/main/java/com/example/urlshortener/redirect/ResolutionCache.java",
-        "service/src/main/java/com/example/urlshortener/redirect/CachedLink.java",
-        "service/src/main/java/com/example/urlshortener/redirect/LinkResolver.java"
-      ],
-      "acceptance_criteria_ids": [
-        "AC9",
-        "AC22"
-      ]
-    },
-    {
-      "id": "T13",
-      "title": "Root redirect GET/HEAD /{code}: 302 with no-store headers, 405 on other methods, one identical 404 for unknown, expired, deleted and blocked codes, no credentials required",
-      "depends_on": [
-        "T12"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/redirect/RedirectController.java",
-        "service/src/test/java/com/example/urlshortener/behaviour/RedirectTest.java",
-        "service/src/test/java/com/example/urlshortener/behaviour/LinkExpiryTest.java"
-      ],
-      "acceptance_criteria_ids": [
-        "AC2",
-        "AC4",
-        "AC8",
-        "AC10",
-        "AC14",
-        "AC15",
-        "AC22"
-      ]
-    },
-    {
-      "id": "T14",
-      "title": "Exact click counting: Redis increment on the hot path, batched durable flush to PostgreSQL, no increment for 404 responses",
-      "depends_on": [
-        "T13"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/click/ClickCounter.java",
-        "service/src/main/java/com/example/urlshortener/click/RedisClickCounter.java",
-        "service/src/main/java/com/example/urlshortener/click/ClickFlushJob.java",
-        "service/src/main/java/com/example/urlshortener/click/ClickFlushWriter.java",
-        "service/src/test/java/com/example/urlshortener/behaviour/ClickCountingTest.java",
-        "service/src/test/java/com/example/urlshortener/behaviour/DurabilityAcrossRestartTest.java"
-      ],
-      "acceptance_criteria_ids": [
-        "AC3",
-        "AC4",
-        "AC20",
-        "AC22"
-      ]
-    },
-    {
-      "id": "T15",
-      "title": "Owner-scoped link performance endpoint returning the PostgreSQL total plus the un-flushed Redis delta, and a 404 for links that are not the caller's",
-      "depends_on": [
-        "T7",
-        "T14"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/link/LinkController.java",
-        "service/src/test/java/com/example/urlshortener/behaviour/LinkPerformanceTest.java",
-        "service/src/test/java/com/example/urlshortener/behaviour/TenantIsolationTest.java"
-      ],
-      "acceptance_criteria_ids": [
-        "AC3",
-        "AC7",
-        "AC12",
-        "AC13"
-      ]
-    },
-    {
-      "id": "T16",
-      "title": "Owner-scoped paginated list of a customer's own links",
-      "depends_on": [
-        "T5",
-        "T7"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/api/LinkPage.java",
-        "service/src/test/java/com/example/urlshortener/behaviour/ListLinksTest.java"
-      ],
-      "acceptance_criteria_ids": [
-        "AC7",
-        "AC13"
-      ]
-    },
-    {
-      "id": "T17",
-      "title": "Owner-scoped soft delete with active cache invalidation, proven to stop redirecting inside the published takedown bound",
-      "depends_on": [
-        "T7",
-        "T12",
-        "T13"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/link/LinkService.java",
-        "service/src/test/java/com/example/urlshortener/behaviour/DeleteLinkTest.java"
-      ],
-      "acceptance_criteria_ids": [
-        "AC8",
-        "AC9",
-        "AC13"
-      ]
-    },
-    {
-      "id": "T18",
-      "title": "Owner-scoped expiry-only PATCH on a link, target URL immutable, cache invalidated on change",
-      "depends_on": [
-        "T7",
-        "T12"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/api/UpdateLinkExpiryRequest.java",
-        "service/src/test/java/com/example/urlshortener/behaviour/UpdateLinkExpiryTest.java"
-      ],
-      "acceptance_criteria_ids": [
-        "AC10",
-        "AC11",
-        "AC13"
-      ]
-    },
-    {
-      "id": "T19",
-      "title": "Authenticated, rate-limited abuse report that blocks the link immediately, invalidates the cache and records reporter id and timestamp",
-      "depends_on": [
-        "T7",
-        "T12",
-        "T20"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/abuse/AbuseReportController.java",
-        "service/src/main/java/com/example/urlshortener/abuse/AbuseReportService.java",
-        "service/src/main/java/com/example/urlshortener/api/AbuseReportRequest.java",
-        "service/src/test/java/com/example/urlshortener/behaviour/AbuseReportTest.java",
-        "service/src/test/java/com/example/urlshortener/behaviour/AbuseReportRateLimitTest.java"
-      ],
-      "acceptance_criteria_ids": [
-        "AC9",
-        "AC12",
-        "AC21"
-      ]
-    },
-    {
-      "id": "T20",
-      "title": "Redis token-bucket rate limiting: per-IP click bucket, tighter bucket for 404s, per-customer write bucket, 429 with Retry-After, limits from configuration",
-      "depends_on": [
-        "T3"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/ratelimit/RateLimiter.java",
-        "service/src/main/java/com/example/urlshortener/ratelimit/RedisTokenBucketRateLimiter.java",
-        "service/src/main/java/com/example/urlshortener/ratelimit/RateLimitGuard.java",
-        "service/src/main/resources/redis/token_bucket.lua",
-        "service/src/test/java/com/example/urlshortener/behaviour/ClickRateLimitTest.java",
-        "service/src/test/java/com/example/urlshortener/behaviour/WriteRateLimitTest.java"
-      ],
-      "acceptance_criteria_ids": [
-        "AC16",
-        "AC19",
-        "AC22"
-      ]
-    },
-    {
-      "id": "T21",
-      "title": "Degraded mode: clicks still redirected and counted best-effort when the create path's dependencies are down, with health reporting the truth",
-      "depends_on": [
-        "T13",
-        "T14"
-      ],
-      "deliverables": [
-        "service/src/main/java/com/example/urlshortener/redirect/LinkResolver.java",
-        "service/src/test/java/com/example/urlshortener/behaviour/DegradedDependencyTest.java"
-      ],
-      "acceptance_criteria_ids": [
-        "AC20"
-      ]
-    },
-    {
-      "id": "T22",
-      "title": "Cross-cutting acceptance suite: takedown bound, indistinguishable 404s, enumeration resistance, exact counting under repeated clicks, hot-link spike",
-      "depends_on": [
-        "T4",
-        "T11",
-        "T14",
-        "T17",
-        "T19",
-        "T20"
-      ],
-      "deliverables": [
-        "service/src/test/java/com/example/urlshortener/behaviour/TakedownBoundTest.java",
-        "service/src/test/java/com/example/urlshortener/behaviour/IndistinguishableNotFoundTest.java",
-        "service/src/test/java/com/example/urlshortener/behaviour/EnumerationResistanceTest.java",
-        "service/src/test/java/com/example/urlshortener/behaviour/HotLinkSpikeTest.java"
-      ],
-      "acceptance_criteria_ids": [
-        "AC3",
-        "AC9",
-        "AC13",
-        "AC15",
-        "AC16",
-        "AC19",
-        "AC22"
-      ]
-    },
-    {
-      "id": "T23",
-      "title": "Design docs reconciled with the frozen assumptions so reviewers are not reading superseded decisions",
-      "depends_on": [
-        "T1"
-      ],
-      "deliverables": [
-        "docs/IMPLEMENTATION_PLAN.md",
-        "docs/REQUIREMENTS_BRIEF.md"
-      ],
-      "acceptance_criteria_ids": []
-    }
-  ],
   "risks": [
     "No human answers to the blocking ambiguities reached this node, so the plan is built on the model's proposed Q1 (60s p99 takedown) and Q2 (Postgres denylist ThreatCheck, fail open) answers. A sub-second published bound rewrites T12/T17/T19 as synchronous multi-tier invalidation with no TTL safety net; a real reputation feed makes T9 a materially larger, procurement-gated task.",
     "U4 unresolved: Argon2PasswordEncoder references BouncyCastle while spring-security-crypto declares no such dependency. If T1 freezes the pom without an explicit bcprov-jdk18on version, sign-in compiles and throws NoClassDefFoundError at first use (AC17), and no downstream node may edit pom.xml to fix it.",
@@ -423,5 +12,416 @@
     "The no_secrets gate fires on quoted credentials: T2's seeded customer fixture and T3's JWT signing key must use the existing unquoted ${VAR:default} placeholder style or the run halts on a false positive.",
     "Coverage floor 0.70 is measured over a codebase several times the scaffold's size, and the branches least likely to be exercised by black-box HTTP tests are exactly T9's fail-open path, T20's over-limit path and T21's degraded mode; these need targeted tests, not incidental coverage.",
     "docker-compose.yml is in no node's write paths and still defines Postgres only. Once T1/T3 make Redis load-bearing, `docker compose up` yields a service that cannot serve a click and no agent can repair it; the human approving the T1 pom change has to add the redis service in the same review."
+  ],
+  "tasks": [
+    {
+      "acceptance_criteria_ids": [],
+      "deliverables": [
+        "service/pom.xml"
+      ],
+      "depends_on": [],
+      "id": "T1",
+      "title": "Frozen dependency set in service/pom.xml: Redis client, password KDF (with explicit BouncyCastle pin), JWT library"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC6",
+        "AC11",
+        "AC17"
+      ],
+      "deliverables": [
+        "service/src/main/resources/db/migration/V1__initial_schema.sql",
+        "service/src/main/resources/db/migration/V2__seed_customers_and_denylist.sql"
+      ],
+      "depends_on": [],
+      "id": "T2",
+      "title": "V1 schema and seed fixture: customers, links with (domain, code) unique and status/expires_at, click totals, abuse reports, threat denylist"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC9",
+        "AC10",
+        "AC11",
+        "AC19"
+      ],
+      "deliverables": [
+        "service/src/main/resources/application.yml",
+        "service/src/main/java/com/example/urlshortener/config/AppProperties.java"
+      ],
+      "depends_on": [
+        "T1"
+      ],
+      "id": "T3",
+      "title": "Configuration surface in application.yml and AppProperties: Redis connection, JWT key env placeholder and 24h TTL, rate-limit buckets, 30-day default expiry, public base URL, resolution cache TTL at or below the 60s takedown bound"
+    },
+    {
+      "acceptance_criteria_ids": [],
+      "deliverables": [
+        "service/src/test/java/com/example/urlshortener/support/AbstractIntegrationTest.java",
+        "service/src/test/java/com/example/urlshortener/support/TestInfrastructure.java",
+        "service/src/test/java/com/example/urlshortener/support/ApiClient.java",
+        "service/src/test/java/com/example/urlshortener/support/Fixtures.java"
+      ],
+      "depends_on": [
+        "T1"
+      ],
+      "id": "T4",
+      "title": "Integration test harness carrying a singleton Redis container beside Postgres, plus a signed-in-session helper and HTTP client"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC11"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/domain/CustomerEntity.java",
+        "service/src/main/java/com/example/urlshortener/domain/LinkEntity.java",
+        "service/src/main/java/com/example/urlshortener/domain/AbuseReportEntity.java",
+        "service/src/main/java/com/example/urlshortener/domain/ThreatDenylistEntity.java",
+        "service/src/main/java/com/example/urlshortener/repository/LinkRepository.java",
+        "service/src/main/java/com/example/urlshortener/repository/CustomerRepository.java",
+        "service/src/main/java/com/example/urlshortener/repository/AbuseReportRepository.java",
+        "service/src/main/java/com/example/urlshortener/repository/ThreatDenylistRepository.java"
+      ],
+      "depends_on": [
+        "T2"
+      ],
+      "id": "T5",
+      "title": "JPA entities and repositories that validate against V1 under ddl-auto: validate"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC17",
+        "AC18"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/auth/SignInController.java",
+        "service/src/main/java/com/example/urlshortener/auth/SignInService.java",
+        "service/src/main/java/com/example/urlshortener/auth/PasswordHasher.java",
+        "service/src/main/java/com/example/urlshortener/auth/JwtIssuer.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/SignInBehaviourTest.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/PasswordStorageTest.java"
+      ],
+      "depends_on": [
+        "T1",
+        "T3",
+        "T5"
+      ],
+      "id": "T6",
+      "title": "Sign-in endpoint issuing an asymmetrically signed 24h session token, verifying passwords against the memory-hard KDF"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC12",
+        "AC14",
+        "AC18"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/auth/SessionAuthenticationFilter.java",
+        "service/src/main/java/com/example/urlshortener/auth/JwtVerifier.java",
+        "service/src/main/java/com/example/urlshortener/auth/CurrentCustomer.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/SessionExpiryTest.java"
+      ],
+      "depends_on": [
+        "T6"
+      ],
+      "id": "T7",
+      "title": "Local-only session verification on /api/v1/**, with the root click path and actuator reachable without credentials"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC16"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/link/ShortCodeGenerator.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/ShortCodeUnguessabilityTest.java"
+      ],
+      "depends_on": [],
+      "id": "T8",
+      "title": "Unguessable short-code generator: 128-bit CSPRNG base62, no derivation from row id, time or URL, unique-constraint insert retry"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC20",
+        "AC21"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/link/UrlValidator.java",
+        "service/src/main/java/com/example/urlshortener/threat/ThreatCheck.java",
+        "service/src/main/java/com/example/urlshortener/threat/DenylistThreatCheck.java",
+        "service/src/main/java/com/example/urlshortener/threat/NoOpThreatCheck.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/ThreatCheckTest.java"
+      ],
+      "depends_on": [
+        "T5"
+      ],
+      "id": "T9",
+      "title": "URL admission control: absolute http/https, length and internal-address rejection, plus a ThreatCheck port with Postgres-denylist and no-op implementations that fails open with a log line"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC1",
+        "AC10",
+        "AC12",
+        "AC21"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/link/LinkController.java",
+        "service/src/main/java/com/example/urlshortener/link/LinkService.java",
+        "service/src/main/java/com/example/urlshortener/api/CreateLinkRequest.java",
+        "service/src/main/java/com/example/urlshortener/api/LinkResponse.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/CreateLinkTest.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/ConfiguredDefaultExpiryTest.java"
+      ],
+      "depends_on": [
+        "T3",
+        "T5",
+        "T7",
+        "T8",
+        "T9"
+      ],
+      "id": "T10",
+      "title": "Create-link endpoint returning both short code and fully-qualified short URL, applying the 30-day default expiry and refusing threat-listed targets"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC5",
+        "AC6",
+        "AC16"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/link/AliasPolicy.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/CustomAliasTest.java"
+      ],
+      "depends_on": [
+        "T10"
+      ],
+      "id": "T11",
+      "title": "Customer-chosen alias in the shared code namespace: charset and reserved-word rules, rejection on collision without disclosing owner or target"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC9",
+        "AC22"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/config/CacheConfig.java",
+        "service/src/main/java/com/example/urlshortener/redirect/ResolutionCache.java",
+        "service/src/main/java/com/example/urlshortener/redirect/CachedLink.java",
+        "service/src/main/java/com/example/urlshortener/redirect/LinkResolver.java"
+      ],
+      "depends_on": [
+        "T3",
+        "T5"
+      ],
+      "id": "T12",
+      "title": "Redis-backed code resolution cache replacing the body of CacheConfig.cacheManager, with negative caching, TTL bounded by the takedown SLA and an explicit invalidation entry point"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC2",
+        "AC4",
+        "AC8",
+        "AC10",
+        "AC14",
+        "AC15",
+        "AC22"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/redirect/RedirectController.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/RedirectTest.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/LinkExpiryTest.java"
+      ],
+      "depends_on": [
+        "T12"
+      ],
+      "id": "T13",
+      "title": "Root redirect GET/HEAD /{code}: 302 with no-store headers, 405 on other methods, one identical 404 for unknown, expired, deleted and blocked codes, no credentials required"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC3",
+        "AC4",
+        "AC20",
+        "AC22"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/click/ClickCounter.java",
+        "service/src/main/java/com/example/urlshortener/click/RedisClickCounter.java",
+        "service/src/main/java/com/example/urlshortener/click/ClickFlushJob.java",
+        "service/src/main/java/com/example/urlshortener/click/ClickFlushWriter.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/ClickCountingTest.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/DurabilityAcrossRestartTest.java"
+      ],
+      "depends_on": [
+        "T13"
+      ],
+      "id": "T14",
+      "title": "Exact click counting: Redis increment on the hot path, batched durable flush to PostgreSQL, no increment for 404 responses"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC3",
+        "AC7",
+        "AC12",
+        "AC13"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/link/LinkController.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/LinkPerformanceTest.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/TenantIsolationTest.java"
+      ],
+      "depends_on": [
+        "T7",
+        "T14"
+      ],
+      "id": "T15",
+      "title": "Owner-scoped link performance endpoint returning the PostgreSQL total plus the un-flushed Redis delta, and a 404 for links that are not the caller's"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC7",
+        "AC13"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/api/LinkPage.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/ListLinksTest.java"
+      ],
+      "depends_on": [
+        "T5",
+        "T7"
+      ],
+      "id": "T16",
+      "title": "Owner-scoped paginated list of a customer's own links"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC8",
+        "AC9",
+        "AC13"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/link/LinkService.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/DeleteLinkTest.java"
+      ],
+      "depends_on": [
+        "T7",
+        "T12",
+        "T13"
+      ],
+      "id": "T17",
+      "title": "Owner-scoped soft delete with active cache invalidation, proven to stop redirecting inside the published takedown bound"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC10",
+        "AC11",
+        "AC13"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/api/UpdateLinkExpiryRequest.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/UpdateLinkExpiryTest.java"
+      ],
+      "depends_on": [
+        "T7",
+        "T12"
+      ],
+      "id": "T18",
+      "title": "Owner-scoped expiry-only PATCH on a link, target URL immutable, cache invalidated on change"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC9",
+        "AC12",
+        "AC21"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/abuse/AbuseReportController.java",
+        "service/src/main/java/com/example/urlshortener/abuse/AbuseReportService.java",
+        "service/src/main/java/com/example/urlshortener/api/AbuseReportRequest.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/AbuseReportTest.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/AbuseReportRateLimitTest.java"
+      ],
+      "depends_on": [
+        "T7",
+        "T12",
+        "T20"
+      ],
+      "id": "T19",
+      "title": "Authenticated, rate-limited abuse report that blocks the link immediately, invalidates the cache and records reporter id and timestamp"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC16",
+        "AC19",
+        "AC22"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/ratelimit/RateLimiter.java",
+        "service/src/main/java/com/example/urlshortener/ratelimit/RedisTokenBucketRateLimiter.java",
+        "service/src/main/java/com/example/urlshortener/ratelimit/RateLimitGuard.java",
+        "service/src/main/resources/redis/token_bucket.lua",
+        "service/src/test/java/com/example/urlshortener/behaviour/ClickRateLimitTest.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/WriteRateLimitTest.java"
+      ],
+      "depends_on": [
+        "T3"
+      ],
+      "id": "T20",
+      "title": "Redis token-bucket rate limiting: per-IP click bucket, tighter bucket for 404s, per-customer write bucket, 429 with Retry-After, limits from configuration"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC20"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/redirect/LinkResolver.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/DegradedDependencyTest.java"
+      ],
+      "depends_on": [
+        "T13",
+        "T14"
+      ],
+      "id": "T21",
+      "title": "Degraded mode: clicks still redirected and counted best-effort when the create path's dependencies are down, with health reporting the truth"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC3",
+        "AC9",
+        "AC13",
+        "AC15",
+        "AC16",
+        "AC19",
+        "AC22"
+      ],
+      "deliverables": [
+        "service/src/test/java/com/example/urlshortener/behaviour/TakedownBoundTest.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/IndistinguishableNotFoundTest.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/EnumerationResistanceTest.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/HotLinkSpikeTest.java"
+      ],
+      "depends_on": [
+        "T4",
+        "T11",
+        "T14",
+        "T17",
+        "T19",
+        "T20"
+      ],
+      "id": "T22",
+      "title": "Cross-cutting acceptance suite: takedown bound, indistinguishable 404s, enumeration resistance, exact counting under repeated clicks, hot-link spike"
+    },
+    {
+      "acceptance_criteria_ids": [],
+      "deliverables": [
+        "docs/IMPLEMENTATION_PLAN.md",
+        "docs/REQUIREMENTS_BRIEF.md"
+      ],
+      "depends_on": [
+        "T1"
+      ],
+      "id": "T23",
+      "title": "Design docs reconciled with the frozen assumptions so reviewers are not reading superseded decisions"
+    }
   ]
 }
