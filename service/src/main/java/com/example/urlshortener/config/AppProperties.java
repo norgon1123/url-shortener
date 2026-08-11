@@ -42,7 +42,8 @@ public record AppProperties(
         @DefaultValue Session session,
         @DefaultValue Click click,
         @DefaultValue Threat threat,
-        @DefaultValue RateLimit rateLimit) {
+        @DefaultValue RateLimit rateLimit,
+        @DefaultValue Abuse abuse) {
 
     /**
      * Link creation policy.
@@ -54,10 +55,23 @@ public record AppProperties(
      * @param maxUrlLength ceiling on a submitted long URL (A14); 2048 is the
      *                     pragmatic browser-compatible limit and bounds the
      *                     storage burn from junk-link attacks.
+     * @param anonymousTtl how long a link created through
+     *                     {@code POST /api/v1/public/links} lives, applied at
+     *                     creation as an absolute instant and never supplied by
+     *                     the caller (A9). "One month" is read as 30 days,
+     *                     matching the reading {@code defaultTtl} already
+     *                     takes, so the two agree unless somebody deliberately
+     *                     separates them. It is a <em>separate</em> property
+     *                     precisely so that it can be tuned down for abuse
+     *                     reasons without changing what paying customers get,
+     *                     and so that the rollback plan for anonymous links is
+     *                     "stop creating them and let 30 days drain" rather
+     *                     than a data deletion.
      */
     public record Links(
             @DefaultValue("P30D") Duration defaultTtl,
-            @DefaultValue("2048") int maxUrlLength) {}
+            @DefaultValue("2048") int maxUrlLength,
+            @DefaultValue("P30D") Duration anonymousTtl) {}
 
     /**
      * Redirect resolution cache (A10).
@@ -126,7 +140,7 @@ public record AppProperties(
             @DefaultValue("true") boolean failOpen) {}
 
     /**
-     * Token buckets (A13). One window, five buckets, all of them numbers rather
+     * Token buckets (A13). One window, seven buckets, all of them numbers rather
      * than code.
      *
      * <p>The buckets are separate because AC19 names three different attacks with
@@ -140,7 +154,38 @@ public record AppProperties(
      * integration test never trips them from a single source address. A test that
      * wants to observe a 429 lowers the relevant number.
      *
-     * @param window the refill period; capacity equals the per-minute figure.
+     * <p>The two newest buckets are both keyed by {@code getRemoteAddr()},
+     * because an unauthenticated caller has no customer id and the service does
+     * not trust {@code X-Forwarded-For} (Q5 - trusting a client-supplied header
+     * with no configured trusted-proxy list would make every IP-keyed bucket in
+     * the service spoofable, including the click and not-found buckets that
+     * already exist). The operational consequence is real and is documented in
+     * the runbook rather than fixed here: behind a proxy that does not preserve
+     * the source address, every anonymous caller shares one bucket and these
+     * numbers become global ceilings rather than per-caller ones.
+     *
+     * @param window                  the refill period; capacity equals the
+     *                                per-minute figure.
+     * @param signUpPerMinute         {@code POST /api/v1/customers}, keyed by
+     *                                client IP (A14). Sign-up is the second
+     *                                unauthenticated endpoint that writes to
+     *                                PostgreSQL, and it does a 25 ms, 16 MiB
+     *                                Argon2id hash before it gets there, so it
+     *                                is a CPU and memory vector as much as a
+     *                                storage one. 60 matches the sign-in bucket
+     *                                on the same reasoning and the same key.
+     * @param anonymousCreatePerMinute {@code POST /api/v1/public/links}, keyed
+     *                                by client IP. 30 is an order of magnitude
+     *                                under {@code writePerMinute}, which is the
+     *                                concrete meaning given to AC14's "the
+     *                                anonymous path cannot be used to bypass
+     *                                the limits on authenticated creation": the
+     *                                unauthenticated route is never the cheaper
+     *                                way to mint links. It is the tightest
+     *                                bucket in the service after not-found,
+     *                                because an anonymous link occupies the
+     *                                shared code namespace permanently and no
+     *                                owner can ever delete it.
      */
     public record RateLimit(
             @DefaultValue("true") boolean enabled,
@@ -149,5 +194,35 @@ public record AppProperties(
             @DefaultValue("300") int writePerMinute,
             @DefaultValue("60") int abuseReportPerMinute,
             @DefaultValue("60") int signInPerMinute,
+            @DefaultValue("60") int signUpPerMinute,
+            @DefaultValue("30") int anonymousCreatePerMinute,
             @DefaultValue("PT1M") Duration window) {}
+
+    /**
+     * Who may get a link taken down by reporting it.
+     *
+     * <p>The abuse endpoint blocks a link the moment it is reported, with no
+     * moderation queue and no unblock path, and its only bound was a bucket keyed
+     * by reporter at 60 a minute. That bound assumed reporters were provisioned by
+     * hand. Self-service sign-up removes the assumption: a reporter id now costs
+     * one unauthenticated request, so a bucket keyed by reporter bounds nothing and
+     * any published link could be taken down permanently by anyone.
+     *
+     * @param minReporterAge how long an account must have existed before it may
+     *                       take down a link that already existed when the account
+     *                       was created. An account may always act on links minted
+     *                       after it signed up, so an ordinary customer reporting
+     *                       the phishing link they were just sent is unaffected;
+     *                       what the age buys is that taking down something already
+     *                       published has to be planned this far in advance rather
+     *                       than done with an account created for the purpose. Seven
+     *                       days is chosen as the shortest period that is longer
+     *                       than an opportunistic attack and shorter than a customer
+     *                       would wait for anything; set it to {@code PT0S} to
+     *                       restore the pre-sign-up behaviour, knowingly. It is not
+     *                       a complete closure - an aged account farm defeats it -
+     *                       and the real fix, a queue or a second reporter before a
+     *                       block, is a subsystem this build does not have.
+     */
+    public record Abuse(@DefaultValue("P7D") Duration minReporterAge) {}
 }

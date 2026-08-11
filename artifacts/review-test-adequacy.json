@@ -2,105 +2,86 @@
   "findings": [
     {
       "confidence": "high",
-      "file": "service/src/main/java/com/example/urlshortener/click/ClickFlushJob.java",
+      "file": "service/src/test/java/com/example/urlshortener/unit/HostCanonicalisationTest.java",
       "id": "TEST-1",
-      "line": 44,
-      "severity": "major",
-      "suggestion": "Add a class `ClickDurabilityTest` (own context, e.g. properties = \"app.click.flush-interval=PT1S\"): click a link N times, wait out more than one flush interval, then call resetSharedTierState() to empty the shared tier, and assert the reported count is still N. That fails against any implementation where the delta never reaches the durable column. A second method should assert the converse ordering invariant -- that no count is double-reported immediately after a flush (click N, wait a flush, read N, not 2N).",
-      "summary": "No test would fail if the click flush to PostgreSQL never ran. Every count assertion in the suite reads `durable + pendingDelta` (LinkService.toResponse), and the Redis hash holding the pending delta is never emptied between the clicks and the assertion. DurabilityAcrossRestartTest restarts only the application process, deliberately keeping the same Redis, so 5 clicks read back as 5 whether they reached the `links.click_count` column or are still sitting in `clicks:pending`. Delete `@Scheduled` from flush(), break read_click_deltas.lua, or break ClickFlushWriter.write and the suite stays green -- while in production the pending hash grows without bound and every counted click is lost on the first Redis eviction or restart, which is exactly the 'exact for the life of the link' claim of AC3. The harness even anticipated this test: AbstractRestartIntegrationTest.sleep is documented 'for waiting out a flush interval' and no test calls it."
-    },
-    {
-      "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/link/LinkService.java",
-      "id": "TEST-2",
-      "line": 101,
-      "severity": "major",
-      "suggestion": "Add to CustomAliasTest: `anAliasProbedBeforeItExistedRedirectsAsSoonAsItIsCreated` -- click(alias) and assert 404 (the negative entry is now cached), create a link with that alias, then click(alias) again with no evictResolutionCache() and assert 302 with the right Location. It needs its own test rather than an extra assertion in anAvailableAliasBecomesTheShortCodeExactly, because the arrangement (a prior probe) is the whole point of the behaviour.",
-      "summary": "`resolutionCache.invalidateBeforeIssuing(code)` on the create path is unpinned. LinkResolver caches misses for app.cache.negative-ttl (60s), so a code that was requested before it existed has a 'no such code' entry; clearing that entry at issue time is what stops a newly created link 404ing for its first minute. No test ever clicks a code and then creates a link under it: CustomAliasTest only creates-then-clicks, and RedirectTest's not-found tests never reuse the code they probed. Remove the invalidate call and nothing goes red, but a customer who checks their vanity alias before claiming it gets a link that does not work for 60 seconds -- a wiring bug the unit-level cache code cannot show."
-    },
-    {
-      "confidence": "medium",
-      "file": "service/src/test/java/com/example/urlshortener/behaviour/DegradedDependencyTest.java",
-      "id": "TEST-3",
-      "line": 215,
-      "severity": "major",
-      "suggestion": "Split out `aCreateIsRefusedWhileTheSharedTierIsUnavailable`: with Redis paused, POST /api/v1/links and assert 503, error `service_unavailable`, message 'Temporarily unable to accept new links.', and -- after resuming -- that the caller's link total did not move, so a refused create left no orphan row. Leave the click assertions where they are; they are about a different behaviour.",
-      "summary": "The create half of AC20 is asserted disjunctively -- `created == 201 || created == 503` -- so it cannot fail whichever way the service behaves. The design calls the 503 on create 'the only place AC20's serve-clicks-over-accepting-links preference is visible on the wire', and the implementation does refuse (ResolutionCache.invalidateBeforeIssuing throws when the shared tier is unreachable, precisely because issuing a code other instances still have cached as absent yields a dead link). Nothing in the suite requires that: an implementation that quietly issued the code anyway passes. The click side of the same test is pinned firmly, so this is one unpinned half inside an otherwise good test."
-    },
-    {
-      "confidence": "medium",
-      "file": "service/src/test/java/com/example/urlshortener/behaviour/ClickCountingTest.java",
-      "id": "TEST-4",
-      "line": 171,
+      "line": 237,
       "severity": "minor",
-      "suggestion": "Either publish a number and assert it (e.g. in the existing hot-link test, capture per-request durations and assert a generous p95 bound such as 250ms measured in-JVM against the container, which catches an accidental per-click database round trip without being clock-flaky), or record explicitly in the artifacts that AC22's latency half is accepted as unverified so it is a decision rather than an omission.",
-      "summary": "AC22 has two halves -- 'continue to be served fast and counted' -- and only the counting half is pinned. aHotLinkKeepsBeingServedAndStaysExact drives 300 concurrent clicks and asserts every one was a 302 and the total is exact, but says nothing about latency; no test in the suite asserts any timing on the click path. That is partly the contract's fault: neither openapi.yaml nor design.json publishes a click-path latency number, so there is nothing to assert against, which means the 'fast' half of an acceptance criterion is shipping with no definition and no check."
-    },
-    {
-      "confidence": "medium",
-      "file": "service/src/test/java/com/example/urlshortener/behaviour/CustomAliasTest.java",
-      "id": "TEST-5",
-      "line": 186,
-      "severity": "minor",
-      "suggestion": "Add `actuatorEndpointsStayReachableUnderTheRootRedirectMapping`: GET /actuator/health returns 200 with status UP, and GET /actuator/health is not a 302 and carries no Location. Keep it separate from the reserved-alias test -- one is about alias validation, the other about routing precedence at the root of the namespace.",
-      "summary": "impact.json names 'actuator endpoints staying reachable once a catch-all GET /{code} is mapped at the root' as regression surface, and no test asserts it. The nearest thing is aReservedAliasIsRejectedAsInvalidRatherThanAsAConflict, which asserts only assertNotEquals(302, api.click(\"actuator\")) -- that passes if /actuator is 404, 500, or anything else that is not a redirect, so it demonstrates the reservation but not the thing the reservation exists to protect."
-    },
-    {
-      "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/link/LinkService.java",
-      "id": "TEST-6",
-      "line": 196,
-      "severity": "minor",
-      "suggestion": "Add `ThreatCheckConfigurationTest` with two contexts: one at app.threat.enabled=false asserting Fixtures.DENYLISTED_URL is accepted with 201 (proving the check is a configurable port and that the 422 elsewhere really comes from it), and one at app.threat.fail-open=false asserting the documented refusal when the verdict is unavailable. If the second cannot be arranged without taking PostgreSQL down, say so in the artifacts rather than leaving the key unexercised.",
-      "summary": "The threat-check configuration surface is untested. Fixtures.THREAT_FAIL_OPEN_KEY is declared and never used by any test -- a fixture constant with no consumer is usually the fingerprint of a test that was planned and not written. Neither the fail-open branch (ThreatVerdict.UNAVAILABLE accepted with a WARN) nor the fail-closed branch (503) nor `app.threat.enabled=false` (NoOpThreatCheck) has a test, and design.json flags this reading as one of two blocking ambiguities a human never answered. AC21's positive path is well covered by CreateLinkTest, so the risk is confined to what happens when the checker cannot answer -- which is exactly the case a human is being asked to sign off blind."
-    },
-    {
-      "confidence": "medium",
-      "file": "service/src/test/java/com/example/urlshortener/behaviour/RedirectTest.java",
-      "id": "TEST-7",
-      "line": 263,
-      "severity": "minor",
-      "suggestion": "Give the same @BeforeEach resetSharedTierState() to every class that asserts a specific non-2xx status on a code that does not resolve (RedirectTest, DeleteLinkTest, CustomAliasTest), or pull it up into AbstractIntegrationTest for all classes that are not counting tests. That removes an inter-class dependency whose current defence is elapsed time, which is the classic way a suite acquires a test that fails once a month and gets muted.",
-      "summary": "Cross-class coupling through the single JVM-wide Redis makes some 404 assertions order- and clock-dependent. Token buckets are keyed by client IP (one loopback address for the whole suite) and survive the context switch between classes; ClickRateLimitTest runs with not-found-per-minute=5 and deliberately drains that bucket. Classes that follow it and assert 404 on unissued codes -- RedirectTest (everyUnusableCodeAnswersIndistinguishably, aMalformedCodeAnswersExactlyLikeAnUnissuedOne), DeleteLinkTest, CustomAliasTest -- do not reset, so the only thing standing between them and a 429 is however much wall-clock refill happened in between. The classes that need empty buckets reset; the classes that need full ones mostly do not. AbuseReportTest and TenantIsolationTest show the authors knew the hazard and fixed it only where it had already bitten."
-    },
-    {
-      "confidence": "medium",
-      "file": "service/src/test/java/com/example/urlshortener/behaviour/SignInBehaviourTest.java",
-      "id": "TEST-8",
-      "line": 74,
-      "severity": "nit",
-      "suggestion": "Either add `signInCostsTheSameWhetherOrNotTheAccountExists` with a deliberately coarse bound (e.g. median of 5 unknown-account attempts within 3x the median of 5 wrong-password attempts, tolerant enough not to flake on a loaded CI box), or record the timing half as knowingly untested. A coarse test that catches an early return is worth more than none; a tight one is worth less.",
-      "summary": "unknownAccountAndWrongPasswordAreRefusedIdentically pins the body half of the anti-enumeration promise but not the timing half. SignInService goes out of its way to hash against a dummy Argon2 digest when the email is unknown (absentAccountHash) precisely so the two paths cost the same; a refactor to an early return on 'no such customer' passes every test in the suite and reinstates the oracle in the one channel identical JSON cannot hide."
+      "suggestion": "Add HostCanonicalisationTest.aNonAsciiHostIsCanonicalisedToItsPunycodeForm: assert normalize(\"b\u00fccher.example.com\") equals Optional.of(\"xn--bcher-kva.example.com\"), that the result is all-ASCII, that it is idempotent (normalising the punycode form again does not move it), and that a non-ASCII host IDN.toASCII rejects answers Optional.empty() rather than the input.",
+      "summary": "The IDN/punycode step of HostNormalizer (step 4 of the frozen contract, HostNormalizer.java:173-179) has no test at any level. Every other row of the worked table is pinned - trailing dots, case, all four numeric forms, octal, out-of-range, empty labels, IPv6, idempotence, no-label-removal - but no test passes a non-ASCII host, so deleting the IDN.toASCII branch or replacing it with a pass-through leaves the suite green. The javadoc argues the step is unreachable through HTTP (java.net.URI returns a null host for a unicode authority) and says the step exists 'so the guarantee does not depend on that' - which is precisely a guarantee nothing currently checks."
     },
     {
       "confidence": "high",
-      "file": "service/src/test/java/com/example/urlshortener/behaviour/RedirectTest.java",
-      "id": "TEST-9",
-      "line": 153,
-      "severity": "nit",
-      "suggestion": "Keep one test named for the decision but make its assertions load-bearing -- e.g. assert the status is 302 and that the response carries the no-store headers a 301 would make pointless -- and move the 'never 301' reasoning into the javadoc where it already is, rather than into assertions that the preceding line has already guaranteed.",
-      "summary": "theRedirectIsTemporaryAndNeverPermanent contains two assertions that cannot fail: after assertEquals(302, status), assertNotEquals(301, status) and assertNotEquals(308, status) are implied by the first. The same shape appears at line 247 (assertNotEquals(400, ...) after assertEquals(404, ...)) and at LinkPerformanceTest:149. They read as documentation of an intent, which is useful, but a reader counting assertions overestimates what is checked, and the whole test is subsumed by aLiveShortLinkRedirectsToItsTarget."
+      "file": "service/src/main/java/com/example/urlshortener/threat/DenylistThreatCheck.java",
+      "id": "TEST-2",
+      "line": 56,
+      "severity": "minor",
+      "suggestion": "Add a unit test DenylistThreatCheckTest against a stub ThreatDenylistRepository that lists nothing: aHostThatCannotBeCanonicalisedIsBlocked, asserting verdict(URI.create(\"http://4294967296/\")) == BLOCK even with an empty denylist (so the mock cannot be what produces the answer), plus aCanonicalisedHostIsMatchedAgainstTheDenylist asserting the trailing-dot form of a listed row matches while notmalware.example.com does not.",
+      "summary": "Unpinned behaviour, cited at the implementation because no test file covers it: DenylistThreatCheck now returns BLOCK when the host cannot be canonicalised. That branch is unobservable over HTTP because UrlValidator.requireShortenable refuses the same host with 422 first, and there is no unit test for DenylistThreatCheck anywhere in the suite. Deleting the three lines would fail nothing. The code comment states the reason it exists - 'a security property that holds only because they run in a particular order is one reordering away from not holding' - and that is exactly the property that is currently unheld by any test: reorder the two checks and the suite stays green."
+    },
+    {
+      "confidence": "high",
+      "file": "service/src/test/java/com/example/urlshortener/support/Fixtures.java",
+      "id": "TEST-3",
+      "line": 409,
+      "severity": "minor",
+      "suggestion": "Add HostEvasionRefusalTest.aPublicAddressLiteralIsStillShortenable: POST a target with host 93.184.216.34, assert 201, assert longUrl comes back byte-identical, and assert a click sends Location to the submitted URL. Adding the URL to LOOKALIKE_URLS_STILL_ACCEPTED also makes hostsThatMerelyResembleARefusedOneAreStillShortened cover it, and makes theAnonymousPathAcceptsNoTargetTheAuthenticatedPathRefuses compare it on both paths.",
+      "summary": "The accept side of host normalisation is only exercised with registered names. LOOKALIKE_URLS_STILL_ACCEPTED holds two hostnames, and every URL in the suite whose host is numeric (Fixtures 327-368) is one that must be refused. So no test asserts that an ordinary public address literal - https://93.184.216.34/x - is still shortenable. An implementation that failed closed on any host the normaliser rewrote, or that treated every IPv4 candidate as internal, would pass all seventeen AC1/AC2 behaviours and silently stop existing customers shortening IP-literal targets, which is the over-refusal failure impact.json and the design both nominate as the most dangerous one here. The residual risk is smaller than it first looks (the unit tests show the numeric parser returns 127.0.0.1 for 127.0.0.1, and isInternal is unchanged), but the wiring assertion is absent."
+    },
+    {
+      "confidence": "high",
+      "file": "service/src/test/java/com/example/urlshortener/behaviour/SignUpTest.java",
+      "id": "TEST-4",
+      "line": 379,
+      "severity": "minor",
+      "suggestion": "Add SignUpTest.theEmailMaximumLengthIsInclusiveAndAnythingAboveItIsRefused, in the shape of the password pair: a 320-character address signs up with 201 and can then sign in; 321 characters answers 400 invalid_request with fields.email and leaves storedAccountsNamed empty.",
+      "summary": "SignUpRequest declares @Size(max = 320) on email and nothing tests either side of it. The password boundaries are pinned twice over (thePasswordMinimumLengthIsInclusiveAndAnythingBelowItIsRefused, thePasswordMaximumLengthIsInclusiveAndAnythingAboveItIsRefused, each asserting the fixture really sits on the boundary), so the omission is asymmetric rather than a house convention. An address ceiling that was dropped, or set to the wrong number, would be found by nothing - and the column width is what it is protecting."
     },
     {
       "confidence": "medium",
-      "file": "service/src/test/java/com/example/urlshortener/behaviour/RedirectTest.java",
-      "id": "TEST-10",
-      "line": 197,
-      "severity": "nit",
-      "suggestion": "Decide it, then pin it in its own test -- `aHeadRequestIsCountedLikeAGet` (or `...IsNotCountedAsAClick`) -- reading the count before and after a single HEAD. Do not bolt the assertion onto headAnswersLikeGetWithNoBody: that test is about response shape, and a count assertion appended to it would be masked by any earlier header failure.",
-      "summary": "Whether a HEAD request counts as a click is neither specified nor pinned. headAnswersLikeGetWithNoBody asserts status, Location, cache headers and an empty body, but says nothing about the counter, and the implementation counts HEAD exactly like GET because Spring dispatches it to the same handler. Under AC3 ('count every click ... as a measured number') a link checker polling HEAD hourly silently inflates a customer's reported figure. This is a contract gap as much as a test gap, but the test is where it would have surfaced."
+      "file": "service/src/test/java/com/example/urlshortener/behaviour/AnonymousCreateDegradationTest.java",
+      "id": "TEST-5",
+      "line": 85,
+      "severity": "minor",
+      "suggestion": "In anonymousCreationIsRefusedWithTheExistingErrorWhileADependencyIsUnavailable, assert that at least one of the three attempts answered 503 - the create path needs invalidateBeforeIssuing and that cannot be done with the tier paused - keeping the existing per-response envelope assertions. If the run shows creation legitimately survives, say so in the javadoc rather than leaving the reader to infer that the branch was checked.",
+      "summary": "AC15's refusal half is asserted only conditionally, so it may never be exercised. Every claim about the 503 envelope is guarded - allMatch(201 || 503), then filter(statusCode != 201), then filter(statusCode == 503) - so an implementation whose anonymous create survives the Redis outage passes this class with the service_unavailable code, the catalogue message and the 'refused with the existing error response' sentence of AC15 never checked. Per the design the pre-issue cache invalidation makes the 503 deterministic when the shared tier is paused, so the tolerance may be wider than the implementation needs. I note this is the existing house pattern (DegradedDependencyTest.degradationIsSpentOnAcceptingLinksRatherThanOnServingClicks is written identically), so it is a consistency judgement rather than a defect introduced here."
+    },
+    {
+      "confidence": "medium",
+      "file": "service/src/test/java/com/example/urlshortener/behaviour/AnonymousLinkCreationTest.java",
+      "id": "TEST-6",
+      "line": 362,
+      "severity": "minor",
+      "suggestion": "Pin the assumption on the class: @SpringBootTest(properties = Fixtures.ANONYMOUS_CREATE_LIMIT_KEY + \"=1000\") on AnonymousLinkCreationTest, with a javadoc line saying the class needs the limit not to be reached and that throttling is AnonymousCreateRateLimitTest's subject - the same sentence the @BeforeEach already makes about bucket state.",
+      "summary": "theAnonymousPathAcceptsNoTargetTheAuthenticatedPathRefuses issues 25 anonymous creates in one method (11 + 5 + 2 + 7 fixtures), and the bucket is charged in PublicLinkController before validation, so all 25 spend a token. The class declares no properties, so it runs against the production default of app.rate-limit.anonymous-create-per-minute, which this change sets to 30: five requests of headroom, undeclared. The design explicitly invites an operator to lower it ('An operator who wants 10 changes one number'), and adding two fixtures to any of the three lists has the same effect. Every other class that depends on a bucket size pins it (AnonymousCreateRateLimitTest, SignUpRateLimitTest, WriteRateLimitTest); this one depends on it without saying so, and would fail as a mismatch between the two paths' status codes rather than as anything readable."
+    },
+    {
+      "confidence": "medium",
+      "file": "service/src/test/java/com/example/urlshortener/behaviour/AnonymousLinkExpiryTest.java",
+      "id": "TEST-7",
+      "line": 89,
+      "severity": "minor",
+      "suggestion": "Sleep a quarter of the TTL rather than half, or compute the wait from link.expiresAt() rather than from the constant (e.g. wait until halfway between Instant.now() and expiresAt), so the margin shrinks with the round trip instead of being fixed. Keep the halfWay guard assertion either way.",
+      "summary": "Timing margin: anAnonymousLinkRedirectsUntilItsExpiryPasses runs against a 3-second anonymous TTL, sleeps half of it, and then needs the second click to complete before the link expires. Two HTTP round trips plus first-call warm-up have to fit in the remaining ~1.5s. It does fail loudly rather than silently - assertTrue(halfWay.isBefore(link.expiresAt())) is there precisely to say the wall clock was the cause - but on a loaded CI box this is the shape of test that gets muted, and a muted expiry test takes AC10 with it. Nothing else in the class has this problem: the other methods wait past the expiry rather than racing it."
+    },
+    {
+      "confidence": "medium",
+      "file": "service/src/test/java/com/example/urlshortener/behaviour/HostEvasionRefusalTest.java",
+      "id": "TEST-8",
+      "line": 21,
+      "severity": "minor",
+      "suggestion": "No test change. Before AC3 is signed, a human should be shown the recorded failing run of HostEvasionRefusalTest against the pre-change commit (or an explicit statement that the ordering was not observed), since no artifact in this run demonstrates it and no test can.",
+      "summary": "AC3 has two halves and only one is met inside the repository. The tests that fail against the pre-change code do exist and would genuinely have failed (aDenylistedHostWithATrailingDotIsRefusedIdenticallyToTheHostItself and anInternalAddressWrittenAsOneDecimalNumberIsRefusedIdenticallyToTheDottedForm both returned 201 against the old UrlValidator and the old raw-host denylist walk), and they are retained. But AC3 also requires that failure to have been produced and visible before the fix, and plan.json T1 lists 'run log entry recording the failing run against pre-change code' as a deliverable: nothing under artifacts/ records a red run, and the pipeline's verify node runs after join, i.e. only ever against the fixed code. The test javadoc says as much - 'the before-and-after evidence is the run record, not a method here' - so the evidence has to come from outside the suite, and I could not find it."
     }
   ],
   "lens": "review-test-adequacy",
   "not_examined": [
-    "I did not run the suite. Testcontainers needs a Docker daemon and image pulls that this sandbox does not allow, so every claim above comes from reading sources, not from an observed pass or fail.",
-    "I did not verify the suite is currently green. triage.json records one failure (RedirectTest.aMethodOtherThanGetOrHeadIsRefusedWithoutRevealingWhetherTheCodeExists) against the pre-repair tree and a downstream coverage_floor failure caused by it; commit 6df7986 applies the adjudicated repair, but no verify has run since, so the coverage_floor outcome and the jacoco figure are unknown to me.",
-    "artifacts/test-contract.json: I mapped the 129 behaviours to classes and counted them per acceptance criterion, and read the rationale's own list of deliberate omissions, but did not re-read each behaviour statement against the method that now implements it.",
-    "artifacts/openapi.yaml (943 lines): read only through design.json's account of it. I did not walk every documented response code and header on all 8 operations and confirm an assertion exists for each; my per-endpoint checks came from the tests inward, not from the spec outward.",
-    "orchestrator/tests/test_engine.py, test_gates.py, test_graph.py: these changed substantially in the diff window (operator commits without Run-Id trailers, covering repair budget, triage routing and freeze verification). I read the added test names and one full diff, saw behaviour-specific naming and per-behaviour methods, and stopped there -- I did not read each new test body or map it to the engine.py and gates.py changes it is meant to pin.",
-    "service/src/main/resources/db/migration/V1__initial_schema.sql and the JPA entities: not reviewed for constraints (unique index on domain+code, click_count column type) that several tests implicitly depend on.",
-    "Per-source isolation of the IP-keyed CLICK, NOT_FOUND and SIGN_IN buckets (AC19's 'other customers keep being served' for those three). The test-contract states plainly why it was not attempted -- every test runs from loopback and no trusted-proxy header is in the contract -- and I agree that is the honest answer rather than a test defect, but it does mean that half of AC19 is demonstrated only on the two customer-keyed buckets.",
-    "AC17 against an actual stolen database. The schema is outside the frozen contract, so no test reads the customers table; I traced the chain instead (SignInService verifies through PasswordHasher, the seeded accounts sign in, the hasher's output is asserted to be a parameterised Argon2-shaped string) and judged it adequate, but nothing in the suite reads the stored bytes."
+    "I did not run the suite. No verify artifact exists for this run (the verify node sits after join in sdlc.yaml and has not produced one), and I did not invoke Maven, so nothing here is backed by an observed pass, fail or timing. All judgements are from reading the assertions.",
+    "The 21 test classes inherited from before this change were read only where they bear on the new behaviour: I checked which endpoints they assert 401 for with no credential (confirming the session-filter exemption risk in impact.json is covered for POST/GET/PATCH/DELETE on /api/v1/links and for abuse reports) and read DegradedDependencyTest in full for comparison with AnonymousCreateDegradationTest. Their own adequacy was not reviewed.",
+    "TestInfrastructure.java was not read. I took withCounterTierUnavailable, resumeCounterTier and springProperties at face value from their call sites and from the existing degradation tests that already depend on them.",
+    "I did not verify that the new tests compile, nor that the four distinct @SpringBootTest property sets produce the intended separate cached contexts against shared containers. Cross-context interference through the single shared Redis is argued for in every new class's @BeforeEach javadoc; I could not confirm the argument holds at runtime.",
+    "Flakiness under CI load is not something reading can settle. TEST-7 is the one case where the margin looked small enough to name; there may be others in the click-flush waits (10.5s per assertion in AnonymousLinkRedirectTest) and the 60-second observeUntil polls that only a few real runs would expose.",
+    "artifacts/openapi.yaml was not cross-checked operation by operation against the tests - whether every documented response code has a test is the api-contract lens's question, and I answered only the narrower one of whether each acceptance criterion has a test.",
+    "The two migrations were read but not executed. Whether V3's unique index applies cleanly is untestable from this repository (only the two seeded rows exist), which SeededAccountsSurviveTest states rather than resolves; the duplicate-check result that has to accompany the approval is outside the suite."
   ],
-  "summary": "This is an unusually strong suite: 129 behaviour methods across 21 classes, every one of the 22 acceptance criteria reachable from at least one test, and -- the thing that matters most for this lens -- almost every test is named for a single behaviour, arranges that behaviour itself, and asserts something specific enough to fail. I looked hard for the headline failure mode (new behaviour smuggled in as an extra assertion on an existing test) and did not find it: the assertAll blocks group assertions that genuinely belong to the same behaviour (status plus Location plus cache headers on one redirect), and where an assertion is about a different behaviour it generally has its own class (ClickRateLimitTest, SessionExpiryTest, ConfiguredDefaultExpiryTest each get their own context and property overrides rather than being folded in). The level is right too: wire behaviour is driven black-box over HTTP by a client that never follows a redirect and never throws on a status; the two things HTTP cannot see -- the code distribution and the stored credential form -- are examined at the frozen ports, and the code-generator test is a plain unit test with a bias check that no black-box test could produce. Several tests are deliberately built so they cannot pass for the wrong reason: the delete and abuse-report takedown tests refuse to clear the cache themselves and measure the elapsed time against the published 60s bound; the patch-brings-expiry-forward test relies on active invalidation because the original expiry is a month away; DurabilityAcrossRestartTest exists solely to kill the in-memory-map implementation every other test would accept. The RedirectTest 405 assertion that triage twice adjudicated as over-asserting has been repaired in 6df7986 and the replacement (compare the refusal body minus caller-known fields, plus no Location and no target leakage) is stronger than a status-only comparison, not weaker. My findings are ten, no blockers. The three that matter are behaviour with no test that would fail if it were removed: the Redis-to-PostgreSQL click flush (every count assertion is satisfied by the pending delta alone, so the entire durable-write path is invisible to the suite while the operational consequence is losing AC3's exact counts on any Redis loss); the negative-cache eviction when a code is issued (no test probes a code before creating it, so a newly created alias could 404 for 60 seconds unnoticed); and the 503-on-create under a degraded shared tier, which the degradation test tolerates disjunctively as 201-or-503 and therefore cannot fail. The rest are smaller: AC22's 'fast' half has no definition and no assertion, actuator reachability under the root catch-all was flagged in impact.json and is only weakly touched, the threat-check configuration surface is unexercised (its fixture key has no consumer), several 404 assertions depend on token buckets refilling in wall-clock time between classes, and a handful of assertions are tautological."
+  "summary": "Unusually strong. Every acceptance criterion AC1-AC16 maps to at least one behaviour-named test that would fail if the behaviour were reverted, and the levels are chosen well: the equivalent-form filter is pinned both as a unit contract on HostNormalizer.normalize (where the many cases can be enumerated cheaply, including the rows that must NOT change) and as black-box HTTP refusals on POST /api/v1/links and POST /api/v1/public/links (where the wiring bug would live), and the two cannot disagree because both quote Fixtures. The behaviours no response can show are read from storage rather than asserted by proxy - AC6 through CustomerRepository, AC7 through the frozen PasswordHasher (comparing algorithm-and-parameters against a seeded row, not merely \"not the plaintext\"), AC13's ownerless row and AC11's click count through SQL, each with a javadoc justifying the exception. AC6's concurrent case uses a released latch rather than a loop, which is the only arrangement that can distinguish a read-then-write from a constraint. Failure paths are covered rather than skipped: malformed and missing fields, unknown properties, both password boundaries, the 2048-character URL boundary on both sides, expired, blocked, unissued, somebody else's and nobody's all asserted byte-identical, 429 with a non-zero whole-second Retry-After, 503 envelopes, and 405 (not 401) on the other verbs of the two newly exempted paths. No existing test file was modified - the only change under src/test outside new files is additive helpers on AbstractIntegrationTest - so AC17 is not being bought by weakening anything. The \"extra assertion bolted onto an existing test\" failure mode is essentially absent: fourteen new classes, one behaviour family each, and the assertions that ride along (the Location on a redirect test, the credential check inside the sign-in test) are about the behaviour they sit in. My eight findings are all minor and none of them is a missing acceptance criterion: three are unpinned defence-in-depth branches the contract specified and nothing checks (HostNormalizer's IDN step, DenylistThreatCheck's fail-closed path), one is a missing accept-side fixture for numeric hosts, one a missing email-length boundary, and three are robustness or evidence concerns (an undeclared dependency on a production rate-limit default, a 1.5-second timing margin, and the absent record of AC3's red run)."
 }

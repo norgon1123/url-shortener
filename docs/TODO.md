@@ -3,6 +3,53 @@
 Work identified but not built. Each item says why it matters, so a future
 reader can judge whether it still does.
 
+**Read this first.** Nothing here is deployed, and the deliverable is the
+orchestration layer rather than the service it builds. That is why these are
+documented rather than fixed — but "documented" is only a legitimate close when
+the entry is good enough to act on, so each one carries the mechanism, the blast
+radius, the specific fix, and what a partial mitigation does and does not buy.
+
+One class of problem was *not* deferred on those grounds: anything that makes
+the record itself wrong. A gate reporting a pass it did not earn, or a criterion
+marked met without evidence, is a defect in the thing being built. Those were
+fixed during the runs — see `docs/evidence/` for AC3's failing run, and the
+`no_assertions` / `tests_not_weakened` commits for two gates that only worked on
+an empty repository.
+
+---
+
+## Abuse-report takedown stays irreversible — adjudicated, brownfield-1
+
+**Status: confirmed and closed by neil at `review-synthesis`, brownfield-1, with
+no code change. The eligibility rule shipped; the posture below is accepted.**
+
+`SEC-1` on that run was the abuse-report takedown becoming reachable by anyone
+once sign-up went self-service. The rule asked for was built and is pinned by
+`AbuseReportReporterAgeTest` in both directions: a report takes a link down only
+if the reporting account pre-dates the link or has existed for
+`app.abuse.min-reporter-age`. `review-synthesis` verified that against the tree
+and found the security lens's premise superseded — then kept the finding at
+blocker anyway, because two things needed a person rather than a reviewer.
+
+**Confirmed (a): `P7D` is the production value.** The only definition is
+`@DefaultValue("P7D")` at `AppProperties.java:227`; there is one
+`application.yml` and no profile lowers it. Re-check this if profiles are ever
+added — the whole control is that number.
+
+**Accepted (b): an aged account may permanently disable any link whose code it
+has seen.** Takedown remains immediate, unmoderated and irreversible — there is
+no unblock path, and `updateExpiry` answers 409 for a non-ACTIVE link
+(`LinkService.java:169`) — so a wrongly-blocked link stays dead. `P7D` raises
+the cost of the attack to seven days of patience per cohort of minted accounts;
+it does not remove it.
+
+**What would close it properly**, in the order they are worth doing: an unblock
+path so a mistake is recoverable; then moderation for reports that cross tenant
+boundaries; then re-examining every remaining per-account limit, because the
+lens's underlying point survives its own finding — **free accounts change the
+economics of every per-account limit in the service**, and the abuse endpoint is
+only the first place that showed.
+
 ---
 
 ## Residual risks signed off at `release-readiness`, greenfield-3
@@ -12,13 +59,17 @@ run and give brownfield a baseline. These are the reasons it said no. Approving
 did not resolve any of them, and the node's own artifact
 (`artifacts/release.json`) is the fuller record.
 
-**AC21 has a working bypass in shipped code, and no test catches it.**
-A trailing dot — `https://malware.example.com./x` — defeats the denylist
-(SEC-2), and a non-dotted-quad literal — `http://2130706433/` — defeats the
-internal-address rule (SEC-6). Both were confirmed by a standalone JDK 21 probe,
-not by a test. Fix the host normaliser (strip the root label, resolve integer and
-hex literal forms) and add the two cases as regression tests. The acceptance
-criterion is currently marked satisfied by a suite that would not notice either.
+**~~AC21 has a working bypass in shipped code, and no test catches it.~~ Closed
+by brownfield-1.** A trailing dot — `https://malware.example.com./x` — defeated
+the denylist (SEC-2), and a non-dotted-quad literal — `http://2130706433/` —
+defeated the internal-address rule (SEC-6). Both host decisions now go through
+`HostNormalizer`, which lower-cases, strips trailing dots, punycodes and renders
+every numeric IPv4 form as a dotted quad, and fails closed (422) on a host it
+cannot canonicalise. The regression tests are
+`unit/HostCanonicalisationTest` and `behaviour/HostEvasionRefusalTest`.
+Remaining: there is **no retroactive rescan** — links created through those
+forms before the change keep redirecting — and the requester's own note stands,
+that more equivalent forms may exist beyond the family closed here.
 
 **An unvalidated `{code}` reaches the datastores.**
 On the two untrusted paths it flows to Redis, PostgreSQL, and
@@ -65,6 +116,26 @@ in the main migration — they are real data. Provision real accounts by an
 operator step. Rotate the plaintexts out of `openapi.yaml`, or mark them
 explicitly as fixtures that exist only when the test location is active.
 
+**Unblocked by brownfield-1.** That run has landed `POST /api/v1/customers`, so
+real accounts can be provisioned and the two seeded ones are no longer the only
+way in. Removing them was held out of that change's scope deliberately; it is
+now just a migration and a rotation, and there is no longer an argument for
+waiting. The seeded rows and their plaintexts are still shipped by
+`V2__seed_customers_and_denylist.sql` and still published in
+`artifacts/openapi.yaml`.
+
+**One precondition travels with it.** `V3__unique_lower_email.sql` adds
+`UNIQUE (lower(email))`. Before it is applied anywhere real:
+
+```sql
+SELECT lower(email) FROM customers GROUP BY lower(email) HAVING count(*) > 1;
+```
+
+A non-empty result fails the migration and stops the deploy mid-way. The remedy
+is deciding which row keeps the address, not a looser index. It returns nothing
+in this repository, where the only rows are the two seeded accounts — which is
+not evidence about any database that has had real traffic.
+
 **Note the interaction with SEC-5.** As long as any account can take down any
 link, the blast radius of one leaked credential is the whole service. Fixing
 SEC-1 alone narrows who has the credential; it does not narrow what the
@@ -75,6 +146,63 @@ cover a reject-and-repair cycle ($106.11 of a $120 ceiling at the decision
 point). Accepting it buys the completed run and its metrics; it does not buy a
 shippable service. Nothing here should be deployed anywhere reachable until this
 is closed.
+
+---
+
+## The run's input should be `input/<scenario>.txt`, not one file overwritten
+
+`intake` reads `input/requirement.txt`, hard-coded in its prompt and in an
+`artifact_present` gate. So each run overwrites the last run's ask, and the
+history of *what was asked* survives only in git — which is exactly the history
+worth having side by side when comparing a greenfield build against a brownfield
+change.
+
+`input/` now keeps `greenfield.txt` and `brownfield.txt` alongside the live
+`requirement.txt`, which is a copy. That works and is a duplication waiting to
+drift: nothing checks that the copy matches the file it was copied from.
+
+**Fix.** Derive the path from the run's scenario, which the manifest already
+carries: `input/{scenario}.txt`. Two touch points, both small — the gate's
+`path` parameter and the line in `intake.md`.
+
+**Do it between runs.** Editing `intake.md` changes its content hash, which
+marks `intake` stale and re-runs everything downstream of it. That is the
+change-driven replanning working correctly, and it costs a full run.
+
+---
+
+## The graph has no node where a new test meets the old code
+
+A bug fix is supposed to produce a test that fails for the reason the bug exists.
+This graph structurally cannot: `implement` and `author-tests` start together,
+`author-tests`' exit gates execute nothing, and the first suite run is
+`maven_verify` at `verify` — after the join, with the fix already in the tree.
+So the deliverable is asserted rather than evidenced, and `review-synthesis`
+promoted exactly that to a blocker on `brownfield-1` (TEST-1).
+
+It was closed by hand for that run — see `docs/evidence/` — and by hand is not a
+control.
+
+**Shape of the fix.** A `discriminate` node between `author-tests` and `join`,
+in a worktree, that runs the new tests against the *pre-change* main sources and
+requires them to fail. It needs three things the pipeline already has:
+
+- the baseline. The run's starting commit, not the immediately preceding one:
+  `design` stubs new classes, and a test that fails with
+  `UnsupportedOperationException` proves only that a stub is a stub;
+- the set of tests to run. `test-contract.json` already lists behaviours with
+  their `criteria_ids`, so "the tests for this change's acceptance criteria" is
+  derivable rather than guessed;
+- a gate that fails the node when the new tests *pass* against old code, which
+  is the interesting failure: it means the test does not discriminate.
+
+**Cost.** One extra suite run per bug-fix change, on a tree that does not build
+the fix. That is the price of the difference between "we tested it" and "we can
+show what the test caught".
+
+**Not for every run.** A greenfield change has no pre-change code to fail
+against. This wants to be conditional on the scenario, or on whether any
+acceptance criterion is a defect rather than a feature.
 
 ---
 
@@ -184,7 +312,13 @@ Both ways this fails have now happened, hours apart:
   as being structurally impossible.
 
 The second one is the tell: a denylist will keep meeting things nobody put on
-it.
+it. There is now a third, and it is not the orchestrator's fault: an operator
+committing a fix mid-run with `git add -A` swept a paused node's uncommitted
+skeleton into that commit. The consequence was not a wrong commit but a weakened
+gate — `no_assertions` diffs from the newest commit the node did not make, so
+work already committed by somebody else reads as inherited and is not examined.
+Operator commits during a live run need explicit pathspecs, and the gate's
+"0 file(s) scanned" is a result worth reading as a warning rather than a pass.
 
 **Fix.** Stage only what the node was permitted to write — its `write_paths`,
 minus its `deny_paths` and the run's `forbidden_paths`. `PolicyEngine.check_write`

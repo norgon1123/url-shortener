@@ -25,6 +25,18 @@ import org.springframework.http.HttpStatus;
  *       unusable - unknown, expired, deleted, blocked, someone else's - is
  *       {@link #NOT_FOUND} with a byte-identical body.</li>
  * </ul>
+ *
+ * <p>{@link #ACCOUNT_UNAVAILABLE} is the one entry that cuts against that
+ * grain, and it was added knowingly rather than by drift. AC6 requires a second
+ * sign-up for an existing address to be refused and visibly so; any visible
+ * refusal tells the caller that address has an account. There is no wording of
+ * that refusal which is not an oracle, so the choice was which status carries
+ * it, not whether to disclose. It is reachable only from
+ * {@code POST /api/v1/customers}, it is throttled by an IP-keyed bucket that is
+ * load-bearing rather than decorative, and it says nothing beyond
+ * "unavailable" - no owner, no creation date, no distinction between taken and
+ * reserved. See the design rationale, and Q2 in the clarification: this one
+ * belongs to whoever approves the contract.
  */
 public enum ErrorCode {
 
@@ -51,6 +63,23 @@ public enum ErrorCode {
 
     /** The caller's own link is deleted or blocked and can no longer be edited. */
     LINK_NOT_MODIFIABLE(HttpStatus.CONFLICT, "link_not_modifiable", "This link can no longer be modified."),
+
+    /**
+     * Sign-up named an account name that already exists (AC6).
+     *
+     * <p>409 rather than 400, and worded to match {@link #ALIAS_UNAVAILABLE}
+     * deliberately: both are "you asked to create something under a name that
+     * is taken", which is what 409 Conflict means, and both refuse without
+     * saying who holds the name or when they took it. 400 would carry the same
+     * disclosure under a status that says the request was malformed, which it
+     * was not - it was well formed and lost a race, possibly by two years.
+     *
+     * <p>Only ever produced by {@code POST /api/v1/customers}. It is decided by
+     * the unique constraint over the lower-cased email, not by a preceding
+     * lookup, so the concurrent case AC6 names resolves the same way as the
+     * sequential one.
+     */
+    ACCOUNT_UNAVAILABLE(HttpStatus.CONFLICT, "account_unavailable", "That account name is not available."),
 
     /**
      * The URL parses but may not be shortened: a denylisted target (AC21), an

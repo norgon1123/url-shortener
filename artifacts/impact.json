@@ -1,132 +1,252 @@
 {
-  "blast_radius": "Nothing is in production and no caller exists, so the worst plausible outcome is not a customer-facing outage but a run that consumes its $120 ceiling and produces a service that cannot start. The concrete mechanism is the scaffold's Caffeine-only, Postgres-only shape colliding with a design that assumes Redis on the click path: the dependency lives in a protected pom.xml that only the design node may write, the connection settings live in a protected application.yml that only the implement node may write, and the local topology lives in a docker-compose.yml that no node may write at all. Get the ordering wrong and the failure surfaces late, at the verify barrier, as a context-load error inheriting from AbstractIntegrationTest - which fails every test class simultaneously and reads like a broken harness rather than a missing dependency. The second, quieter mechanism is the stale service/target/classes/db/migration/V1__create_links.sql from a previous run: gitignored, invisible in review, and applied by Flyway on any build that skips clean, producing a schema mismatch nobody can find in the diff. Detection is entirely through the mechanical gates - maven_compiles at design, tests_compile at test-contract, maven_verify and coverage_floor at verify - so the practical question for a reviewer is whether the design node froze a pom, an application.yml plan and a container harness that all three downstream nodes can actually build against, since none of them can renegotiate it afterwards.",
+  "blast_radius": "This is a live service and the change reaches three of its load-bearing pieces at once, so the worst plausible failures are not in the new endpoints but in the old ones. The single most dangerous is the host normaliser: it is shared by UrlValidator.requireShortenable and DenylistThreatCheck, so a normaliser that strips too much (mapping notmalware.example.com onto the denylisted parent, or collapsing a public host onto an internal one) starts refusing legitimate creation for every existing customer with a 422 that says nothing about why, while a normaliser that strips too little leaves the two named bypasses open and the fix is cosmetic \u2014 and because the deliberate one-code, one-message design means url_rejected never distinguishes denylist from internal-host, nobody debugging from the outside can tell which failure they have. The second is the session filter: shouldNotFilter is one exact string comparison and is the entire access-control policy for /api/v1/*, so a loose exemption for the two new unauthenticated paths silently opens link listing, editing and deletion to anyone, with a green build, since the existing tests assert 401 for a missing token but not for a token-free request against a newly-exempted neighbour. The third is the customers table: without the lower(email) unique index a duplicate case-variant sign-up does not fail at sign-up, it fails later at findByEmailIgnoreCase and 500s the frozen sign-in endpoint for the affected account \u2014 including, in principle, a seeded one (AC16). Detection is uneven: filter and normalisation regressions surface as changes in the 401/422 rates and in the existing 'Refused a link to denylisted host' INFO line, which is watchable; the duplicate-email fault surfaces only as a 500 on sign-in for one account and would look like an unrelated incident. Also weigh that sign-up puts a memory-hard Argon2 hash and a database insert on an unauthenticated path whose only defence is an IP-keyed bucket that fails open when Redis is down, and that relaxing NOT NULL on the busiest table plus a functional unique index are both protected-path migrations that need a human on the diff.",
   "breaking_changes": [
     {
-      "detail": "Redis, a password KDF and a JWT library must be added, reversing the documented 'Caffeine only, no Redis' decision. pom.xml is a protected path and is in deny_paths for implement and author-tests, so the run stops at PENDING_APPROVAL the moment it is touched, and the two parallel branches cannot compile against anything the design node did not freeze there.",
-      "mitigation": "Design node adds the complete dependency set in a single write before the parallel fan-out (spring-boot-starter-data-redis, spring-security-crypto or argon2-jvm, a JWT library), so exactly one approval is spent and the frozen pom is what implement and author-tests both build against. Approver checks coordinates and scopes at the existing design human gate; no second window is needed.",
-      "surface": "service/pom.xml dependency set (supply chain)"
+      "detail": "Host normalisation is create-path-wide, not scoped to the anonymous endpoint. Targets that return 201 today become 422 url_rejected for existing authenticated customers: any non-dotted-quad numeric IPv4 (2130706433, 0x7f.0.0.1, 0177.0.0.1, 127.1), IPv4-mapped IPv6 forms, and a denylisted host written with a trailing dot. Per A4 there is no retroactive rescan, so links already created via these forms keep redirecting \u2014 the service will refuse to mint a URL it is still happily serving.",
+      "mitigation": "No compatibility shim: narrowing this is the requirement. Instead make it measurable and reversible \u2014 LinkService already logs at INFO when it refuses a denylisted target; add the equivalent for a host refused by normalisation so the 422 rate can be watched for the first days after deploy, and keep app.threat.enabled/fail-open semantics untouched so the denylist half can be turned off independently of the normalisation half. Known in-repo callers: none (grep of service/src/test finds no fixture using these forms); external automation submitting numeric-literal targets is the exposed population and is exactly the population the fix targets.",
+      "surface": "POST /api/v1/links \u2014 accepted target URLs"
     },
     {
-      "detail": "UrlShortenerApplication is annotated @EnableCaching and CacheConfig currently supplies the one and only CacheManager. Introducing a Redis cache manager gives Spring two candidates and breaks context load for every test that extends AbstractIntegrationTest, including the scaffold's own theApplicationContextLoads.",
-      "mitigation": "Replace the body of CacheConfig rather than adding a parallel configuration class: keep the bean method name cacheManager and the LINKS_CACHE constant, or mark exactly one @Primary. Keep the Caffeine near-cache as an explicitly named second bean only if some component injects it by name.",
-      "surface": "CacheManager bean contract (CacheConfig.cacheManager, LINKS_CACHE)"
+      "detail": "One-way in production terms: re-adding NOT NULL later requires deleting or re-homing every anonymous row. During a rolling deploy old instances run against the migrated schema \u2014 Hibernate's validate does not check column nullability, so they start, and an old instance reading an anonymous row only ever does so through the unscoped click path (LinkResolver \u2192 CachedLink, which does not carry customerId), so old and new can run concurrently.",
+      "mitigation": "Ship the migration ahead of the code (schema first, then rollout), and verify the compatibility claim explicitly rather than assuming it: start a pre-change build against the post-change schema and click an anonymous code. Keep the anonymous TTL configurable (app.links.anonymous-ttl) so a rollback plan is 'stop creating them and let 30 days drain' rather than a data deletion.",
+      "surface": "links.customer_id NOT NULL \u2192 nullable"
     },
     {
-      "detail": "The shipped default is expireAfterWrite=5m. Q1 commits the business to 60 seconds p99 from delete or report. A missed invalidation therefore leaves a deleted or abuse-blocked link redirecting for up to five minutes, breaching AC9 against a number quoted to fraud teams.",
-      "mitigation": "Lower the TTL in application.yml to at or below 60s in the same change that introduces active invalidation, so the TTL is a floor under the SLA rather than the mechanism; assert the bound in a test that deletes a link and re-clicks it rather than trusting configuration.",
-      "surface": "app.cache.spec TTL vs the published takedown bound"
+      "detail": "Fails to apply if the live customers table already contains two addresses differing only in case; after it applies, an INSERT of a case-variant of an existing address is refused where it previously succeeded. It also silently fixes a live latent bug: today two case-variant rows would make SignInService's findByEmailIgnoreCase throw IncorrectResultSizeDataAccessException and 500 the frozen sign-in endpoint.",
+      "mitigation": "Two-phase: run SELECT lower(email), count(*) FROM customers GROUP BY 1 HAVING count(*) > 1 against a production copy and record the result in the migration's review, resolve any duplicates in a separate migration, then add the index. Keep ux_customers_email in place; the new index is additive. Owner of the check is whoever approves the protected-path migration (Q11).",
+      "surface": "customers \u2014 new unique index over lower(email)"
     },
     {
-      "detail": "A V1__create_links.sql from a prior run sits on the classpath with no source counterpart. An incremental build applies it, Flyway records its checksum, and the run's own V1 then collides or fails ddl-auto: validate. Because service/target/ is gitignored, nothing in the diff explains the failure.",
-      "mitigation": "Run `./mvnw clean verify` (not `verify`) for the first build of this run, or delete service/target before the design node's maven_compiles gate. Owner: whoever kicks off the run; it is a one-line precondition, not a code change.",
-      "surface": "Flyway migration history vs stale target/classes"
+      "detail": "Adding 409 account_unavailable introduces a value that existing clients switching exhaustively on the error field have never seen, and turns sign-up into an account-existence oracle in a service that documents the absence of 403/410 and the identical 401s as deliberate anti-enumeration design.",
+      "mitigation": "Only reachable on the new POST /api/v1/customers, so no existing client can receive it \u2014 but bump info.version from 1.0.0 and add the row to the catalogue table in the same commit so the contract check sees one coherent artifact. If the catalogue must stay closed, use Q2's fallback (400 invalid_request with fields.email) and record the status-semantics compromise in the review. The disclosure itself is blunted only by the IP-keyed sign-up bucket (A14) \u2014 that bucket is load-bearing, not decoration.",
+      "surface": "Error catalogue in artifacts/openapi.yaml (closed enumeration)"
     },
     {
-      "detail": "Compose starts Postgres only. Once the service requires Redis at startup, `docker compose up` yields an application that cannot serve a click, and no pipeline node holds write access to the file to fix it.",
-      "mitigation": "A human adds a redis service to docker-compose.yml alongside approving the pom change, in the same review. Tests are unaffected either way because AbstractIntegrationTest uses Testcontainers, not compose - which is what keeps this a developer-experience break rather than a gate failure.",
-      "surface": "Local development environment (docker-compose.yml)"
+      "detail": "shouldNotFilter is a single exact URI equality today. Broadening it (prefix match, startsWith, a set that is matched loosely, or a trailing-slash/case variant) unauthenticates management routes. It is also verb-blind: an exempted path is open to GET/PATCH/DELETE as well as POST.",
+      "mitigation": "Keep exact-path equality against a fixed set, and add the negative assertions to the suite in the same commit: POST /api/v1/links with no Authorization still answers 401 unauthorized with WWW-Authenticate: Bearer, and GET/DELETE on the newly exempted paths reach a 405 rather than an unauthenticated handler.",
+      "surface": "SessionAuthenticationFilter exemption list"
     },
     {
-      "detail": "Not applicable in the usual sense: nothing is deployed and there are no callers, so old and new versions never coexist. The one place the question does bite is inside the build - the greenfield-2/implement branch carries a links schema (hit_count, last_accessed_at, no status column, no customer table) that is not an ancestor of HEAD.",
-      "mitigation": "Treat that branch as abandoned rather than as a baseline to migrate from: start migration numbering at V1 on this branch and do not port its SQL. If any of it is reused, it needs re-deriving against A11 soft-delete and A16 ownership, not copying.",
-      "surface": "Rolling-deploy compatibility (old vs new running together)"
+      "detail": "Behind a load balancer, POST /api/v1/customers and POST /api/v1/public/links answer 401 unauthorized (old instance: path is filtered and not exempt) or the new 201, depending on which pod is hit, for the whole rollout window.",
+      "mitigation": "Not fixable in code; state it. Old and new can run together safely because no existing behaviour depends on the new paths \u2014 announce the endpoints as available only after the rollout completes, and have the client treat 401 on sign-up as retryable during that window.",
+      "surface": "New endpoints during a rolling deploy"
+    },
+    {
+      "detail": "Behind a proxy or LB that does not preserve the source address, every anonymous caller shares one bucket, so a default of 10/min is a global ceiling rather than a per-caller one \u2014 the anonymous endpoint is then effectively closed under any real traffic, and the sign-up bucket throttles all new accounts to one shared allowance.",
+      "mitigation": "Keep getRemoteAddr (Q5 \u2014 trusting X-Forwarded-For without a trusted-proxy list makes every existing IP bucket spoofable, including CLICK and NOT_FOUND). Record the shared-bucket consequence in docs/RUNBOOK.md beside the existing rate-limit table, so an operator seeing blanket 429s on the anonymous path knows to configure the proxy rather than to raise the number.",
+      "surface": "Anonymous/sign-up rate limiting keyed by request.getRemoteAddr()"
     }
   ],
   "impacted": [
     {
       "change": "modified",
-      "kind": "config",
-      "notes": "Dependency set has no Redis client, no password-hashing library and no JWT library, yet clarification A5/A6/A9/A10/A13 require all three. Comment at lines 62-64 states Redis was deliberately excluded ('Caffeine only'). It is a protected_path (sdlc.yaml:51) and is in deny_paths for both implement and author-tests, so only the design node can write it, and that write forces PENDING_APPROVAL. Maven Central is the only reachable host (sdlc.yaml:86-88), so any dependency must resolve from there.",
-      "path": "service/pom.xml",
-      "risk": "high"
-    },
-    {
-      "change": "modified",
-      "kind": "config",
-      "notes": "Holds only datasource, JPA (ddl-auto: validate), Flyway, actuator exposure and app.cache.spec. Missing every knob the clarification makes configuration: Redis connection, JWT key/24h TTL (A5/Q8), rate-limit buckets (A13), default 30-day expiry (A7), public base URL (A15/Q7). app.cache.spec default expireAfterWrite=5m exceeds the 60s takedown bound in Q1. Protected path; design's write_paths cover src/main/java only, so implement is the sole node that can edit it, at the cost of an approval halt.",
-      "path": "service/src/main/resources/application.yml",
+      "kind": "module",
+      "notes": "isIpLiteral (line 152) only matches dotted-quad, '[' or ':' \u2014 so 2130706433, 0177.0.0.1, 0x7f.0.0.1, 127.1 never reach InetAddress and are accepted today (AC2 bypass). requireShortenable only lower-cases; no trailing-dot strip, no IDN ToASCII. Normalisation must land here (or be called here) before isInternal. Shared by BOTH create paths.",
+      "path": "service/src/main/java/com/example/urlshortener/link/UrlValidator.java",
       "risk": "high"
     },
     {
       "change": "modified",
       "kind": "module",
-      "notes": "Defines the single @Bean CacheManager as a CaffeineCacheManager over one cache ('links'), justified in its javadoc as an explicit rejection of Redis. A10 requires a Redis-backed resolution cache with negative caching and active invalidation on delete/expiry/takedown; Caffeine is per-instance and cannot be invalidated across instances, so the 60s bound would rest on TTL alone. Replacing or supplementing this bean is unavoidable.",
-      "path": "service/src/main/java/com/example/urlshortener/config/CacheConfig.java",
-      "risk": "high"
-    },
-    {
-      "change": "behaviour_only",
-      "kind": "module",
-      "notes": "File need not change, but @EnableCaching means whatever CacheManager beans exist become the application-wide cache resolution. Adding a Redis cache manager alongside CacheConfig's produces two candidate beans and a NoUniqueBeanDefinitionException at context load, which fails every integration test at once rather than one.",
-      "path": "service/src/main/java/com/example/urlshortener/UrlShortenerApplication.java",
-      "risk": "medium"
-    },
-    {
-      "change": "modified",
-      "kind": "module",
-      "notes": "Only hand-written test file and the base class every future test extends. Starts a single PostgreSQLContainer in a static initialiser with @ServiceConnection; no Redis container, no auth helper, no per-test isolation. Redis-backed counting, caching and rate limiting are untestable until it grows a second container. Writable only by test-contract/author-tests; implement is denied src/test/**.",
-      "path": "service/src/test/java/com/example/urlshortener/support/AbstractIntegrationTest.java",
+      "notes": "check() lower-cases the raw host then walks parentOf(); 'malware.example.com.' never equals the seeded row (AC1 bypass). Must consume the same normalised host as UrlValidator. Risk of over-normalising: parentOf walk must still refuse sub.malware.example.com and still allow notmalware.example.com.",
+      "path": "service/src/main/java/com/example/urlshortener/threat/DenylistThreatCheck.java",
       "risk": "high"
     },
     {
       "change": "added",
-      "kind": "schema",
-      "notes": "Contains only .gitkeep on HEAD: no schema exists. Every table (links, customers, denylist, abuse reports, click totals) lands here. Protected path (sdlc.yaml:52) so each write forces PENDING_APPROVAL, and with spring.jpa.hibernate.ddl-auto: validate any drift between a migration and an entity fails context load for the whole suite.",
-      "path": "service/src/main/resources/db/migration/",
-      "risk": "high"
-    },
-    {
-      "change": "behaviour_only",
-      "kind": "schema",
-      "notes": "Untracked build output left by a previous run (mtime 10:30 today) that no longer has a counterpart in src. It is on the runtime classpath, so a `mvnw verify` without `clean` lets Flyway apply a links table nobody in this run authored (columns hit_count, last_accessed_at, unique index ux_links_code), then fail ddl-auto validation against the new entities. Whole of service/target/ is gitignored, so it is invisible in review.",
-      "path": "service/target/classes/db/migration/V1__create_links.sql",
-      "risk": "medium"
-    },
-    {
-      "change": "behaviour_only",
-      "kind": "config",
-      "notes": "Unchanged and unchangeable (forbidden_paths includes orchestrator/**), but its policy now bites differently: the four protected_paths (pom.xml, db/migration/**, application*.yml, docker-compose.yml) are exactly the files this requirement forces open, so this run will halt for approval repeatedly where the previous CRUD-sized requirement barely touched them. docker-compose.yml appears in no node's write_paths at all.",
-      "path": "orchestrator/pipelines/sdlc.yaml",
+      "kind": "module",
+      "notes": "A1's single normalisation point (lower-case, trailing dot, IDN/punycode, all numeric IPv4 forms, IPv4-mapped IPv6). Anything unnormalisable must fail closed to 422 (A3), not 400. Every host-based decision in the service depends on it being right.",
+      "path": "service/src/main/java/com/example/urlshortener/link/HostNormalizer.java (proposed new file)",
       "risk": "high"
     },
     {
       "change": "modified",
-      "kind": "config",
-      "notes": "Local dependency topology is Postgres only. The requirement names Redis as already-run infrastructure and the design depends on it, so the compose file no longer describes a runnable service. Protected, and no node has write access to it, so it can only be fixed by a human.",
-      "path": "docker-compose.yml",
+      "kind": "module",
+      "notes": "create(CurrentCustomer, CreateLinkRequest) hard-binds an owner: newLink() passes caller.id() into a non-null column, expiryFor() uses app.links.default-ttl, and log line 'Customer {} created link {}' assumes a caller. Anonymous creation needs a null-owner path plus anonymous TTL while keeping the identical validator/threat/code-gen/resolutionCache.invalidateBeforeIssuing sequence (A12/AC15).",
+      "path": "service/src/main/java/com/example/urlshortener/link/LinkService.java",
+      "risk": "high"
+    },
+    {
+      "change": "behaviour_only",
+      "kind": "api",
+      "notes": "POST /api/v1/links is not edited, but its outcome changes: targets that are 201 today (numeric/short/hex IPv4 forms, some IDN forms) become 422 url_rejected once the shared validator normalises. Also the reference for how a new create endpoint charges a bucket (rateLimitGuard.requireByCustomer(WRITE, ...), line 62).",
+      "path": "service/src/main/java/com/example/urlshortener/link/LinkController.java",
       "risk": "medium"
+    },
+    {
+      "change": "added",
+      "kind": "api",
+      "notes": "POST /api/v1/public/links and POST /api/v1/customers (Q6). Must not declare a CurrentCustomer parameter \u2014 CurrentCustomerArgumentResolver throws unauthorized() when the request attribute is absent (line 39).",
+      "path": "service/src/main/java/com/example/urlshortener/link/PublicLinkController.java + CustomerController.java (proposed new files)",
+      "risk": "high"
+    },
+    {
+      "change": "modified",
+      "kind": "module",
+      "notes": "shouldNotFilter() is a single exact-match on '/api/v1/sessions' (line 53). Adding exemptions here is the whole of the access-control policy for the new endpoints; it is not method-aware, so an exempted path is unauthenticated for every verb, and a prefix-style match would unauthenticate sibling routes.",
+      "path": "service/src/main/java/com/example/urlshortener/auth/SessionAuthenticationFilter.java",
+      "risk": "high"
     },
     {
       "change": "behaviour_only",
       "kind": "config",
-      "notes": "Runs `./mvnw -B verify` on ubuntu-latest relying on the runner's Docker daemon for Testcontainers. Adding a Redis container adds a registry pull and lengthens the suite against verify's 5400s ceiling (sdlc.yaml:330); the agent sandbox's allowedDomains list only Maven hosts, so image availability differs between CI and a sandboxed local run.",
-      "path": ".github/workflows/ci.yml",
+      "notes": "Registers the filter for '/api/v1/*' only (line 28); servlet path mapping covers /api/v1/public/links and /api/v1/customers, so the new endpoints ARE filtered unless exempted. Comment calls this one line 'the whole of the access-control policy'.",
+      "path": "service/src/main/java/com/example/urlshortener/config/WebConfig.java",
+      "risk": "medium"
+    },
+    {
+      "change": "modified",
+      "kind": "config",
+      "notes": "New Links.anonymousTtl (P30D, A9) and RateLimit.anonymousCreatePerMinute / signUpPerMinute (A13/A14). This record is documented as the frozen shared contract between implement and author-tests \u2014 a name chosen here is a name a test hard-codes as app.rate-limit.*-per-minute.",
+      "path": "service/src/main/java/com/example/urlshortener/config/AppProperties.java",
       "risk": "medium"
     },
     {
       "change": "modified",
       "kind": "module",
-      "notes": "Section 7 (line ~338) documents a superseded design that now contradicts the frozen assumptions: 'Caffeine only - no Redis in the build', 410-for-expired vs 404-for-unknown (A4 requires one indistinguishable 404), 7-character base62 codes (A2 requires ~11 chars / 128 bits), transactional-outbox analytics (A9 is Redis counters). A reviewer treating this as current will read the new code as wrong.",
-      "path": "docs/IMPLEMENTATION_PLAN.md",
+      "notes": "New bucket value(s). Key namespace is 'ratelimit:<bucket-lowercase>:<key>' \u2014 a new bucket cannot spend WRITE tokens by construction (AC14).",
+      "path": "service/src/main/java/com/example/urlshortener/ratelimit/RateLimitBucket.java",
       "risk": "medium"
     },
     {
       "change": "modified",
       "kind": "module",
-      "notes": "Raises the right questions (Redis-failure behaviour, invalidation window as a business number, session denylist) but predates the answers now fixed in clarification.json. Worth reconciling so the open questions it lists are not re-litigated downstream.",
-      "path": "docs/REQUIREMENTS_BRIEF.md",
+      "notes": "capacityOf() is an exhaustive switch over RateLimitBucket (lines 79-86); a new enum value fails compilation until mapped. Limiter fails open on Redis outage (line 67) \u2014 so the anonymous write path is unmetered during a Redis outage, which is the storage-burn concern in the NFRs.",
+      "path": "service/src/main/java/com/example/urlshortener/ratelimit/RedisTokenBucketRateLimiter.java",
       "risk": "low"
+    },
+    {
+      "change": "modified",
+      "kind": "schema",
+      "notes": "@Column(name=\"customer_id\", nullable=false, updatable=false) at line 58 and a constructor that always takes a UUID. Must become nullable to hold an anonymous link; ddl-auto is validate, so entity and migration have to move together.",
+      "path": "service/src/main/java/com/example/urlshortener/domain/LinkEntity.java",
+      "risk": "high"
+    },
+    {
+      "change": "modified",
+      "kind": "module",
+      "notes": "Only a protected no-arg JPA constructor and getters exist \u2014 the class javadoc states 'there is no registration endpoint \u2026 rows arrive by migration'. Sign-up needs a real constructor; email column is length 320, unique=true mapping mirrors ux_customers_email (case-sensitive).",
+      "path": "service/src/main/java/com/example/urlshortener/domain/CustomerEntity.java",
+      "risk": "medium"
+    },
+    {
+      "change": "added",
+      "kind": "schema",
+      "notes": "Two one-way changes: ALTER links ALTER COLUMN customer_id DROP NOT NULL, and a unique index over lower(email) on customers. Directory is a pipeline-protected path (orchestrator/pipelines/sdlc.yaml:55) \u2192 human approval expected (Q11). The lower(email) index fails outright if any case-variant duplicate already exists.",
+      "path": "service/src/main/resources/db/migration/V3__*.sql (proposed new migration)",
+      "risk": "high"
+    },
+    {
+      "change": "behaviour_only",
+      "kind": "data_flow",
+      "notes": "findByEmailIgnoreCase returns Optional. Today ux_customers_email is case-sensitive, so without the lower(email) constraint two sign-ups of Alice@ and alice@ both insert and the NEXT sign-in for either throws IncorrectResultSizeDataAccessException \u2192 500 on the existing, untouched POST /api/v1/sessions. Existing seeded accounts share this query path (AC16).",
+      "path": "service/src/main/java/com/example/urlshortener/repository/CustomerRepository.java",
+      "risk": "high"
+    },
+    {
+      "change": "behaviour_only",
+      "kind": "data_flow",
+      "notes": "findOwnedBy and findByDomainAndCodeAndCustomerId are equality-scoped on customerId, so NULL rows match neither \u2014 AC8/AC13 hold by construction. But the links table and ix_links_owner_listing (customer_id, created_at DESC, code ASC) now carry unowned rows for the first time; anything that later joins links\u2192customers on a non-null assumption breaks.",
+      "path": "service/src/main/java/com/example/urlshortener/repository/LinkRepository.java",
+      "risk": "medium"
+    },
+    {
+      "change": "behaviour_only",
+      "kind": "service",
+      "notes": "Unchanged code, new exposure: sign-up puts an m=16384,t=2 memory-hard hash on an unauthenticated endpoint (seed hashes in V2 confirm the parameters). Previously the only unauthenticated Argon2 work was sign-in, which is IP-bucketed at 60/min. The sign-up bucket (A14) is the only thing between this and a CPU/memory exhaustion vector.",
+      "path": "service/src/main/java/com/example/urlshortener/auth/Argon2PasswordHasher.java",
+      "risk": "medium"
+    },
+    {
+      "change": "behaviour_only",
+      "kind": "data_flow",
+      "notes": "report() resolves by (domain, code) with no owner scoping, so an anonymous link is already reportable and blockable \u2014 202 preserved (A15). abuse_reports.reporter_customer_id stays NOT NULL, so only signed-in callers can report an unowned link; nobody else can get it taken down.",
+      "path": "service/src/main/java/com/example/urlshortener/abuse/AbuseReportService.java",
+      "risk": "low"
+    },
+    {
+      "change": "behaviour_only",
+      "kind": "data_flow",
+      "notes": "CachedLink carries no customerId and resolve() is unscoped, so an anonymous link redirects and counts clicks through exactly the same code (AC11) with no change. Confirms the click path needs no edit \u2014 which is also the reason any edit here would be out of remit.",
+      "path": "service/src/main/java/com/example/urlshortener/redirect/LinkResolver.java + CachedLink.java",
+      "risk": "low"
+    },
+    {
+      "change": "behaviour_only",
+      "kind": "data_flow",
+      "notes": "Anonymous creation now consumes the shared (domain, code) namespace; codes are never reissued after soft delete, so anonymous volume permanently occupies namespace with no owner able to delete. Aliases are excluded from the anonymous body (A11) to stop memorable-name squatting.",
+      "path": "service/src/main/java/com/example/urlshortener/link/ShortCodeGenerator.java",
+      "risk": "low"
+    },
+    {
+      "change": "modified",
+      "kind": "api",
+      "notes": "Only if Q2 is answered 'grow the catalogue' (409 account_unavailable). The enum javadoc and openapi both describe the catalogue as closed and the absence of oracles as deliberate; adding a duplicate-account refusal makes sign-up an account-existence oracle in a service that equalises sign-in timing to avoid being one.",
+      "path": "service/src/main/java/com/example/urlshortener/error/ErrorCode.java + ApiException.java",
+      "risk": "high"
+    },
+    {
+      "change": "modified",
+      "kind": "api",
+      "notes": "Frozen machine-readable contract. Needs the two new paths, any new error row (table at lines ~48-60), and removal of the 'There is no registration endpoint' claim at line 95. info.version is 1.0.0 and the two-surface table says /api/v1/** requires Bearer 'except sign-in' \u2014 both now false.",
+      "path": "artifacts/openapi.yaml",
+      "risk": "high"
+    },
+    {
+      "change": "modified",
+      "kind": "config",
+      "notes": "API.md:21 and :294 assert registration does not exist; TODO.md:56 says the same; RUNBOOK config table (lines ~60-70) enumerates every app.* property and the rate-limit bucket list, and needs the new TTL/bucket plus the getRemoteAddr-behind-a-proxy note from Q5.",
+      "path": "docs/API.md, docs/RUNBOOK.md, docs/TODO.md",
+      "risk": "low"
+    },
+    {
+      "change": "behaviour_only",
+      "kind": "config",
+      "notes": "Pipeline-protected. Every new property has a @DefaultValue in AppProperties, so no edit is strictly required \u2014 prefer not touching it; if production values differ from defaults this needs a human.",
+      "path": "service/src/main/resources/application.yml",
+      "risk": "medium"
+    },
+    {
+      "change": "behaviour_only",
+      "kind": "module",
+      "notes": "Lines 272-299 pin denylist/loopback/private refusals; these must stay 422 with a byte-identical body after normalisation. Also the 400-vs-422 split for MALFORMED_URL and NON_HTTP_URL (Fixtures).",
+      "path": "service/src/test/java/com/example/urlshortener/behaviour/CreateLinkTest.java",
+      "risk": "medium"
+    },
+    {
+      "change": "modified",
+      "kind": "module",
+      "notes": "Fixtures documents 'there is no registration endpoint' and hard-codes the two seeded accounts. Containers are JVM-wide singletons with no per-test truncation, so sign-up tests accumulate customer rows across the whole suite \u2014 duplicate/uniqueness tests must mint unique emails or they will collide with earlier tests, not with the code under test.",
+      "path": "service/src/test/java/com/example/urlshortener/support/Fixtures.java + TestInfrastructure.java",
+      "risk": "medium"
+    },
+    {
+      "change": "behaviour_only",
+      "kind": "service",
+      "notes": "Line 103. An anonymous creation has no customer id; whatever is logged there changes the shape of a line an operator may already parse or alert on, and the RUNBOOK's failure-mode table quotes log text verbatim (e.g. the fail-open WARN).",
+      "path": "LinkService log line \"Customer {} created link {}\" (operational surface)",
+      "risk": "medium"
     }
   ],
   "regression_surface": [
-    "AbstractIntegrationTest.theApplicationContextLoads - the only existing test; fails wholesale if a second CacheManager bean appears, if a Redis connection is required but no container is started, or if a migration disagrees with an entity under ddl-auto: validate.",
-    "Flyway startup against service/src/main/resources/db/migration when a prior run's V1__create_links.sql is still present in target/classes: checksum/duplicate-version failure on an incremental build.",
-    "Actuator endpoints /actuator/health, /actuator/info, /actuator/metrics, /actuator/prometheus staying reachable once a catch-all GET /{code} redirect is mapped at the root, and staying out of the short-code namespace (A3 reserved words).",
-    "The routes_match_openapi gate's regex scan of Spring annotations (gates.py:1127-1130 states it only handles literal-string mappings): a root-level or constant-valued @GetMapping path fails the gate even when the route is correct.",
-    "The no_secrets gate pattern (password|secret|token)\\s*[:=]\\s*['\"]{8,}['\"] firing on seeded customer credentials in a migration fixture (A18) or on a JWT signing key placed in application.yml; the existing ${DB_PASSWORD:shortener} form is unquoted and passes, so any new credential must follow the same env-placeholder style.",
-    "coverage_floor at 0.70 line coverage measured over a codebase several times larger than the scaffold, with rate limiting, abuse takedown and threat-check fail-open paths being the branches least likely to be exercised by black-box HTTP tests.",
-    "maven_verify against the 5400s ceiling once a second Testcontainer (Redis) joins the singleton-container pattern - the same class of slow-not-failed regression the AbstractIntegrationTest javadoc documents having already cost this project a thirty-minute build.",
-    "Redirect cache correctness after delete: click a live code, delete it, click again, and assert 404 within the 60s bound rather than reading a stale Caffeine entry with the shipped 5m expireAfterWrite."
+    "POST /api/v1/links as alice with Fixtures.TARGET_URL and OTHER_TARGET_URL still returns 201 with the same LinkResponse shape after host normalisation is inserted ahead of the threat check.",
+    "The four refusal fixtures in CreateLinkTest (lines 272-299) still answer 422 url_rejected with the byte-identical body: DENYLISTED_URL, PHISHING_URL, LOOPBACK_URL (127.0.0.1), PRIVATE_HOST_URL (10.0.0.1), plus SELF_REFERENTIAL_URL against app.base-url.",
+    "Denylist parent-domain matching after normalisation: sub.campaign.malware.example.com is refused, notmalware.example.com and malware.example.com.evil.test are accepted \u2014 i.e. parentOf() still splits on label boundaries, not substrings.",
+    "The 400-vs-422 split: MALFORMED_URL ('not-a-url') and NON_HTTP_URL ('ftp://...') stay 400 invalid_request with fields.longUrl, while every host-policy refusal stays 422 \u2014 a host that cannot be normalised must fail closed to 422, not 400 (A3).",
+    "Redirect Location is byte-identical to the submitted longUrl (RedirectController sets the header verbatim, not via location(URI)) \u2014 normalisation must not leak into stored long_url or into the Location header.",
+    "POST /api/v1/links with no Authorization header still answers 401 unauthorized with WWW-Authenticate: Bearer, and GET/PATCH/DELETE /api/v1/links/{code} remain filtered, after the exemption set in SessionAuthenticationFilter.shouldNotFilter is extended.",
+    "Verb coverage on the newly exempted paths: GET or DELETE on /api/v1/public/links and /api/v1/customers does not reach an unauthenticated handler (shouldNotFilter is not method-aware).",
+    "Both seeded accounts (alice@example.com / bob@example.com, V2 hashes) still sign in and receive a token after the lower(email) unique index lands \u2014 PasswordStorageTest.theSeededAccountsSignInAgainstTheirStoredForm.",
+    "Sign-in remains a single-result lookup: no case-variant duplicate can exist, so findByEmailIgnoreCase cannot throw IncorrectResultSizeDataAccessException and 500 POST /api/v1/sessions.",
+    "Tenant isolation with NULL-owner rows present in the table: TenantIsolationTest's 'every owner-scoped endpoint answers the same for another customer's link as for an unissued code' still holds, and GET /api/v1/links never lists an anonymous code for any customer.",
+    "Authenticated write throttling is unchanged and unshared: WriteRateLimitTest (bulk creation by one customer throttled at app.rate-limit.write-per-minute, another customer unaffected, Retry-After in whole seconds) passes with the new bucket present, and exhausting the anonymous bucket does not consume WRITE tokens or vice versa.",
+    "Click path on an anonymously created code: 302 with Location, Cache-Control 'no-store, no-cache, must-revalidate, max-age=0', and exact click counting through the Redis delta plus flush \u2014 identical to an owner-created link.",
+    "DegradedDependencyTest.degradationIsSpentOnAcceptingLinksRatherThanOnServingClicks with Redis down: anonymous creation returns 503 service_unavailable from resolutionCache.invalidateBeforeIssuing while redirects keep being served.",
+    "Expiry: an owner link with no expiresAt still gets app.links.default-ttl (P30D) unchanged, an anonymous link gets app.links.anonymous-ttl, and after that instant its code answers 404 not_found on both the click path and the management API.",
+    "Strict-body handling on the anonymous request: a body carrying alias or expiresAt answers 400 invalid_request (unknown property), matching the existing HttpMessageNotReadableException path.",
+    "POST /api/v1/links/{code}/abuse-reports against an anonymous code still answers 202 and blocks the link within the published 60-second bound.",
+    "Application startup under ddl-auto: validate after V3 \u2014 LinkEntity's relaxed customer_id and the customers indexes must match the migrated schema, and startup must fail loudly rather than mutate.",
+    "RedisTokenBucketRateLimiter key naming and capacity mapping: keys stay 'ratelimit:<bucket>:<key>', the capacityOf switch covers every enum value, and Retry-After is never zero."
   ],
-  "scenario": "greenfield"
+  "scenario": "brownfield"
 }

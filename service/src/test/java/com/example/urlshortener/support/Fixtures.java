@@ -2,6 +2,7 @@ package com.example.urlshortener.support;
 
 import com.example.urlshortener.config.CacheConfig;
 import java.time.Duration;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -216,4 +217,291 @@ public final class Fixtures {
 
     /** A bearer value that is not even a JWS. */
     public static final String MALFORMED_BEARER = "this-is-not-a-jws";
+
+    // ======================================================================
+    // Added for the sign-up, anonymous-creation and host-normalisation change.
+    // Everything below is quoted from the frozen contract (artifacts/openapi.yaml,
+    // AppProperties, HostNormalizer's worked table) or invented once here so that
+    // two tests cannot invent it differently.
+    // ======================================================================
+
+    // ---- accounts created at run time -------------------------------------
+
+    /**
+     * An account this suite created through {@code POST /api/v1/customers},
+     * carrying the plaintext the test chose so it can be signed in with
+     * afterwards (AC5) and looked up in storage (AC7).
+     *
+     * @param id       the {@code customerId} the sign-up response returned
+     * @param email    the account name, unique per test run
+     * @param password the plaintext used at sign-up; never stored in this form
+     */
+    public record NewAccount(UUID id, String email, String password) {
+    }
+
+    /** Minimum password length accepted at sign-up, from {@code SignUpRequest}. */
+    public static final int PASSWORD_MIN_LENGTH = 12;
+
+    /** Maximum password length accepted at sign-up, from {@code SignUpRequest}. */
+    public static final int PASSWORD_MAX_LENGTH = 256;
+
+    /** An ordinary, comfortably valid password for an account a test creates. */
+    public static final String NEW_ACCOUNT_PASSWORD = "correct-horse-battery-staple";
+
+    /** Exactly {@link #PASSWORD_MIN_LENGTH} characters: the lower boundary, inclusive. */
+    public static final String MIN_LENGTH_PASSWORD = "twelvechars1";
+
+    /** One character short of the minimum: the first value outside the rule. */
+    public static final String TOO_SHORT_PASSWORD = "elevenchar1";
+
+    /** Exactly {@link #PASSWORD_MAX_LENGTH} characters: the upper boundary, inclusive. */
+    public static final String MAX_LENGTH_PASSWORD = "p".repeat(PASSWORD_MAX_LENGTH);
+
+    /** One character past the maximum. */
+    public static final String TOO_LONG_PASSWORD = "p".repeat(PASSWORD_MAX_LENGTH + 1);
+
+    /** No {@code @}, so it is not a well-formed address: the {@code fields.email} case. */
+    public static final String MALFORMED_EMAIL = "carol-at-example-dot-com";
+
+    /**
+     * An address nobody has taken, unique per call.
+     *
+     * <p>The database outlives an individual test class in this suite, so an
+     * account name is only free the first time it is used. Every test that signs
+     * up draws its address from here rather than hard-coding one, otherwise the
+     * second run of the same class sees 409 where it expected 201 and the failure
+     * looks like a defect in uniqueness rather than in the fixture.
+     */
+    public static String uniqueEmail(String prefix) {
+        return prefix + "-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12)
+                + "@example.test";
+    }
+
+    // ---- targets that exercise host normalisation --------------------------
+    //
+    // The split between "refused with 400" and "refused with 422" is not a matter
+    // of taste and is the single easiest thing for a blind test author to get
+    // wrong, so it is settled here, measured against java.net.URI on JDK 21:
+    //
+    //   * If URI.getHost() returns a host, the syntax gate passes and the host
+    //     policy decides -> 422 url_rejected.
+    //   * If URI.getHost() returns null (URI cannot parse a host from the
+    //     authority at all), the request never reaches the host policy -> 400
+    //     invalid_request. This is unchanged by the change and is the reading the
+    //     design took on feasibility's U1.
+    //
+    // Measured hosts: "2130706433", "0x7f000001", "017700000001", "0177.0.0.1",
+    // "012.0.0.1", "4294967296", "malware.example.com." all parse; "127.1",
+    // "0x7f.0.0.1", "999.999.999.999", "1.2.3.4.5", "a..b" all yield a null host.
+
+    /** AC1 verbatim: the denylisted host written with a trailing dot. */
+    public static final String DENYLISTED_TRAILING_DOT_URL = "https://malware.example.com./x";
+
+    /** The same host in mixed case and with a trailing dot. */
+    public static final String DENYLISTED_MIXED_CASE_TRAILING_DOT_URL =
+            "https://MALWARE.Example.COM./x";
+
+    /** A sub-domain of a denylisted host: refused today and must stay refused. */
+    public static final String DENYLISTED_SUBDOMAIN_URL =
+            "https://sub.campaign.malware.example.com/x";
+
+    /** The second denylist entry with a trailing dot. */
+    public static final String PHISHING_TRAILING_DOT_URL = "https://phishing.example.net./signin";
+
+    /**
+     * A host that merely <em>contains</em> a denylisted host as a suffix of one
+     * label. Normalisation must never drop or split a label, so this stays
+     * acceptable; a check that collapsed it onto the denylisted parent would be
+     * the over-normalisation failure the design calls the most dangerous one here.
+     */
+    public static final String LOOKALIKE_HOST_URL = "https://notmalware.example.com/x";
+
+    /**
+     * A host whose <em>left</em> labels spell a denylisted host but which is a
+     * different domain entirely. Also acceptable, for the same reason.
+     */
+    public static final String DENYLISTED_HOST_AS_PREFIX_URL =
+            "https://malware.example.com.evil.test/x";
+
+    /** AC2 verbatim: loopback as a single decimal number. Host parses, so 422. */
+    public static final String LOOPBACK_DECIMAL_URL = "http://2130706433/";
+
+    /** Loopback in hexadecimal. Host parses, so 422. */
+    public static final String LOOPBACK_HEX_URL = "http://0x7f000001/";
+
+    /** Loopback as one long octal number. Host parses, so 422. */
+    public static final String LOOPBACK_LONG_OCTAL_URL = "http://017700000001/";
+
+    /**
+     * Loopback with an octal first part. Host parses, so 422 - and this is the
+     * form {@code InetAddress.getByName} canonicalises to the public 177.0.0.1,
+     * which is why the contract hand-parses it.
+     */
+    public static final String LOOPBACK_DOTTED_OCTAL_URL = "http://0177.0.0.1/";
+
+    /** Private address space with an octal first part: canonicalises to 10.0.0.1, so 422. */
+    public static final String PRIVATE_DOTTED_OCTAL_URL = "http://012.0.0.1/";
+
+    /** The loopback name with a trailing dot. Host parses, so 422. */
+    public static final String LOOPBACK_TRAILING_DOT_URL = "http://localhost./internal";
+
+    /** IPv4-mapped IPv6 loopback: refused today, must stay refused. Host parses, so 422. */
+    public static final String LOOPBACK_IPV6_MAPPED_URL = "http://[::ffff:127.0.0.1]/internal";
+
+    /**
+     * Numerically out of range but syntactically a host {@code URI} accepts, so it
+     * reaches the host policy and fails closed there: 422, never accepted as a
+     * name.
+     */
+    public static final String OVERFLOW_NUMERIC_URL = "http://4294967296/";
+
+    /** Short numeric form. {@code URI} yields no host, so this is the 400 side of the split. */
+    public static final String UNPARSEABLE_SHORT_NUMERIC_URL = "http://127.1/";
+
+    /** Dotted hexadecimal. No host from {@code URI}: 400. */
+    public static final String UNPARSEABLE_DOTTED_HEX_URL = "http://0x7f.0.0.1/";
+
+    /** Out of range in every part. No host from {@code URI}: 400. */
+    public static final String UNPARSEABLE_OUT_OF_RANGE_NUMERIC_URL = "http://999.999.999.999/";
+
+    /** Five numeric parts. No host from {@code URI}: 400. */
+    public static final String UNPARSEABLE_FIVE_PART_NUMERIC_URL = "http://1.2.3.4.5/";
+
+    /** An empty label. No host from {@code URI}: 400. */
+    public static final String UNPARSEABLE_EMPTY_LABEL_URL = "http://a..b/";
+
+    /**
+     * Every equivalent-form spelling that reaches the host policy and must be
+     * refused there with 422 {@code url_rejected} - on the authenticated create
+     * path (AC1, AC2) and on the anonymous one (AC12), identically.
+     */
+    public static final List<String> EQUIVALENT_FORM_URLS_REFUSED_AS_UNSHORTENABLE = List.of(
+            DENYLISTED_TRAILING_DOT_URL,
+            DENYLISTED_MIXED_CASE_TRAILING_DOT_URL,
+            PHISHING_TRAILING_DOT_URL,
+            LOOPBACK_DECIMAL_URL,
+            LOOPBACK_HEX_URL,
+            LOOPBACK_LONG_OCTAL_URL,
+            LOOPBACK_DOTTED_OCTAL_URL,
+            PRIVATE_DOTTED_OCTAL_URL,
+            LOOPBACK_TRAILING_DOT_URL,
+            LOOPBACK_IPV6_MAPPED_URL,
+            OVERFLOW_NUMERIC_URL);
+
+    /**
+     * Spellings {@code java.net.URI} cannot extract a host from. They are refused
+     * before the host policy runs and keep the status they have today; the change
+     * must not move them.
+     */
+    public static final List<String> URLS_REFUSED_AS_MALFORMED = List.of(
+            UNPARSEABLE_SHORT_NUMERIC_URL,
+            UNPARSEABLE_DOTTED_HEX_URL,
+            UNPARSEABLE_OUT_OF_RANGE_NUMERIC_URL,
+            UNPARSEABLE_FIVE_PART_NUMERIC_URL,
+            UNPARSEABLE_EMPTY_LABEL_URL);
+
+    /**
+     * Targets that are close to a refused one but are not it. Tightening the check
+     * must not sweep these up: a normalisation that dropped or merged a label
+     * would silently stop customers shortening ordinary URLs, and no acceptance
+     * criterion would notice.
+     */
+    public static final List<String> LOOKALIKE_URLS_STILL_ACCEPTED = List.of(
+            LOOKALIKE_HOST_URL,
+            DENYLISTED_HOST_AS_PREFIX_URL);
+
+    // ---- hosts, for the normaliser's own contract ---------------------------
+    //
+    // HostNormalizer.normalize is a frozen static method with a worked table in
+    // its javadoc; these quote that table so the unit-level behaviours and the
+    // HTTP-level ones cannot disagree about what canonical means.
+
+    /** Hosts that canonicalise to the loopback dotted quad. */
+    public static final List<String> LOOPBACK_HOST_SPELLINGS =
+            List.of("2130706433", "0x7f000001", "017700000001", "0177.0.0.1", "127.1", "127.0.0.1");
+
+    /** The canonical form of every entry in {@link #LOOPBACK_HOST_SPELLINGS}. */
+    public static final String CANONICAL_LOOPBACK_HOST = "127.0.0.1";
+
+    /** Hosts that are IPv4 candidates but out of range: the normaliser answers empty. */
+    public static final List<String> UNCANONICALISABLE_HOSTS =
+            List.of("999.999.999.999", "4294967296", "a..b", ".", "..");
+
+    /** Registered names that must survive normalisation with every label intact. */
+    public static final List<String> NAMES_PRESERVED_BY_NORMALISATION =
+            List.of("notmalware.example.com", "malware.example.com.evil.test", "1.2.3.4.5", "09.example.com");
+
+    // ---- anonymous links ---------------------------------------------------
+
+    /** "One month" for an anonymous link: {@code app.links.anonymous-ttl}, 30 days (AC10). */
+    public static final Duration ANONYMOUS_LINK_TTL = Duration.ofDays(30);
+
+    /**
+     * An anonymous TTL short enough to sit through, as a property value.
+     *
+     * <p>The caller cannot choose an anonymous link's expiry - that is the whole
+     * point of AC10 - so the only way to observe an expired one without waiting a
+     * month is to configure the service's TTL down for the class that needs it.
+     * See {@link #ANONYMOUS_TTL_KEY}.
+     */
+    public static final String SHORT_ANONYMOUS_TTL_VALUE = "PT3S";
+
+    /** {@link #SHORT_ANONYMOUS_TTL_VALUE} as a {@link Duration}. */
+    public static final Duration SHORT_ANONYMOUS_TTL = Duration.ofSeconds(3);
+
+    // ---- configuration keys added by this change ---------------------------
+
+    /** {@code app.links.anonymous-ttl}: lifetime of a link created with no account. */
+    public static final String ANONYMOUS_TTL_KEY = "app.links.anonymous-ttl";
+
+    /** {@code app.rate-limit.sign-up-per-minute}: account creation, keyed by client IP. */
+    public static final String SIGN_UP_LIMIT_KEY = "app.rate-limit.sign-up-per-minute";
+
+    /** {@code app.rate-limit.anonymous-create-per-minute}: anonymous creation, keyed by client IP. */
+    public static final String ANONYMOUS_CREATE_LIMIT_KEY = "app.rate-limit.anonymous-create-per-minute";
+
+    /**
+     * {@code app.abuse.min-reporter-age}: how old an account must be before it may
+     * report a link its own creation did not pre-date.
+     *
+     * <p>Self-service sign-up re-scopes the takedown path from two hand-provisioned
+     * accounts to anyone on the internet, and the per-reporter bucket is keyed by
+     * customer id - which an attacker now mints for themselves. The eligibility
+     * rule is what bounds that, so the classes that exercise it drive this key down
+     * rather than sitting out the production default.
+     */
+    public static final String MIN_REPORTER_AGE_KEY = "app.abuse.min-reporter-age";
+
+    /**
+     * A minimum reporter age short enough for a test to sit through, as a property
+     * value. Long enough that creating an account, signing in and posting a report
+     * comfortably fits inside it on a slow machine.
+     */
+    public static final String SHORT_MIN_REPORTER_AGE_VALUE = "PT5S";
+
+    /** {@link #SHORT_MIN_REPORTER_AGE_VALUE} as a {@link Duration}. */
+    public static final Duration SHORT_MIN_REPORTER_AGE = Duration.ofSeconds(5);
+
+    /** {@code app.click.flush-interval}: how often click deltas are drained into PostgreSQL. */
+    public static final String CLICK_FLUSH_INTERVAL_KEY = "app.click.flush-interval";
+
+    /** The default of {@link #CLICK_FLUSH_INTERVAL_KEY}, quoted from {@code AppProperties}. */
+    public static final Duration CLICK_FLUSH_INTERVAL = Duration.ofSeconds(5);
+
+    // ---- wire values added by this change ----------------------------------
+
+    /** The {@code error} value a duplicate account name answers with. */
+    public static final String ACCOUNT_UNAVAILABLE = "account_unavailable";
+
+    /** The {@code error} value every host-policy refusal answers with. */
+    public static final String URL_REJECTED = "url_rejected";
+
+    /** The {@code error} value a malformed or unknown-property body answers with. */
+    public static final String INVALID_REQUEST = "invalid_request";
+
+    /** The {@code error} value an empty token bucket answers with. */
+    public static final String RATE_LIMITED = "rate_limited";
+
+    /** The {@code error} value a shed dependency answers with on a create path. */
+    public static final String SERVICE_UNAVAILABLE = "service_unavailable";
 }

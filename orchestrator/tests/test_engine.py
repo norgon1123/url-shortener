@@ -1250,6 +1250,26 @@ class TestMixedVerdicts:
         )
         assert "nanos vs micros" in h.engine()._repair_note("implement")
 
+    def test_a_human_can_send_work_back_when_the_build_is_green(
+        self, tmp_path: Path
+    ) -> None:
+        """`triage` routes only out of a verify failure.
+
+        A green build whose *review* found a blocker had no route back at all:
+        rejecting the reviewer re-runs the reviewer, which cannot change code,
+        and approving it accepts the finding.
+        """
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(MIXED_VERDICT))
+        h.journal.append(
+            "human_repair_requested",
+            node_id="implement",
+            approver="neil",
+            reason="a fresh account can take down any link",
+        )
+        note = h.engine()._repair_note("implement")
+        assert "a fresh account can take down any link" in note
+        assert "neil" in note and "decision, not a suggestion" in note
+
     def test_the_note_is_spent_once_the_branch_passes(self, tmp_path: Path) -> None:
         """Otherwise every later attempt carries feedback about a fixed defect."""
         h = Harness(tmp_path, TRIAGE_NODES, triage_script(MIXED_VERDICT))

@@ -6,7 +6,6 @@ import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -33,6 +32,23 @@ import java.util.regex.Pattern;
  * less than it appears to; and a DNS round trip on the create path is one more
  * dependency that can be slow or down, which AC20 asks us to keep off the write
  * path where we can.
+ *
+ * <p><b>"As written" is not the same as "as typed".</b> {@link #requireShortenable(URI)}
+ * decides on the output of {@link HostNormalizer#normalize(String)} and on
+ * nothing else, so {@code LOCALHOST.} and {@code http://2130706433/} reach the
+ * internal-address test as {@code localhost} and {@code 127.0.0.1}. A host the
+ * normaliser cannot canonicalise is refused here with 422 rather than accepted
+ * or downgraded to 400 (A3) - this check fails closed. The service's own host is
+ * compared in the same canonical form, so the self-referential rule cannot be
+ * evaded by a trailing dot either.
+ *
+ * <p>{@link #parseOrThrow(String)} is deliberately <em>not</em> normalised. The
+ * split above is a documented part of the contract and the existing suite pins
+ * it: forms {@code java.net.URI} cannot parse a host from stay 400, because they
+ * are already refused and moving them to 422 changes a documented status for no
+ * acceptance criterion. See {@link HostNormalizer} for the full reasoning and
+ * for why the numeric IPv4 parsing is hand-rolled rather than delegated to
+ * {@code InetAddress.getByName}.
  */
 public class UrlValidator {
 
@@ -48,6 +64,9 @@ public class UrlValidator {
 
     private final String ownHost;
 
+    /** {@link #ownHost} in the form a target is compared against; null when unset. */
+    private final String canonicalOwnHost;
+
     /** For unit use: every rule except the "our own domain" check. */
     public UrlValidator() {
         this(null);
@@ -56,10 +75,13 @@ public class UrlValidator {
     /**
      * @param ownHost this shortener's public host, refused as a target so a short
      *                link cannot point at another short link and build a redirect
-     *                loop through us
+     *                loop through us. Canonicalised once here rather than on every
+     *                request, so the self-referential rule is evaded by a trailing
+     *                dot or a numeric spelling no more than the others are.
      */
     public UrlValidator(String ownHost) {
         this.ownHost = ownHost;
+        this.canonicalOwnHost = ownHost == null ? null : HostNormalizer.normalize(ownHost).orElse(null);
     }
 
     /** The host refused as self-referential, or null when unset. */
@@ -98,11 +120,14 @@ public class UrlValidator {
 
     /**
      * @throws com.example.urlshortener.error.ApiException {@code url_rejected}
-     *         (422) if the host is internal or is this service itself
+     *         (422) if the host is internal, is this service itself, or cannot be
+     *         canonicalised at all - the last of those is refused rather than
+     *         checked as written, because a host nobody can say what it means is
+     *         not a host we can say is safe (A3)
      */
     public void requireShortenable(URI url) {
-        String host = url.getHost().toLowerCase(Locale.ROOT);
-        if (ownHost != null && host.equals(ownHost.toLowerCase(Locale.ROOT))) {
+        String host = HostNormalizer.normalize(url.getHost()).orElseThrow(ApiException::urlRejected);
+        if (canonicalOwnHost != null && canonicalOwnHost.equals(host)) {
             throw ApiException.urlRejected();
         }
         if (isInternal(host)) {

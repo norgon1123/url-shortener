@@ -55,7 +55,29 @@ public class LinkEntity {
     @Column(name = "code", nullable = false, length = 64, updatable = false)
     private String code;
 
-    @Column(name = "customer_id", nullable = false, updatable = false)
+    /**
+     * The owner, or {@code null} for a link created through the anonymous
+     * endpoint.
+     *
+     * <p>Null rather than a sentinel "anonymous customer" row, and that is a
+     * security decision rather than a modelling preference (A8). Every
+     * owner-scoped query in this service is an equality match on this column -
+     * {@code findByDomainAndCodeAndCustomerId}, and {@code findOwnedBy}'s
+     * {@code where l.customerId = :customerId} - and SQL equality never matches
+     * NULL. So "nobody can list, read, edit or delete an anonymous link" (AC13)
+     * holds by construction, in the query plan, rather than by a filter somebody
+     * has to remember to write. A sentinel customer would be an account row that
+     * could in principle be signed into, and whose link list would be every
+     * anonymous link in the system.
+     *
+     * <p>The column was {@code NOT NULL} until this change and is relaxed by
+     * migration. That relaxation is one-way in production terms: re-adding the
+     * constraint later means deleting or re-homing every anonymous row, which is
+     * why the rollback plan is "stop creating them and let the TTL drain".
+     * {@code updatable = false} stays, so an anonymous link can never acquire an
+     * owner and an owned one can never lose theirs.
+     */
+    @Column(name = "customer_id", updatable = false)
     private UUID customerId;
 
     @Column(name = "long_url", nullable = false, length = 2048, updatable = false)
@@ -78,6 +100,13 @@ public class LinkEntity {
         // for JPA
     }
 
+    /**
+     * @param customerId the owner, or {@code null} for an anonymous link. The
+     *                   signature is unchanged and the constructor is the only
+     *                   one: an anonymous link differs from an owned one in this
+     *                   argument and in nothing else, which is what keeps the
+     *                   two creation paths one code path (A12).
+     */
     public LinkEntity(
             UUID id,
             String domain,
@@ -158,6 +187,7 @@ public class LinkEntity {
         return code;
     }
 
+    /** The owner, or {@code null} when the link was created anonymously. */
     public UUID getCustomerId() {
         return customerId;
     }

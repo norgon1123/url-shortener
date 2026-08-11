@@ -1,0 +1,1515 @@
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] ---------------------< com.example:url-shortener >----------------------
+[INFO] Building url-shortener 0.1.0-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- jacoco:0.8.15:prepare-agent (prepare-agent) @ url-shortener ---
+[INFO] argLine set to -javaagent:/home/neil/.m2/repository/org/jacoco/org.jacoco.agent/0.8.15/org.jacoco.agent-0.8.15-runtime.jar=destfile=/home/neil/repos/url-shortener/runs/brownfield-1/ac3-evidence/service/target/jacoco.exec
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ url-shortener ---
+[INFO] Copying 1 resource from src/main/resources to target/classes
+[INFO] Copying 7 resources from src/main/resources to target/classes
+[INFO] 
+[INFO] --- compiler:3.14.1:compile (default-compile) @ url-shortener ---
+[INFO] Nothing to compile - all classes are up to date.
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ url-shortener ---
+[INFO] skip non existing resourceDirectory /home/neil/repos/url-shortener/runs/brownfield-1/ac3-evidence/service/src/test/resources
+[INFO] 
+[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ url-shortener ---
+[INFO] Nothing to compile - all classes are up to date.
+[INFO] 
+[INFO] --- surefire:3.5.6:test (default-test) @ url-shortener ---
+[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
+[INFO] 
+[INFO] -------------------------------------------------------
+[INFO]  T E S T S
+[INFO] -------------------------------------------------------
+[INFO] Running com.example.urlshortener.behaviour.HostEvasionRefusalTest
+10:51:14.545 [main] INFO org.springframework.test.context.support.AnnotationConfigContextLoaderUtils -- Could not detect default configuration classes for test class [com.example.urlshortener.behaviour.HostEvasionRefusalTest]: HostEvasionRefusalTest does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+10:51:14.611 [main] INFO org.testcontainers.images.PullPolicy -- Image pull policy will be performed by: DefaultPullPolicy()
+10:51:14.615 [main] INFO org.testcontainers.utility.ImageNameSubstitutor -- Image name substitution will be performed by: DefaultImageNameSubstitutor (composite of 'ConfigurationFileImageNameSubstitutor' and 'PrefixingImageNameSubstitutor')
+10:51:14.635 [main] INFO org.testcontainers.DockerClientFactory -- Testcontainers version: 1.21.4
+10:51:14.867 [main] INFO org.testcontainers.dockerclient.DockerClientProviderStrategy -- Loaded org.testcontainers.dockerclient.UnixSocketClientProviderStrategy from ~/.testcontainers.properties, will try it first
+10:51:15.185 [main] INFO org.testcontainers.dockerclient.DockerClientProviderStrategy -- Found Docker environment with local Unix socket (unix:///var/run/docker.sock)
+10:51:15.187 [main] INFO org.testcontainers.DockerClientFactory -- Docker host IP address is localhost
+10:51:15.199 [main] INFO org.testcontainers.DockerClientFactory -- Connected to docker: 
+  Server Version: 29.7.2
+  API Version: 1.55
+  Operating System: CachyOS
+  Total Memory: 31997 MB
+10:51:15.246 [main] INFO tc.testcontainers/ryuk:0.12.0 -- Creating container for image: testcontainers/ryuk:0.12.0
+10:51:15.252 [main] INFO org.testcontainers.utility.RegistryAuthLocator -- Failure when attempting to lookup auth config. Please ignore if you don't have images in an authenticated registry. Details: (dockerImageName: testcontainers/ryuk:0.12.0, configFile: /home/neil/.docker/config.json, configEnv: DOCKER_AUTH_CONFIG). Falling back to docker-java default behaviour. Exception message: Status 404: No config supplied. Checked in order: /home/neil/.docker/config.json (file not found), DOCKER_AUTH_CONFIG (not set)
+10:51:15.467 [main] INFO tc.testcontainers/ryuk:0.12.0 -- Container testcontainers/ryuk:0.12.0 is starting: e00bf845785f8294b3e85ea9bfd2f4632ce462826a5f1a84b7f3a9f6e7bcd563
+10:51:15.797 [main] INFO tc.testcontainers/ryuk:0.12.0 -- Container testcontainers/ryuk:0.12.0 started in PT0.55104993S
+10:51:15.801 [main] INFO org.testcontainers.utility.RyukResourceReaper -- Ryuk started - will monitor and terminate Testcontainers containers on JVM exit
+10:51:15.801 [main] INFO org.testcontainers.DockerClientFactory -- Checking the system...
+10:51:15.801 [main] INFO org.testcontainers.DockerClientFactory -- ✔︎ Docker server version should be at least 1.6.0
+10:51:15.802 [main] INFO tc.postgres:17-alpine -- Creating container for image: postgres:17-alpine
+10:51:15.968 [main] INFO tc.postgres:17-alpine -- Container postgres:17-alpine is starting: 81f18409d85ae885b3585f657a318c9f5fdd77c62b3a287dd1a73da8b2494031
+10:51:22.057 [main] INFO tc.postgres:17-alpine -- Container postgres:17-alpine started in PT6.255123547S
+10:51:22.058 [main] INFO tc.postgres:17-alpine -- Container is started (JDBC URL: jdbc:postgresql://localhost:32796/test?loggerLevel=OFF)
+10:51:22.058 [main] INFO tc.redis:7-alpine -- Creating container for image: redis:7-alpine
+10:51:22.246 [main] INFO tc.redis:7-alpine -- Container redis:7-alpine is starting: 47c8624244e3ce1e34e7437accacca5c8a0078438ab7c0a3e108e05d7c5a6f4a
+10:51:22.523 [main] INFO tc.redis:7-alpine -- Container redis:7-alpine started in PT0.46495547S
+10:51:22.630 [main] INFO org.springframework.boot.test.context.SpringBootTestContextBootstrapper -- Found @SpringBootConfiguration com.example.urlshortener.UrlShortenerApplication for test class com.example.urlshortener.behaviour.HostEvasionRefusalTest
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+
+ :: Spring Boot ::               (v3.5.16)
+
+2026-08-11T10:51:23.026-05:00  INFO 269682 --- [url-shortener] [           main] c.e.u.behaviour.HostEvasionRefusalTest   : Starting HostEvasionRefusalTest using Java 21.0.12 with PID 269682 (started by neil in /home/neil/repos/url-shortener/runs/brownfield-1/ac3-evidence/service)
+2026-08-11T10:51:23.027-05:00  INFO 269682 --- [url-shortener] [           main] c.e.u.behaviour.HostEvasionRefusalTest   : No active profile set, falling back to 1 default profile: "default"
+2026-08-11T10:51:23.780-05:00  INFO 269682 --- [url-shortener] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
+2026-08-11T10:51:23.781-05:00  INFO 269682 --- [url-shortener] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-08-11T10:51:23.898-05:00  INFO 269682 --- [url-shortener] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 108 ms. Found 4 JPA repository interfaces.
+2026-08-11T10:51:23.914-05:00  INFO 269682 --- [url-shortener] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
+2026-08-11T10:51:23.915-05:00  INFO 269682 --- [url-shortener] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data Redis repositories in DEFAULT mode.
+2026-08-11T10:51:23.928-05:00  INFO 269682 --- [url-shortener] [           main] .RepositoryConfigurationExtensionSupport : Spring Data Redis - Could not safely identify store assignment for repository candidate interface com.example.urlshortener.repository.AbuseReportRepository; If you want this repository to be a Redis repository, consider annotating your entities with one of these annotations: org.springframework.data.redis.core.RedisHash (preferred), or consider extending one of the following types with your repository: org.springframework.data.keyvalue.repository.KeyValueRepository
+2026-08-11T10:51:23.928-05:00  INFO 269682 --- [url-shortener] [           main] .RepositoryConfigurationExtensionSupport : Spring Data Redis - Could not safely identify store assignment for repository candidate interface com.example.urlshortener.repository.CustomerRepository; If you want this repository to be a Redis repository, consider annotating your entities with one of these annotations: org.springframework.data.redis.core.RedisHash (preferred), or consider extending one of the following types with your repository: org.springframework.data.keyvalue.repository.KeyValueRepository
+2026-08-11T10:51:23.929-05:00  INFO 269682 --- [url-shortener] [           main] .RepositoryConfigurationExtensionSupport : Spring Data Redis - Could not safely identify store assignment for repository candidate interface com.example.urlshortener.repository.LinkRepository; If you want this repository to be a Redis repository, consider annotating your entities with one of these annotations: org.springframework.data.redis.core.RedisHash (preferred), or consider extending one of the following types with your repository: org.springframework.data.keyvalue.repository.KeyValueRepository
+2026-08-11T10:51:23.929-05:00  INFO 269682 --- [url-shortener] [           main] .RepositoryConfigurationExtensionSupport : Spring Data Redis - Could not safely identify store assignment for repository candidate interface com.example.urlshortener.repository.ThreatDenylistRepository; If you want this repository to be a Redis repository, consider annotating your entities with one of these annotations: org.springframework.data.redis.core.RedisHash (preferred), or consider extending one of the following types with your repository: org.springframework.data.keyvalue.repository.KeyValueRepository
+2026-08-11T10:51:23.929-05:00  INFO 269682 --- [url-shortener] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 5 ms. Found 0 Redis repository interfaces.
+2026-08-11T10:51:24.361-05:00  INFO 269682 --- [url-shortener] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 0 (http)
+2026-08-11T10:51:24.380-05:00  INFO 269682 --- [url-shortener] [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2026-08-11T10:51:24.380-05:00  INFO 269682 --- [url-shortener] [           main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.55]
+2026-08-11T10:51:24.421-05:00  INFO 269682 --- [url-shortener] [           main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+2026-08-11T10:51:24.421-05:00  INFO 269682 --- [url-shortener] [           main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 1378 ms
+2026-08-11T10:51:24.457-05:00  WARN 269682 --- [url-shortener] [           main] c.e.urlshortener.auth.JwtSessionService  : No session signing key configured; generated an ephemeral Ed25519 keypair. Tokens issued by this instance will not verify on any other instance and will not survive a restart. Set app.session.private-key-pem and app.session.public-key-pem for any deployment with more than one instance.
+2026-08-11T10:51:24.923-05:00  INFO 269682 --- [url-shortener] [           main] org.flywaydb.core.FlywayExecutor         : Database: jdbc:postgresql://localhost:32796/test?loggerLevel=OFF (PostgreSQL 17.10)
+2026-08-11T10:51:24.950-05:00  INFO 269682 --- [url-shortener] [           main] o.f.c.i.s.JdbcTableSchemaHistory         : Schema history table "public"."flyway_schema_history" does not exist yet
+2026-08-11T10:51:24.953-05:00  INFO 269682 --- [url-shortener] [           main] o.f.core.internal.command.DbValidate     : Successfully validated 4 migrations (execution time 00:00.013s)
+2026-08-11T10:51:24.962-05:00  INFO 269682 --- [url-shortener] [           main] o.f.c.i.s.JdbcTableSchemaHistory         : Creating Schema History table "public"."flyway_schema_history" ...
+2026-08-11T10:51:24.999-05:00  INFO 269682 --- [url-shortener] [           main] o.f.core.internal.command.DbMigrate      : Current version of schema "public": << Empty Schema >>
+2026-08-11T10:51:25.008-05:00  INFO 269682 --- [url-shortener] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "public" to version "1 - initial schema"
+2026-08-11T10:51:25.031-05:00  INFO 269682 --- [url-shortener] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "public" to version "2 - seed customers and denylist"
+2026-08-11T10:51:25.039-05:00  INFO 269682 --- [url-shortener] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "public" to version "3 - unique lower email"
+2026-08-11T10:51:25.046-05:00  INFO 269682 --- [url-shortener] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "public" to version "4 - links customer id nullable"
+2026-08-11T10:51:25.053-05:00  INFO 269682 --- [url-shortener] [           main] o.f.core.internal.command.DbMigrate      : Successfully applied 4 migrations to schema "public", now at version v4 (execution time 00:00.020s)
+2026-08-11T10:51:25.113-05:00  INFO 269682 --- [url-shortener] [           main] o.hibernate.jpa.internal.util.LogHelper  : HHH000204: Processing PersistenceUnitInfo [name: default]
+2026-08-11T10:51:25.154-05:00  INFO 269682 --- [url-shortener] [           main] org.hibernate.Version                    : HHH000412: Hibernate ORM core version 6.6.53.Final
+2026-08-11T10:51:25.183-05:00  INFO 269682 --- [url-shortener] [           main] o.h.c.internal.RegionFactoryInitiator    : HHH000026: Second-level cache disabled
+2026-08-11T10:51:25.423-05:00  INFO 269682 --- [url-shortener] [           main] o.s.o.j.p.SpringPersistenceUnitInfo      : No LoadTimeWeaver setup: ignoring JPA class transformer
+2026-08-11T10:51:25.446-05:00  INFO 269682 --- [url-shortener] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+2026-08-11T10:51:25.461-05:00  INFO 269682 --- [url-shortener] [           main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection org.postgresql.jdbc.PgConnection@73ebe37f
+2026-08-11T10:51:25.462-05:00  INFO 269682 --- [url-shortener] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+2026-08-11T10:51:25.522-05:00  INFO 269682 --- [url-shortener] [           main] org.hibernate.orm.connections.pooling    : HHH10001005: Database info:
+	Database JDBC URL [Connecting through datasource 'HikariDataSource (HikariPool-1)']
+	Database driver: undefined/unknown
+	Database version: 17.10
+	Autocommit mode: undefined/unknown
+	Isolation level: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2026-08-11T10:51:26.203-05:00  INFO 269682 --- [url-shortener] [           main] o.h.e.t.j.p.i.JtaPlatformInitiator       : HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2026-08-11T10:51:26.238-05:00  INFO 269682 --- [url-shortener] [           main] j.LocalContainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default'
+2026-08-11T10:51:26.440-05:00  INFO 269682 --- [url-shortener] [           main] o.s.d.j.r.query.QueryEnhancerFactory     : Hibernate is in classpath; If applicable, HQL parser will be used.
+2026-08-11T10:51:27.701-05:00  INFO 269682 --- [url-shortener] [           main] o.s.b.a.e.web.EndpointLinksResolver      : Exposing 3 endpoints beneath base path '/actuator'
+2026-08-11T10:51:27.823-05:00  INFO 269682 --- [url-shortener] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 43109 (http) with context path '/'
+2026-08-11T10:51:27.836-05:00  INFO 269682 --- [url-shortener] [           main] c.e.u.behaviour.HostEvasionRefusalTest   : Started HostEvasionRefusalTest in 5.092 seconds (process running for 13.988)
+Mockito is currently self-attaching to enable the inline-mock-maker. This will no longer work in future releases of the JDK. Please add Mockito as an agent to your build as described in Mockito's documentation: https://javadoc.io/doc/org.mockito/mockito-core/latest/org.mockito/org/mockito/Mockito.html#0.3
+WARNING: A Java agent has been loaded dynamically (/home/neil/.m2/repository/net/bytebuddy/byte-buddy-agent/1.17.8/byte-buddy-agent-1.17.8.jar)
+WARNING: If a serviceability tool is in use, please run with -XX:+EnableDynamicAgentLoading to hide this warning
+WARNING: If a serviceability tool is not in use, please run with -Djdk.instrument.traceUsage for more information
+WARNING: Dynamic loading of agents will be disallowed by default in a future release
+OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader classes because bootstrap classpath has been appended
+2026-08-11T10:51:28.295-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-08-11T10:51:28.295-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-1] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+2026-08-11T10:51:28.296-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 1 ms
+2026-08-11T10:51:28.564-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-1] c.e.urlshortener.auth.SignInService      : Issued a session for customer 00000000-0000-0000-0000-000000000001
+2026-08-11T10:51:28.633-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-2] c.example.urlshortener.link.LinkService  : Refused a link to denylisted host sub.campaign.malware.example.com
+2026-08-11T10:51:28.647-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-3] c.example.urlshortener.link.LinkService  : Refused a link to denylisted host malware.example.com
+2026-08-11T10:51:28.691-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-4] c.e.urlshortener.auth.SignInService      : Issued a session for customer 00000000-0000-0000-0000-000000000001
+2026-08-11T10:51:28.739-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-5] c.example.urlshortener.link.LinkService  : Customer 00000000-0000-0000-0000-000000000001 created link 8w30ET9JYmdfFjvpYznq9j
+2026-08-11T10:51:28.807-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-7] c.e.urlshortener.auth.SignInService      : Issued a session for customer 00000000-0000-0000-0000-000000000001
+2026-08-11T10:51:28.822-05:00  INFO 269682 --- [url-shortener] [-auto-1-exec-10] c.example.urlshortener.link.LinkService  : Customer 00000000-0000-0000-0000-000000000001 created link dLa2LoQbWjiEpVPl1ujXkD
+2026-08-11T10:51:28.843-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-1] c.example.urlshortener.link.LinkService  : Customer 00000000-0000-0000-0000-000000000001 created link FFSE1EVHVq7DpkLoegOeKk
+2026-08-11T10:51:28.880-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-2] c.e.urlshortener.auth.SignInService      : Issued a session for customer 00000000-0000-0000-0000-000000000001
+2026-08-11T10:51:28.888-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-3] c.example.urlshortener.link.LinkService  : Refused a link to denylisted host malware.example.com
+2026-08-11T10:51:28.902-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-4] c.example.urlshortener.link.LinkService  : Customer 00000000-0000-0000-0000-000000000001 created link 5F2XwqhktDL7ZKvL8jyJ0s
+2026-08-11T10:51:28.916-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-5] c.example.urlshortener.link.LinkService  : Customer 00000000-0000-0000-0000-000000000001 created link jopvZnf8RmFy3gtridPCnS
+2026-08-11T10:51:28.929-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-6] c.example.urlshortener.link.LinkService  : Customer 00000000-0000-0000-0000-000000000001 created link CDRcfRrOR0fKa8hFiT9kBg
+2026-08-11T10:51:28.939-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-8] c.example.urlshortener.link.LinkService  : Customer 00000000-0000-0000-0000-000000000001 created link o56nQrLlsgNrkYyhiGfv3N
+2026-08-11T10:51:28.949-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-9] c.example.urlshortener.link.LinkService  : Customer 00000000-0000-0000-0000-000000000001 created link 5KYFIf6pe8qt1e0yVZmsIz
+2026-08-11T10:51:28.959-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-7] c.example.urlshortener.link.LinkService  : Customer 00000000-0000-0000-0000-000000000001 created link xAb2qMJBdMZzCamRWkFbKJ
+2026-08-11T10:51:28.973-05:00  INFO 269682 --- [url-shortener] [-auto-1-exec-10] c.example.urlshortener.link.LinkService  : Customer 00000000-0000-0000-0000-000000000001 created link bGzOm96MoVc1HffFTDthwq
+2026-08-11T10:51:28.986-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-1] c.example.urlshortener.link.LinkService  : Customer 00000000-0000-0000-0000-000000000001 created link hqvRRByrFNojaQcnYSFvkv
+2026-08-11T10:51:28.996-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-2] c.example.urlshortener.link.LinkService  : Customer 00000000-0000-0000-0000-000000000001 created link XDnzyWEiRJk3N0mINTgzKN
+2026-08-11T10:51:29.011-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-4] c.example.urlshortener.link.LinkService  : Customer 00000000-0000-0000-0000-000000000001 created link QUfGYDViFbT8ZrwjaIKiZu
+2026-08-11T10:51:29.063-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-5] c.e.urlshortener.auth.SignInService      : Issued a session for customer 00000000-0000-0000-0000-000000000001
+2026-08-11T10:51:29.105-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-8] c.example.urlshortener.link.LinkService  : Customer 00000000-0000-0000-0000-000000000001 created link JHDpkkCvRm7kgzxcETQawL
+2026-08-11T10:51:29.114-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-9] c.example.urlshortener.link.LinkService  : Customer 00000000-0000-0000-0000-000000000001 created link Pws6TUPEkS8ZkiUblzWl1H
+2026-08-11T10:51:29.123-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-7] c.example.urlshortener.link.LinkService  : Customer 00000000-0000-0000-0000-000000000001 created link E8Vn8koKNFKL7rlWDDfhDt
+2026-08-11T10:51:29.173-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-1] c.e.urlshortener.auth.SignInService      : Issued a session for customer 00000000-0000-0000-0000-000000000001
+2026-08-11T10:51:29.186-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-2] c.example.urlshortener.link.LinkService  : Customer 00000000-0000-0000-0000-000000000001 created link bSKOURWKbIySSscOm9wO23
+2026-08-11T10:51:29.193-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-3] c.example.urlshortener.link.LinkService  : Refused a link to denylisted host malware.example.com
+2026-08-11T10:51:29.228-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-4] c.e.urlshortener.auth.SignInService      : Issued a session for customer 00000000-0000-0000-0000-000000000001
+2026-08-11T10:51:29.296-05:00  INFO 269682 --- [url-shortener] [-auto-1-exec-10] c.e.urlshortener.auth.SignInService      : Issued a session for customer 00000000-0000-0000-0000-000000000001
+2026-08-11T10:51:29.309-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-5] c.example.urlshortener.link.LinkService  : Customer 00000000-0000-0000-0000-000000000001 created link WeT6rtDvsuUtUZbcg6HTpy
+2026-08-11T10:51:29.316-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-6] c.example.urlshortener.link.LinkService  : Refused a link to denylisted host malware.example.com
+2026-08-11T10:51:29.351-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-8] c.e.urlshortener.auth.SignInService      : Issued a session for customer 00000000-0000-0000-0000-000000000001
+2026-08-11T10:51:29.361-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-9] c.example.urlshortener.link.LinkService  : Customer 00000000-0000-0000-0000-000000000001 created link xqRsL2M8I77D75Dv6VKqFb
+2026-08-11T10:51:29.420-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-4] c.e.urlshortener.auth.SignInService      : Issued a session for customer 00000000-0000-0000-0000-000000000001
+2026-08-11T10:51:29.426-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-2] c.example.urlshortener.link.LinkService  : Refused a link to denylisted host malware.example.com
+2026-08-11T10:51:29.434-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-3] c.example.urlshortener.link.LinkService  : Customer 00000000-0000-0000-0000-000000000001 created link W9l5tMMYeczv3d1LspfKvV
+2026-08-11T10:51:29.447-05:00  INFO 269682 --- [url-shortener] [o-auto-1-exec-5] c.example.urlshortener.link.LinkService  : Customer 00000000-0000-0000-0000-000000000001 created link CK2AOANTd2QiXNcvwjwFXa
+[ERROR] Tests run: 11, Failures: 6, Errors: 0, Skipped: 0, Time elapsed: 15.07 s <<< FAILURE! -- in com.example.urlshortener.behaviour.HostEvasionRefusalTest
+[ERROR] com.example.urlshortener.behaviour.HostEvasionRefusalTest.anInternalAddressWrittenAsOneDecimalNumberIsRefusedIdenticallyToTheDottedForm -- Time elapsed: 0.108 s <<< FAILURE!
+org.opentest4j.MultipleFailuresError: 
+Multiple Failures (5 failures)
+	org.opentest4j.AssertionFailedError: {"code":"8w30ET9JYmdfFjvpYznq9j","shortUrl":"http://localhost:8080/8w30ET9JYmdfFjvpYznq9j","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.699225Z","expiresAt":"2026-09-10T15:51:28.699225Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: expected: <The submitted URL cannot be shortened.> but was: <null>
+	org.opentest4j.AssertionFailedError: 2130706433 is the loopback address written as one decimal number ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: and the refusal must not say which of the two spellings was used ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"8w30ET9JYmdfFjvpYznq9j","shortUrl":"http://localhost:8080/8w30ET9JYmdfFjvpYznq9j","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.699225Z","expiresAt":"2026-09-10T15:51:28.699225Z","clickCount":0}>
+	at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:80)
+	at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:44)
+	at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:38)
+	at org.junit.jupiter.api.Assertions.assertAll(Assertions.java:2944)
+	at com.example.urlshortener.behaviour.HostEvasionRefusalTest.anInternalAddressWrittenAsOneDecimalNumberIsRefusedIdenticallyToTheDottedForm(HostEvasionRefusalTest.java:98)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	Suppressed: org.opentest4j.AssertionFailedError: {"code":"8w30ET9JYmdfFjvpYznq9j","shortUrl":"http://localhost:8080/8w30ET9JYmdfFjvpYznq9j","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.699225Z","expiresAt":"2026-09-10T15:51:28.699225Z","clickCount":0} ==> expected: <422> but was: <201>
+		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+		at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
+		at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:563)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$anInternalAddressWrittenAsOneDecimalNumberIsRefusedIdenticallyToTheDottedForm$8(HostEvasionRefusalTest.java:99)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 7 more
+	Suppressed: org.opentest4j.AssertionFailedError: expected: <url_rejected> but was: <null>
+		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+		at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:177)
+		at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1145)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$anInternalAddressWrittenAsOneDecimalNumberIsRefusedIdenticallyToTheDottedForm$9(HostEvasionRefusalTest.java:100)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 7 more
+	Suppressed: org.opentest4j.AssertionFailedError: expected: <The submitted URL cannot be shortened.> but was: <null>
+		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+		at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:177)
+		at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1145)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$anInternalAddressWrittenAsOneDecimalNumberIsRefusedIdenticallyToTheDottedForm$10(HostEvasionRefusalTest.java:101)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 7 more
+	Suppressed: org.opentest4j.AssertionFailedError: 2130706433 is the loopback address written as one decimal number ==> expected: <422> but was: <201>
+		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+		at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
+		at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:563)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$anInternalAddressWrittenAsOneDecimalNumberIsRefusedIdenticallyToTheDottedForm$11(HostEvasionRefusalTest.java:103)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 7 more
+	Suppressed: org.opentest4j.AssertionFailedError: and the refusal must not say which of the two spellings was used ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"8w30ET9JYmdfFjvpYznq9j","shortUrl":"http://localhost:8080/8w30ET9JYmdfFjvpYznq9j","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.699225Z","expiresAt":"2026-09-10T15:51:28.699225Z","clickCount":0}>
+		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+		at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+		at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$anInternalAddressWrittenAsOneDecimalNumberIsRefusedIdenticallyToTheDottedForm$12(HostEvasionRefusalTest.java:105)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 7 more
+
+[ERROR] com.example.urlshortener.behaviour.HostEvasionRefusalTest.everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay -- Time elapsed: 0.171 s <<< FAILURE!
+org.opentest4j.MultipleFailuresError: 
+Multiple Failures (10 failures)
+	org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: https://malware.example.com./x reached the host policy and must be refused there: {"code":"5F2XwqhktDL7ZKvL8jyJ0s","shortUrl":"http://localhost:8080/5F2XwqhktDL7ZKvL8jyJ0s","longUrl":"https://malware.example.com./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.895190Z","expiresAt":"2026-09-10T15:51:28.895190Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: https://malware.example.com./x: {"code":"5F2XwqhktDL7ZKvL8jyJ0s","shortUrl":"http://localhost:8080/5F2XwqhktDL7ZKvL8jyJ0s","longUrl":"https://malware.example.com./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.895190Z","expiresAt":"2026-09-10T15:51:28.895190Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: https://malware.example.com./x ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"5F2XwqhktDL7ZKvL8jyJ0s","shortUrl":"http://localhost:8080/5F2XwqhktDL7ZKvL8jyJ0s","longUrl":"https://malware.example.com./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.895190Z","expiresAt":"2026-09-10T15:51:28.895190Z","clickCount":0}>
+	org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: https://MALWARE.Example.COM./x reached the host policy and must be refused there: {"code":"jopvZnf8RmFy3gtridPCnS","shortUrl":"http://localhost:8080/jopvZnf8RmFy3gtridPCnS","longUrl":"https://MALWARE.Example.COM./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.909717Z","expiresAt":"2026-09-10T15:51:28.909717Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: https://MALWARE.Example.COM./x: {"code":"jopvZnf8RmFy3gtridPCnS","shortUrl":"http://localhost:8080/jopvZnf8RmFy3gtridPCnS","longUrl":"https://MALWARE.Example.COM./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.909717Z","expiresAt":"2026-09-10T15:51:28.909717Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: https://MALWARE.Example.COM./x ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"jopvZnf8RmFy3gtridPCnS","shortUrl":"http://localhost:8080/jopvZnf8RmFy3gtridPCnS","longUrl":"https://MALWARE.Example.COM./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.909717Z","expiresAt":"2026-09-10T15:51:28.909717Z","clickCount":0}>
+	org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: https://phishing.example.net./signin reached the host policy and must be refused there: {"code":"CDRcfRrOR0fKa8hFiT9kBg","shortUrl":"http://localhost:8080/CDRcfRrOR0fKa8hFiT9kBg","longUrl":"https://phishing.example.net./signin","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.923324Z","expiresAt":"2026-09-10T15:51:28.923324Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: https://phishing.example.net./signin: {"code":"CDRcfRrOR0fKa8hFiT9kBg","shortUrl":"http://localhost:8080/CDRcfRrOR0fKa8hFiT9kBg","longUrl":"https://phishing.example.net./signin","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.923324Z","expiresAt":"2026-09-10T15:51:28.923324Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: https://phishing.example.net./signin ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"CDRcfRrOR0fKa8hFiT9kBg","shortUrl":"http://localhost:8080/CDRcfRrOR0fKa8hFiT9kBg","longUrl":"https://phishing.example.net./signin","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.923324Z","expiresAt":"2026-09-10T15:51:28.923324Z","clickCount":0}>
+	org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: http://2130706433/ reached the host policy and must be refused there: {"code":"o56nQrLlsgNrkYyhiGfv3N","shortUrl":"http://localhost:8080/o56nQrLlsgNrkYyhiGfv3N","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.935445Z","expiresAt":"2026-09-10T15:51:28.935445Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: http://2130706433/: {"code":"o56nQrLlsgNrkYyhiGfv3N","shortUrl":"http://localhost:8080/o56nQrLlsgNrkYyhiGfv3N","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.935445Z","expiresAt":"2026-09-10T15:51:28.935445Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://2130706433/ ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"o56nQrLlsgNrkYyhiGfv3N","shortUrl":"http://localhost:8080/o56nQrLlsgNrkYyhiGfv3N","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.935445Z","expiresAt":"2026-09-10T15:51:28.935445Z","clickCount":0}>
+	org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: http://0x7f000001/ reached the host policy and must be refused there: {"code":"5KYFIf6pe8qt1e0yVZmsIz","shortUrl":"http://localhost:8080/5KYFIf6pe8qt1e0yVZmsIz","longUrl":"http://0x7f000001/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.946007Z","expiresAt":"2026-09-10T15:51:28.946007Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: http://0x7f000001/: {"code":"5KYFIf6pe8qt1e0yVZmsIz","shortUrl":"http://localhost:8080/5KYFIf6pe8qt1e0yVZmsIz","longUrl":"http://0x7f000001/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.946007Z","expiresAt":"2026-09-10T15:51:28.946007Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://0x7f000001/ ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"5KYFIf6pe8qt1e0yVZmsIz","shortUrl":"http://localhost:8080/5KYFIf6pe8qt1e0yVZmsIz","longUrl":"http://0x7f000001/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.946007Z","expiresAt":"2026-09-10T15:51:28.946007Z","clickCount":0}>
+	org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: http://017700000001/ reached the host policy and must be refused there: {"code":"xAb2qMJBdMZzCamRWkFbKJ","shortUrl":"http://localhost:8080/xAb2qMJBdMZzCamRWkFbKJ","longUrl":"http://017700000001/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.956001Z","expiresAt":"2026-09-10T15:51:28.956001Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: http://017700000001/: {"code":"xAb2qMJBdMZzCamRWkFbKJ","shortUrl":"http://localhost:8080/xAb2qMJBdMZzCamRWkFbKJ","longUrl":"http://017700000001/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.956001Z","expiresAt":"2026-09-10T15:51:28.956001Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://017700000001/ ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"xAb2qMJBdMZzCamRWkFbKJ","shortUrl":"http://localhost:8080/xAb2qMJBdMZzCamRWkFbKJ","longUrl":"http://017700000001/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.956001Z","expiresAt":"2026-09-10T15:51:28.956001Z","clickCount":0}>
+	org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: http://0177.0.0.1/ reached the host policy and must be refused there: {"code":"bGzOm96MoVc1HffFTDthwq","shortUrl":"http://localhost:8080/bGzOm96MoVc1HffFTDthwq","longUrl":"http://0177.0.0.1/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.966821Z","expiresAt":"2026-09-10T15:51:28.966821Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: http://0177.0.0.1/: {"code":"bGzOm96MoVc1HffFTDthwq","shortUrl":"http://localhost:8080/bGzOm96MoVc1HffFTDthwq","longUrl":"http://0177.0.0.1/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.966821Z","expiresAt":"2026-09-10T15:51:28.966821Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://0177.0.0.1/ ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"bGzOm96MoVc1HffFTDthwq","shortUrl":"http://localhost:8080/bGzOm96MoVc1HffFTDthwq","longUrl":"http://0177.0.0.1/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.966821Z","expiresAt":"2026-09-10T15:51:28.966821Z","clickCount":0}>
+	org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: http://012.0.0.1/ reached the host policy and must be refused there: {"code":"hqvRRByrFNojaQcnYSFvkv","shortUrl":"http://localhost:8080/hqvRRByrFNojaQcnYSFvkv","longUrl":"http://012.0.0.1/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.979711Z","expiresAt":"2026-09-10T15:51:28.979711Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: http://012.0.0.1/: {"code":"hqvRRByrFNojaQcnYSFvkv","shortUrl":"http://localhost:8080/hqvRRByrFNojaQcnYSFvkv","longUrl":"http://012.0.0.1/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.979711Z","expiresAt":"2026-09-10T15:51:28.979711Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://012.0.0.1/ ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"hqvRRByrFNojaQcnYSFvkv","shortUrl":"http://localhost:8080/hqvRRByrFNojaQcnYSFvkv","longUrl":"http://012.0.0.1/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.979711Z","expiresAt":"2026-09-10T15:51:28.979711Z","clickCount":0}>
+	org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: http://localhost./internal reached the host policy and must be refused there: {"code":"XDnzyWEiRJk3N0mINTgzKN","shortUrl":"http://localhost:8080/XDnzyWEiRJk3N0mINTgzKN","longUrl":"http://localhost./internal","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.992631Z","expiresAt":"2026-09-10T15:51:28.992631Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: http://localhost./internal: {"code":"XDnzyWEiRJk3N0mINTgzKN","shortUrl":"http://localhost:8080/XDnzyWEiRJk3N0mINTgzKN","longUrl":"http://localhost./internal","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.992631Z","expiresAt":"2026-09-10T15:51:28.992631Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://localhost./internal ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"XDnzyWEiRJk3N0mINTgzKN","shortUrl":"http://localhost:8080/XDnzyWEiRJk3N0mINTgzKN","longUrl":"http://localhost./internal","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.992631Z","expiresAt":"2026-09-10T15:51:28.992631Z","clickCount":0}>
+	org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: http://4294967296/ reached the host policy and must be refused there: {"code":"QUfGYDViFbT8ZrwjaIKiZu","shortUrl":"http://localhost:8080/QUfGYDViFbT8ZrwjaIKiZu","longUrl":"http://4294967296/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.008119Z","expiresAt":"2026-09-10T15:51:29.008119Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: http://4294967296/: {"code":"QUfGYDViFbT8ZrwjaIKiZu","shortUrl":"http://localhost:8080/QUfGYDViFbT8ZrwjaIKiZu","longUrl":"http://4294967296/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.008119Z","expiresAt":"2026-09-10T15:51:29.008119Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://4294967296/ ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"QUfGYDViFbT8ZrwjaIKiZu","shortUrl":"http://localhost:8080/QUfGYDViFbT8ZrwjaIKiZu","longUrl":"http://4294967296/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.008119Z","expiresAt":"2026-09-10T15:51:29.008119Z","clickCount":0}>
+	at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:80)
+	at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:58)
+	at org.junit.jupiter.api.Assertions.assertAll(Assertions.java:3012)
+	at com.example.urlshortener.behaviour.HostEvasionRefusalTest.everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay(HostEvasionRefusalTest.java:128)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	Suppressed: org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: https://malware.example.com./x reached the host policy and must be refused there: {"code":"5F2XwqhktDL7ZKvL8jyJ0s","shortUrl":"http://localhost:8080/5F2XwqhktDL7ZKvL8jyJ0s","longUrl":"https://malware.example.com./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.895190Z","expiresAt":"2026-09-10T15:51:28.895190Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: https://malware.example.com./x: {"code":"5F2XwqhktDL7ZKvL8jyJ0s","shortUrl":"http://localhost:8080/5F2XwqhktDL7ZKvL8jyJ0s","longUrl":"https://malware.example.com./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.895190Z","expiresAt":"2026-09-10T15:51:28.895190Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: https://malware.example.com./x ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"5F2XwqhktDL7ZKvL8jyJ0s","shortUrl":"http://localhost:8080/5F2XwqhktDL7ZKvL8jyJ0s","longUrl":"https://malware.example.com./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.895190Z","expiresAt":"2026-09-10T15:51:28.895190Z","clickCount":0}>
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:80)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:44)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:38)
+		at org.junit.jupiter.api.Assertions.assertAll(Assertions.java:2944)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$16(HostEvasionRefusalTest.java:131)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.AbstractList$RandomAccessSpliterator.forEachRemaining(AbstractList.java:722)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 6 more
+		Suppressed: org.opentest4j.AssertionFailedError: https://malware.example.com./x reached the host policy and must be refused there: {"code":"5F2XwqhktDL7ZKvL8jyJ0s","shortUrl":"http://localhost:8080/5F2XwqhktDL7ZKvL8jyJ0s","longUrl":"https://malware.example.com./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.895190Z","expiresAt":"2026-09-10T15:51:28.895190Z","clickCount":0} ==> expected: <422> but was: <201>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:563)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$13(HostEvasionRefusalTest.java:132)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+		Suppressed: org.opentest4j.AssertionFailedError: https://malware.example.com./x: {"code":"5F2XwqhktDL7ZKvL8jyJ0s","shortUrl":"http://localhost:8080/5F2XwqhktDL7ZKvL8jyJ0s","longUrl":"https://malware.example.com./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.895190Z","expiresAt":"2026-09-10T15:51:28.895190Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$14(HostEvasionRefusalTest.java:135)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+		Suppressed: org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: https://malware.example.com./x ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"5F2XwqhktDL7ZKvL8jyJ0s","shortUrl":"http://localhost:8080/5F2XwqhktDL7ZKvL8jyJ0s","longUrl":"https://malware.example.com./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.895190Z","expiresAt":"2026-09-10T15:51:28.895190Z","clickCount":0}>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$15(HostEvasionRefusalTest.java:137)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+	Suppressed: org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: https://MALWARE.Example.COM./x reached the host policy and must be refused there: {"code":"jopvZnf8RmFy3gtridPCnS","shortUrl":"http://localhost:8080/jopvZnf8RmFy3gtridPCnS","longUrl":"https://MALWARE.Example.COM./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.909717Z","expiresAt":"2026-09-10T15:51:28.909717Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: https://MALWARE.Example.COM./x: {"code":"jopvZnf8RmFy3gtridPCnS","shortUrl":"http://localhost:8080/jopvZnf8RmFy3gtridPCnS","longUrl":"https://MALWARE.Example.COM./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.909717Z","expiresAt":"2026-09-10T15:51:28.909717Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: https://MALWARE.Example.COM./x ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"jopvZnf8RmFy3gtridPCnS","shortUrl":"http://localhost:8080/jopvZnf8RmFy3gtridPCnS","longUrl":"https://MALWARE.Example.COM./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.909717Z","expiresAt":"2026-09-10T15:51:28.909717Z","clickCount":0}>
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:80)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:44)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:38)
+		at org.junit.jupiter.api.Assertions.assertAll(Assertions.java:2944)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$16(HostEvasionRefusalTest.java:131)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.AbstractList$RandomAccessSpliterator.forEachRemaining(AbstractList.java:722)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 6 more
+		Suppressed: org.opentest4j.AssertionFailedError: https://MALWARE.Example.COM./x reached the host policy and must be refused there: {"code":"jopvZnf8RmFy3gtridPCnS","shortUrl":"http://localhost:8080/jopvZnf8RmFy3gtridPCnS","longUrl":"https://MALWARE.Example.COM./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.909717Z","expiresAt":"2026-09-10T15:51:28.909717Z","clickCount":0} ==> expected: <422> but was: <201>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:563)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$13(HostEvasionRefusalTest.java:132)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+		Suppressed: org.opentest4j.AssertionFailedError: https://MALWARE.Example.COM./x: {"code":"jopvZnf8RmFy3gtridPCnS","shortUrl":"http://localhost:8080/jopvZnf8RmFy3gtridPCnS","longUrl":"https://MALWARE.Example.COM./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.909717Z","expiresAt":"2026-09-10T15:51:28.909717Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$14(HostEvasionRefusalTest.java:135)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+		Suppressed: org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: https://MALWARE.Example.COM./x ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"jopvZnf8RmFy3gtridPCnS","shortUrl":"http://localhost:8080/jopvZnf8RmFy3gtridPCnS","longUrl":"https://MALWARE.Example.COM./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.909717Z","expiresAt":"2026-09-10T15:51:28.909717Z","clickCount":0}>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$15(HostEvasionRefusalTest.java:137)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+	Suppressed: org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: https://phishing.example.net./signin reached the host policy and must be refused there: {"code":"CDRcfRrOR0fKa8hFiT9kBg","shortUrl":"http://localhost:8080/CDRcfRrOR0fKa8hFiT9kBg","longUrl":"https://phishing.example.net./signin","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.923324Z","expiresAt":"2026-09-10T15:51:28.923324Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: https://phishing.example.net./signin: {"code":"CDRcfRrOR0fKa8hFiT9kBg","shortUrl":"http://localhost:8080/CDRcfRrOR0fKa8hFiT9kBg","longUrl":"https://phishing.example.net./signin","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.923324Z","expiresAt":"2026-09-10T15:51:28.923324Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: https://phishing.example.net./signin ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"CDRcfRrOR0fKa8hFiT9kBg","shortUrl":"http://localhost:8080/CDRcfRrOR0fKa8hFiT9kBg","longUrl":"https://phishing.example.net./signin","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.923324Z","expiresAt":"2026-09-10T15:51:28.923324Z","clickCount":0}>
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:80)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:44)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:38)
+		at org.junit.jupiter.api.Assertions.assertAll(Assertions.java:2944)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$16(HostEvasionRefusalTest.java:131)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.AbstractList$RandomAccessSpliterator.forEachRemaining(AbstractList.java:722)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 6 more
+		Suppressed: org.opentest4j.AssertionFailedError: https://phishing.example.net./signin reached the host policy and must be refused there: {"code":"CDRcfRrOR0fKa8hFiT9kBg","shortUrl":"http://localhost:8080/CDRcfRrOR0fKa8hFiT9kBg","longUrl":"https://phishing.example.net./signin","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.923324Z","expiresAt":"2026-09-10T15:51:28.923324Z","clickCount":0} ==> expected: <422> but was: <201>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:563)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$13(HostEvasionRefusalTest.java:132)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+		Suppressed: org.opentest4j.AssertionFailedError: https://phishing.example.net./signin: {"code":"CDRcfRrOR0fKa8hFiT9kBg","shortUrl":"http://localhost:8080/CDRcfRrOR0fKa8hFiT9kBg","longUrl":"https://phishing.example.net./signin","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.923324Z","expiresAt":"2026-09-10T15:51:28.923324Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$14(HostEvasionRefusalTest.java:135)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+		Suppressed: org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: https://phishing.example.net./signin ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"CDRcfRrOR0fKa8hFiT9kBg","shortUrl":"http://localhost:8080/CDRcfRrOR0fKa8hFiT9kBg","longUrl":"https://phishing.example.net./signin","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.923324Z","expiresAt":"2026-09-10T15:51:28.923324Z","clickCount":0}>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$15(HostEvasionRefusalTest.java:137)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+	Suppressed: org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: http://2130706433/ reached the host policy and must be refused there: {"code":"o56nQrLlsgNrkYyhiGfv3N","shortUrl":"http://localhost:8080/o56nQrLlsgNrkYyhiGfv3N","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.935445Z","expiresAt":"2026-09-10T15:51:28.935445Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: http://2130706433/: {"code":"o56nQrLlsgNrkYyhiGfv3N","shortUrl":"http://localhost:8080/o56nQrLlsgNrkYyhiGfv3N","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.935445Z","expiresAt":"2026-09-10T15:51:28.935445Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://2130706433/ ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"o56nQrLlsgNrkYyhiGfv3N","shortUrl":"http://localhost:8080/o56nQrLlsgNrkYyhiGfv3N","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.935445Z","expiresAt":"2026-09-10T15:51:28.935445Z","clickCount":0}>
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:80)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:44)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:38)
+		at org.junit.jupiter.api.Assertions.assertAll(Assertions.java:2944)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$16(HostEvasionRefusalTest.java:131)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.AbstractList$RandomAccessSpliterator.forEachRemaining(AbstractList.java:722)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 6 more
+		Suppressed: org.opentest4j.AssertionFailedError: http://2130706433/ reached the host policy and must be refused there: {"code":"o56nQrLlsgNrkYyhiGfv3N","shortUrl":"http://localhost:8080/o56nQrLlsgNrkYyhiGfv3N","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.935445Z","expiresAt":"2026-09-10T15:51:28.935445Z","clickCount":0} ==> expected: <422> but was: <201>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:563)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$13(HostEvasionRefusalTest.java:132)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+		Suppressed: org.opentest4j.AssertionFailedError: http://2130706433/: {"code":"o56nQrLlsgNrkYyhiGfv3N","shortUrl":"http://localhost:8080/o56nQrLlsgNrkYyhiGfv3N","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.935445Z","expiresAt":"2026-09-10T15:51:28.935445Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$14(HostEvasionRefusalTest.java:135)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+		Suppressed: org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://2130706433/ ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"o56nQrLlsgNrkYyhiGfv3N","shortUrl":"http://localhost:8080/o56nQrLlsgNrkYyhiGfv3N","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.935445Z","expiresAt":"2026-09-10T15:51:28.935445Z","clickCount":0}>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$15(HostEvasionRefusalTest.java:137)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+	Suppressed: org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: http://0x7f000001/ reached the host policy and must be refused there: {"code":"5KYFIf6pe8qt1e0yVZmsIz","shortUrl":"http://localhost:8080/5KYFIf6pe8qt1e0yVZmsIz","longUrl":"http://0x7f000001/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.946007Z","expiresAt":"2026-09-10T15:51:28.946007Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: http://0x7f000001/: {"code":"5KYFIf6pe8qt1e0yVZmsIz","shortUrl":"http://localhost:8080/5KYFIf6pe8qt1e0yVZmsIz","longUrl":"http://0x7f000001/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.946007Z","expiresAt":"2026-09-10T15:51:28.946007Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://0x7f000001/ ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"5KYFIf6pe8qt1e0yVZmsIz","shortUrl":"http://localhost:8080/5KYFIf6pe8qt1e0yVZmsIz","longUrl":"http://0x7f000001/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.946007Z","expiresAt":"2026-09-10T15:51:28.946007Z","clickCount":0}>
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:80)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:44)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:38)
+		at org.junit.jupiter.api.Assertions.assertAll(Assertions.java:2944)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$16(HostEvasionRefusalTest.java:131)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.AbstractList$RandomAccessSpliterator.forEachRemaining(AbstractList.java:722)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 6 more
+		Suppressed: org.opentest4j.AssertionFailedError: http://0x7f000001/ reached the host policy and must be refused there: {"code":"5KYFIf6pe8qt1e0yVZmsIz","shortUrl":"http://localhost:8080/5KYFIf6pe8qt1e0yVZmsIz","longUrl":"http://0x7f000001/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.946007Z","expiresAt":"2026-09-10T15:51:28.946007Z","clickCount":0} ==> expected: <422> but was: <201>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:563)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$13(HostEvasionRefusalTest.java:132)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+		Suppressed: org.opentest4j.AssertionFailedError: http://0x7f000001/: {"code":"5KYFIf6pe8qt1e0yVZmsIz","shortUrl":"http://localhost:8080/5KYFIf6pe8qt1e0yVZmsIz","longUrl":"http://0x7f000001/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.946007Z","expiresAt":"2026-09-10T15:51:28.946007Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$14(HostEvasionRefusalTest.java:135)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+		Suppressed: org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://0x7f000001/ ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"5KYFIf6pe8qt1e0yVZmsIz","shortUrl":"http://localhost:8080/5KYFIf6pe8qt1e0yVZmsIz","longUrl":"http://0x7f000001/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.946007Z","expiresAt":"2026-09-10T15:51:28.946007Z","clickCount":0}>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$15(HostEvasionRefusalTest.java:137)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+	Suppressed: org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: http://017700000001/ reached the host policy and must be refused there: {"code":"xAb2qMJBdMZzCamRWkFbKJ","shortUrl":"http://localhost:8080/xAb2qMJBdMZzCamRWkFbKJ","longUrl":"http://017700000001/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.956001Z","expiresAt":"2026-09-10T15:51:28.956001Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: http://017700000001/: {"code":"xAb2qMJBdMZzCamRWkFbKJ","shortUrl":"http://localhost:8080/xAb2qMJBdMZzCamRWkFbKJ","longUrl":"http://017700000001/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.956001Z","expiresAt":"2026-09-10T15:51:28.956001Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://017700000001/ ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"xAb2qMJBdMZzCamRWkFbKJ","shortUrl":"http://localhost:8080/xAb2qMJBdMZzCamRWkFbKJ","longUrl":"http://017700000001/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.956001Z","expiresAt":"2026-09-10T15:51:28.956001Z","clickCount":0}>
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:80)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:44)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:38)
+		at org.junit.jupiter.api.Assertions.assertAll(Assertions.java:2944)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$16(HostEvasionRefusalTest.java:131)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.AbstractList$RandomAccessSpliterator.forEachRemaining(AbstractList.java:722)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 6 more
+		Suppressed: org.opentest4j.AssertionFailedError: http://017700000001/ reached the host policy and must be refused there: {"code":"xAb2qMJBdMZzCamRWkFbKJ","shortUrl":"http://localhost:8080/xAb2qMJBdMZzCamRWkFbKJ","longUrl":"http://017700000001/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.956001Z","expiresAt":"2026-09-10T15:51:28.956001Z","clickCount":0} ==> expected: <422> but was: <201>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:563)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$13(HostEvasionRefusalTest.java:132)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+		Suppressed: org.opentest4j.AssertionFailedError: http://017700000001/: {"code":"xAb2qMJBdMZzCamRWkFbKJ","shortUrl":"http://localhost:8080/xAb2qMJBdMZzCamRWkFbKJ","longUrl":"http://017700000001/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.956001Z","expiresAt":"2026-09-10T15:51:28.956001Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$14(HostEvasionRefusalTest.java:135)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+		Suppressed: org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://017700000001/ ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"xAb2qMJBdMZzCamRWkFbKJ","shortUrl":"http://localhost:8080/xAb2qMJBdMZzCamRWkFbKJ","longUrl":"http://017700000001/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.956001Z","expiresAt":"2026-09-10T15:51:28.956001Z","clickCount":0}>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$15(HostEvasionRefusalTest.java:137)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+	Suppressed: org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: http://0177.0.0.1/ reached the host policy and must be refused there: {"code":"bGzOm96MoVc1HffFTDthwq","shortUrl":"http://localhost:8080/bGzOm96MoVc1HffFTDthwq","longUrl":"http://0177.0.0.1/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.966821Z","expiresAt":"2026-09-10T15:51:28.966821Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: http://0177.0.0.1/: {"code":"bGzOm96MoVc1HffFTDthwq","shortUrl":"http://localhost:8080/bGzOm96MoVc1HffFTDthwq","longUrl":"http://0177.0.0.1/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.966821Z","expiresAt":"2026-09-10T15:51:28.966821Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://0177.0.0.1/ ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"bGzOm96MoVc1HffFTDthwq","shortUrl":"http://localhost:8080/bGzOm96MoVc1HffFTDthwq","longUrl":"http://0177.0.0.1/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.966821Z","expiresAt":"2026-09-10T15:51:28.966821Z","clickCount":0}>
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:80)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:44)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:38)
+		at org.junit.jupiter.api.Assertions.assertAll(Assertions.java:2944)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$16(HostEvasionRefusalTest.java:131)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.AbstractList$RandomAccessSpliterator.forEachRemaining(AbstractList.java:722)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 6 more
+		Suppressed: org.opentest4j.AssertionFailedError: http://0177.0.0.1/ reached the host policy and must be refused there: {"code":"bGzOm96MoVc1HffFTDthwq","shortUrl":"http://localhost:8080/bGzOm96MoVc1HffFTDthwq","longUrl":"http://0177.0.0.1/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.966821Z","expiresAt":"2026-09-10T15:51:28.966821Z","clickCount":0} ==> expected: <422> but was: <201>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:563)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$13(HostEvasionRefusalTest.java:132)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+		Suppressed: org.opentest4j.AssertionFailedError: http://0177.0.0.1/: {"code":"bGzOm96MoVc1HffFTDthwq","shortUrl":"http://localhost:8080/bGzOm96MoVc1HffFTDthwq","longUrl":"http://0177.0.0.1/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.966821Z","expiresAt":"2026-09-10T15:51:28.966821Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$14(HostEvasionRefusalTest.java:135)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+		Suppressed: org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://0177.0.0.1/ ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"bGzOm96MoVc1HffFTDthwq","shortUrl":"http://localhost:8080/bGzOm96MoVc1HffFTDthwq","longUrl":"http://0177.0.0.1/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.966821Z","expiresAt":"2026-09-10T15:51:28.966821Z","clickCount":0}>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$15(HostEvasionRefusalTest.java:137)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+	Suppressed: org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: http://012.0.0.1/ reached the host policy and must be refused there: {"code":"hqvRRByrFNojaQcnYSFvkv","shortUrl":"http://localhost:8080/hqvRRByrFNojaQcnYSFvkv","longUrl":"http://012.0.0.1/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.979711Z","expiresAt":"2026-09-10T15:51:28.979711Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: http://012.0.0.1/: {"code":"hqvRRByrFNojaQcnYSFvkv","shortUrl":"http://localhost:8080/hqvRRByrFNojaQcnYSFvkv","longUrl":"http://012.0.0.1/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.979711Z","expiresAt":"2026-09-10T15:51:28.979711Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://012.0.0.1/ ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"hqvRRByrFNojaQcnYSFvkv","shortUrl":"http://localhost:8080/hqvRRByrFNojaQcnYSFvkv","longUrl":"http://012.0.0.1/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.979711Z","expiresAt":"2026-09-10T15:51:28.979711Z","clickCount":0}>
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:80)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:44)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:38)
+		at org.junit.jupiter.api.Assertions.assertAll(Assertions.java:2944)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$16(HostEvasionRefusalTest.java:131)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.AbstractList$RandomAccessSpliterator.forEachRemaining(AbstractList.java:722)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 6 more
+		Suppressed: org.opentest4j.AssertionFailedError: http://012.0.0.1/ reached the host policy and must be refused there: {"code":"hqvRRByrFNojaQcnYSFvkv","shortUrl":"http://localhost:8080/hqvRRByrFNojaQcnYSFvkv","longUrl":"http://012.0.0.1/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.979711Z","expiresAt":"2026-09-10T15:51:28.979711Z","clickCount":0} ==> expected: <422> but was: <201>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:563)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$13(HostEvasionRefusalTest.java:132)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+		Suppressed: org.opentest4j.AssertionFailedError: http://012.0.0.1/: {"code":"hqvRRByrFNojaQcnYSFvkv","shortUrl":"http://localhost:8080/hqvRRByrFNojaQcnYSFvkv","longUrl":"http://012.0.0.1/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.979711Z","expiresAt":"2026-09-10T15:51:28.979711Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$14(HostEvasionRefusalTest.java:135)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+		Suppressed: org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://012.0.0.1/ ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"hqvRRByrFNojaQcnYSFvkv","shortUrl":"http://localhost:8080/hqvRRByrFNojaQcnYSFvkv","longUrl":"http://012.0.0.1/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.979711Z","expiresAt":"2026-09-10T15:51:28.979711Z","clickCount":0}>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$15(HostEvasionRefusalTest.java:137)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+	Suppressed: org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: http://localhost./internal reached the host policy and must be refused there: {"code":"XDnzyWEiRJk3N0mINTgzKN","shortUrl":"http://localhost:8080/XDnzyWEiRJk3N0mINTgzKN","longUrl":"http://localhost./internal","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.992631Z","expiresAt":"2026-09-10T15:51:28.992631Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: http://localhost./internal: {"code":"XDnzyWEiRJk3N0mINTgzKN","shortUrl":"http://localhost:8080/XDnzyWEiRJk3N0mINTgzKN","longUrl":"http://localhost./internal","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.992631Z","expiresAt":"2026-09-10T15:51:28.992631Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://localhost./internal ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"XDnzyWEiRJk3N0mINTgzKN","shortUrl":"http://localhost:8080/XDnzyWEiRJk3N0mINTgzKN","longUrl":"http://localhost./internal","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.992631Z","expiresAt":"2026-09-10T15:51:28.992631Z","clickCount":0}>
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:80)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:44)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:38)
+		at org.junit.jupiter.api.Assertions.assertAll(Assertions.java:2944)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$16(HostEvasionRefusalTest.java:131)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.AbstractList$RandomAccessSpliterator.forEachRemaining(AbstractList.java:722)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 6 more
+		Suppressed: org.opentest4j.AssertionFailedError: http://localhost./internal reached the host policy and must be refused there: {"code":"XDnzyWEiRJk3N0mINTgzKN","shortUrl":"http://localhost:8080/XDnzyWEiRJk3N0mINTgzKN","longUrl":"http://localhost./internal","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.992631Z","expiresAt":"2026-09-10T15:51:28.992631Z","clickCount":0} ==> expected: <422> but was: <201>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:563)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$13(HostEvasionRefusalTest.java:132)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+		Suppressed: org.opentest4j.AssertionFailedError: http://localhost./internal: {"code":"XDnzyWEiRJk3N0mINTgzKN","shortUrl":"http://localhost:8080/XDnzyWEiRJk3N0mINTgzKN","longUrl":"http://localhost./internal","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.992631Z","expiresAt":"2026-09-10T15:51:28.992631Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$14(HostEvasionRefusalTest.java:135)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+		Suppressed: org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://localhost./internal ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"XDnzyWEiRJk3N0mINTgzKN","shortUrl":"http://localhost:8080/XDnzyWEiRJk3N0mINTgzKN","longUrl":"http://localhost./internal","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.992631Z","expiresAt":"2026-09-10T15:51:28.992631Z","clickCount":0}>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$15(HostEvasionRefusalTest.java:137)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+	Suppressed: org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: http://4294967296/ reached the host policy and must be refused there: {"code":"QUfGYDViFbT8ZrwjaIKiZu","shortUrl":"http://localhost:8080/QUfGYDViFbT8ZrwjaIKiZu","longUrl":"http://4294967296/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.008119Z","expiresAt":"2026-09-10T15:51:29.008119Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: http://4294967296/: {"code":"QUfGYDViFbT8ZrwjaIKiZu","shortUrl":"http://localhost:8080/QUfGYDViFbT8ZrwjaIKiZu","longUrl":"http://4294967296/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.008119Z","expiresAt":"2026-09-10T15:51:29.008119Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://4294967296/ ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"QUfGYDViFbT8ZrwjaIKiZu","shortUrl":"http://localhost:8080/QUfGYDViFbT8ZrwjaIKiZu","longUrl":"http://4294967296/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.008119Z","expiresAt":"2026-09-10T15:51:29.008119Z","clickCount":0}>
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:80)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:44)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:38)
+		at org.junit.jupiter.api.Assertions.assertAll(Assertions.java:2944)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$16(HostEvasionRefusalTest.java:131)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.AbstractList$RandomAccessSpliterator.forEachRemaining(AbstractList.java:722)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 6 more
+		Suppressed: org.opentest4j.AssertionFailedError: http://4294967296/ reached the host policy and must be refused there: {"code":"QUfGYDViFbT8ZrwjaIKiZu","shortUrl":"http://localhost:8080/QUfGYDViFbT8ZrwjaIKiZu","longUrl":"http://4294967296/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.008119Z","expiresAt":"2026-09-10T15:51:29.008119Z","clickCount":0} ==> expected: <422> but was: <201>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:563)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$13(HostEvasionRefusalTest.java:132)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+		Suppressed: org.opentest4j.AssertionFailedError: http://4294967296/: {"code":"QUfGYDViFbT8ZrwjaIKiZu","shortUrl":"http://localhost:8080/QUfGYDViFbT8ZrwjaIKiZu","longUrl":"http://4294967296/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.008119Z","expiresAt":"2026-09-10T15:51:29.008119Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$14(HostEvasionRefusalTest.java:135)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+		Suppressed: org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://4294967296/ ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"QUfGYDViFbT8ZrwjaIKiZu","shortUrl":"http://localhost:8080/QUfGYDViFbT8ZrwjaIKiZu","longUrl":"http://4294967296/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.008119Z","expiresAt":"2026-09-10T15:51:29.008119Z","clickCount":0}>
+			at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+			at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+			at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+			at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+			at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+			at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay$15(HostEvasionRefusalTest.java:137)
+			at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+			at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+			at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+			at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+			at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+			at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+			at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+			at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+			at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+			... 20 more
+
+[ERROR] com.example.urlshortener.behaviour.HostEvasionRefusalTest.aRefusedSpellingCreatesNoLink -- Time elapsed: 0.113 s <<< FAILURE!
+org.opentest4j.MultipleFailuresError: 
+Multiple Failures (7 failures)
+	org.opentest4j.AssertionFailedError: {"code":"JHDpkkCvRm7kgzxcETQawL","shortUrl":"http://localhost:8080/JHDpkkCvRm7kgzxcETQawL","longUrl":"https://malware.example.com./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.099079Z","expiresAt":"2026-09-10T15:51:29.099079Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: {"code":"Pws6TUPEkS8ZkiUblzWl1H","shortUrl":"http://localhost:8080/Pws6TUPEkS8ZkiUblzWl1H","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.111435Z","expiresAt":"2026-09-10T15:51:29.111435Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: {"code":"E8Vn8koKNFKL7rlWDDfhDt","shortUrl":"http://localhost:8080/E8Vn8koKNFKL7rlWDDfhDt","longUrl":"http://4294967296/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.120219Z","expiresAt":"2026-09-10T15:51:29.120219Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: a refusal hands back no code: {"code":"JHDpkkCvRm7kgzxcETQawL","shortUrl":"http://localhost:8080/JHDpkkCvRm7kgzxcETQawL","longUrl":"https://malware.example.com./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.099079Z","expiresAt":"2026-09-10T15:51:29.099079Z","clickCount":0} ==> expected: <false> but was: <true>
+	org.opentest4j.AssertionFailedError: {"code":"Pws6TUPEkS8ZkiUblzWl1H","shortUrl":"http://localhost:8080/Pws6TUPEkS8ZkiUblzWl1H","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.111435Z","expiresAt":"2026-09-10T15:51:29.111435Z","clickCount":0} ==> expected: <false> but was: <true>
+	org.opentest4j.AssertionFailedError: {"code":"E8Vn8koKNFKL7rlWDDfhDt","shortUrl":"http://localhost:8080/E8Vn8koKNFKL7rlWDDfhDt","longUrl":"http://4294967296/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.120219Z","expiresAt":"2026-09-10T15:51:29.120219Z","clickCount":0} ==> expected: <false> but was: <true>
+	org.opentest4j.AssertionFailedError: a refused target must not leave a row somebody could still resolve ==> expected: <13> but was: <16>
+	at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:80)
+	at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:44)
+	at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:38)
+	at org.junit.jupiter.api.Assertions.assertAll(Assertions.java:2944)
+	at com.example.urlshortener.behaviour.HostEvasionRefusalTest.aRefusedSpellingCreatesNoLink(HostEvasionRefusalTest.java:161)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	Suppressed: org.opentest4j.AssertionFailedError: {"code":"JHDpkkCvRm7kgzxcETQawL","shortUrl":"http://localhost:8080/JHDpkkCvRm7kgzxcETQawL","longUrl":"https://malware.example.com./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.099079Z","expiresAt":"2026-09-10T15:51:29.099079Z","clickCount":0} ==> expected: <422> but was: <201>
+		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+		at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
+		at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:563)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$aRefusedSpellingCreatesNoLink$18(HostEvasionRefusalTest.java:162)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 7 more
+	Suppressed: org.opentest4j.AssertionFailedError: {"code":"Pws6TUPEkS8ZkiUblzWl1H","shortUrl":"http://localhost:8080/Pws6TUPEkS8ZkiUblzWl1H","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.111435Z","expiresAt":"2026-09-10T15:51:29.111435Z","clickCount":0} ==> expected: <422> but was: <201>
+		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+		at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
+		at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:563)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$aRefusedSpellingCreatesNoLink$19(HostEvasionRefusalTest.java:163)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 7 more
+	Suppressed: org.opentest4j.AssertionFailedError: {"code":"E8Vn8koKNFKL7rlWDDfhDt","shortUrl":"http://localhost:8080/E8Vn8koKNFKL7rlWDDfhDt","longUrl":"http://4294967296/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.120219Z","expiresAt":"2026-09-10T15:51:29.120219Z","clickCount":0} ==> expected: <422> but was: <201>
+		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+		at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
+		at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:563)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$aRefusedSpellingCreatesNoLink$20(HostEvasionRefusalTest.java:164)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 7 more
+	Suppressed: org.opentest4j.AssertionFailedError: a refusal hands back no code: {"code":"JHDpkkCvRm7kgzxcETQawL","shortUrl":"http://localhost:8080/JHDpkkCvRm7kgzxcETQawL","longUrl":"https://malware.example.com./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.099079Z","expiresAt":"2026-09-10T15:51:29.099079Z","clickCount":0} ==> expected: <false> but was: <true>
+		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+		at org.junit.jupiter.api.AssertFalse.failNotFalse(AssertFalse.java:63)
+		at org.junit.jupiter.api.AssertFalse.assertFalse(AssertFalse.java:36)
+		at org.junit.jupiter.api.Assertions.assertFalse(Assertions.java:239)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$aRefusedSpellingCreatesNoLink$21(HostEvasionRefusalTest.java:165)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 7 more
+	Suppressed: org.opentest4j.AssertionFailedError: {"code":"Pws6TUPEkS8ZkiUblzWl1H","shortUrl":"http://localhost:8080/Pws6TUPEkS8ZkiUblzWl1H","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.111435Z","expiresAt":"2026-09-10T15:51:29.111435Z","clickCount":0} ==> expected: <false> but was: <true>
+		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+		at org.junit.jupiter.api.AssertFalse.failNotFalse(AssertFalse.java:63)
+		at org.junit.jupiter.api.AssertFalse.assertFalse(AssertFalse.java:36)
+		at org.junit.jupiter.api.Assertions.assertFalse(Assertions.java:239)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$aRefusedSpellingCreatesNoLink$22(HostEvasionRefusalTest.java:167)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 7 more
+	Suppressed: org.opentest4j.AssertionFailedError: {"code":"E8Vn8koKNFKL7rlWDDfhDt","shortUrl":"http://localhost:8080/E8Vn8koKNFKL7rlWDDfhDt","longUrl":"http://4294967296/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.120219Z","expiresAt":"2026-09-10T15:51:29.120219Z","clickCount":0} ==> expected: <false> but was: <true>
+		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+		at org.junit.jupiter.api.AssertFalse.failNotFalse(AssertFalse.java:63)
+		at org.junit.jupiter.api.AssertFalse.assertFalse(AssertFalse.java:36)
+		at org.junit.jupiter.api.Assertions.assertFalse(Assertions.java:239)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$aRefusedSpellingCreatesNoLink$23(HostEvasionRefusalTest.java:169)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 7 more
+	Suppressed: org.opentest4j.AssertionFailedError: a refused target must not leave a row somebody could still resolve ==> expected: <13> but was: <16>
+		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+		at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:166)
+		at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:664)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$aRefusedSpellingCreatesNoLink$24(HostEvasionRefusalTest.java:170)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 7 more
+
+[ERROR] com.example.urlshortener.behaviour.HostEvasionRefusalTest.aDenylistedHostWithATrailingDotIsRefusedIdenticallyToTheHostItself -- Time elapsed: 0.058 s <<< FAILURE!
+org.opentest4j.MultipleFailuresError: 
+Multiple Failures (5 failures)
+	org.opentest4j.AssertionFailedError: {"code":"bSKOURWKbIySSscOm9wO23","shortUrl":"http://localhost:8080/bSKOURWKbIySSscOm9wO23","longUrl":"https://malware.example.com./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.179871Z","expiresAt":"2026-09-10T15:51:29.179871Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: expected: <The submitted URL cannot be shortened.> but was: <null>
+	org.opentest4j.AssertionFailedError: the trailing dot is a spelling of the same host, not a different request ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: byte-identical, or the response says which route the request took ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"bSKOURWKbIySSscOm9wO23","shortUrl":"http://localhost:8080/bSKOURWKbIySSscOm9wO23","longUrl":"https://malware.example.com./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.179871Z","expiresAt":"2026-09-10T15:51:29.179871Z","clickCount":0}>
+	at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:80)
+	at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:44)
+	at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:38)
+	at org.junit.jupiter.api.Assertions.assertAll(Assertions.java:2944)
+	at com.example.urlshortener.behaviour.HostEvasionRefusalTest.aDenylistedHostWithATrailingDotIsRefusedIdenticallyToTheHostItself(HostEvasionRefusalTest.java:51)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	Suppressed: org.opentest4j.AssertionFailedError: {"code":"bSKOURWKbIySSscOm9wO23","shortUrl":"http://localhost:8080/bSKOURWKbIySSscOm9wO23","longUrl":"https://malware.example.com./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.179871Z","expiresAt":"2026-09-10T15:51:29.179871Z","clickCount":0} ==> expected: <422> but was: <201>
+		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+		at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
+		at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:563)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$aDenylistedHostWithATrailingDotIsRefusedIdenticallyToTheHostItself$0(HostEvasionRefusalTest.java:52)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 7 more
+	Suppressed: org.opentest4j.AssertionFailedError: expected: <url_rejected> but was: <null>
+		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+		at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:177)
+		at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1145)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$aDenylistedHostWithATrailingDotIsRefusedIdenticallyToTheHostItself$1(HostEvasionRefusalTest.java:53)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 7 more
+	Suppressed: org.opentest4j.AssertionFailedError: expected: <The submitted URL cannot be shortened.> but was: <null>
+		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+		at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:177)
+		at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1145)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$aDenylistedHostWithATrailingDotIsRefusedIdenticallyToTheHostItself$2(HostEvasionRefusalTest.java:54)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 7 more
+	Suppressed: org.opentest4j.AssertionFailedError: the trailing dot is a spelling of the same host, not a different request ==> expected: <422> but was: <201>
+		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+		at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
+		at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:563)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$aDenylistedHostWithATrailingDotIsRefusedIdenticallyToTheHostItself$3(HostEvasionRefusalTest.java:56)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 7 more
+	Suppressed: org.opentest4j.AssertionFailedError: byte-identical, or the response says which route the request took ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"bSKOURWKbIySSscOm9wO23","shortUrl":"http://localhost:8080/bSKOURWKbIySSscOm9wO23","longUrl":"https://malware.example.com./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.179871Z","expiresAt":"2026-09-10T15:51:29.179871Z","clickCount":0}>
+		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+		at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+		at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$aDenylistedHostWithATrailingDotIsRefusedIdenticallyToTheHostItself$4(HostEvasionRefusalTest.java:58)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 7 more
+
+[ERROR] com.example.urlshortener.behaviour.HostEvasionRefusalTest.aDenylistedHostInMixedCaseWithATrailingDotIsRefused -- Time elapsed: 0.060 s <<< FAILURE!
+org.opentest4j.MultipleFailuresError: 
+Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: {"code":"WeT6rtDvsuUtUZbcg6HTpy","shortUrl":"http://localhost:8080/WeT6rtDvsuUtUZbcg6HTpy","longUrl":"https://MALWARE.Example.COM./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.302764Z","expiresAt":"2026-09-10T15:51:29.302764Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: case and a trailing dot are spellings, not two separate evasions ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"WeT6rtDvsuUtUZbcg6HTpy","shortUrl":"http://localhost:8080/WeT6rtDvsuUtUZbcg6HTpy","longUrl":"https://MALWARE.Example.COM./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.302764Z","expiresAt":"2026-09-10T15:51:29.302764Z","clickCount":0}>
+	at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:80)
+	at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:44)
+	at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:38)
+	at org.junit.jupiter.api.Assertions.assertAll(Assertions.java:2944)
+	at com.example.urlshortener.behaviour.HostEvasionRefusalTest.aDenylistedHostInMixedCaseWithATrailingDotIsRefused(HostEvasionRefusalTest.java:77)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	Suppressed: org.opentest4j.AssertionFailedError: {"code":"WeT6rtDvsuUtUZbcg6HTpy","shortUrl":"http://localhost:8080/WeT6rtDvsuUtUZbcg6HTpy","longUrl":"https://MALWARE.Example.COM./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.302764Z","expiresAt":"2026-09-10T15:51:29.302764Z","clickCount":0} ==> expected: <422> but was: <201>
+		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+		at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
+		at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:563)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$aDenylistedHostInMixedCaseWithATrailingDotIsRefused$5(HostEvasionRefusalTest.java:78)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 7 more
+	Suppressed: org.opentest4j.AssertionFailedError: expected: <url_rejected> but was: <null>
+		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+		at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:177)
+		at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1145)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$aDenylistedHostInMixedCaseWithATrailingDotIsRefused$6(HostEvasionRefusalTest.java:79)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 7 more
+	Suppressed: org.opentest4j.AssertionFailedError: case and a trailing dot are spellings, not two separate evasions ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"WeT6rtDvsuUtUZbcg6HTpy","shortUrl":"http://localhost:8080/WeT6rtDvsuUtUZbcg6HTpy","longUrl":"https://MALWARE.Example.COM./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.302764Z","expiresAt":"2026-09-10T15:51:29.302764Z","clickCount":0}>
+		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+		at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+		at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$aDenylistedHostInMixedCaseWithATrailingDotIsRefused$7(HostEvasionRefusalTest.java:80)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 7 more
+
+[ERROR] com.example.urlshortener.behaviour.HostEvasionRefusalTest.theRefusalRevealsNothingAboutWhichCheckFired -- Time elapsed: 0.063 s <<< FAILURE!
+org.opentest4j.MultipleFailuresError: 
+Multiple Failures (4 failures)
+	org.opentest4j.AssertionFailedError: {"code":"W9l5tMMYeczv3d1LspfKvV","shortUrl":"http://localhost:8080/W9l5tMMYeczv3d1LspfKvV","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.430857Z","expiresAt":"2026-09-10T15:51:29.430857Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: {"code":"CK2AOANTd2QiXNcvwjwFXa","shortUrl":"http://localhost:8080/CK2AOANTd2QiXNcvwjwFXa","longUrl":"http://4294967296/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.443933Z","expiresAt":"2026-09-10T15:51:29.443933Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: an internal address and a denylisted host are one answer ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"W9l5tMMYeczv3d1LspfKvV","shortUrl":"http://localhost:8080/W9l5tMMYeczv3d1LspfKvV","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.430857Z","expiresAt":"2026-09-10T15:51:29.430857Z","clickCount":0}>
+	org.opentest4j.AssertionFailedError: and so is a host that could not be canonicalised - it fails closed to the same 422 rather than to a 400 that would say the spelling did not parse ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"CK2AOANTd2QiXNcvwjwFXa","shortUrl":"http://localhost:8080/CK2AOANTd2QiXNcvwjwFXa","longUrl":"http://4294967296/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.443933Z","expiresAt":"2026-09-10T15:51:29.443933Z","clickCount":0}>
+	at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:80)
+	at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:44)
+	at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:38)
+	at org.junit.jupiter.api.Assertions.assertAll(Assertions.java:2944)
+	at com.example.urlshortener.behaviour.HostEvasionRefusalTest.theRefusalRevealsNothingAboutWhichCheckFired(HostEvasionRefusalTest.java:191)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	Suppressed: org.opentest4j.AssertionFailedError: {"code":"W9l5tMMYeczv3d1LspfKvV","shortUrl":"http://localhost:8080/W9l5tMMYeczv3d1LspfKvV","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.430857Z","expiresAt":"2026-09-10T15:51:29.430857Z","clickCount":0} ==> expected: <422> but was: <201>
+		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+		at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
+		at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:563)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$theRefusalRevealsNothingAboutWhichCheckFired$26(HostEvasionRefusalTest.java:193)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 7 more
+	Suppressed: org.opentest4j.AssertionFailedError: {"code":"CK2AOANTd2QiXNcvwjwFXa","shortUrl":"http://localhost:8080/CK2AOANTd2QiXNcvwjwFXa","longUrl":"http://4294967296/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.443933Z","expiresAt":"2026-09-10T15:51:29.443933Z","clickCount":0} ==> expected: <422> but was: <201>
+		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+		at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
+		at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:563)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$theRefusalRevealsNothingAboutWhichCheckFired$28(HostEvasionRefusalTest.java:195)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 7 more
+	Suppressed: org.opentest4j.AssertionFailedError: an internal address and a denylisted host are one answer ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"W9l5tMMYeczv3d1LspfKvV","shortUrl":"http://localhost:8080/W9l5tMMYeczv3d1LspfKvV","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.430857Z","expiresAt":"2026-09-10T15:51:29.430857Z","clickCount":0}>
+		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+		at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+		at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$theRefusalRevealsNothingAboutWhichCheckFired$29(HostEvasionRefusalTest.java:197)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 7 more
+	Suppressed: org.opentest4j.AssertionFailedError: and so is a host that could not be canonicalised - it fails closed to the same 422 rather than to a 400 that would say the spelling did not parse ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"CK2AOANTd2QiXNcvwjwFXa","shortUrl":"http://localhost:8080/CK2AOANTd2QiXNcvwjwFXa","longUrl":"http://4294967296/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.443933Z","expiresAt":"2026-09-10T15:51:29.443933Z","clickCount":0}>
+		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+		at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+		at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+		at com.example.urlshortener.behaviour.HostEvasionRefusalTest.lambda$theRefusalRevealsNothingAboutWhichCheckFired$31(HostEvasionRefusalTest.java:201)
+		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
+		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)
+		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
+		... 7 more
+
+[INFO] 
+[INFO] Results:
+[INFO] 
+[ERROR] Failures: 
+[ERROR]   HostEvasionRefusalTest.aDenylistedHostInMixedCaseWithATrailingDotIsRefused:77 Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: {"code":"WeT6rtDvsuUtUZbcg6HTpy","shortUrl":"http://localhost:8080/WeT6rtDvsuUtUZbcg6HTpy","longUrl":"https://MALWARE.Example.COM./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.302764Z","expiresAt":"2026-09-10T15:51:29.302764Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: case and a trailing dot are spellings, not two separate evasions ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"WeT6rtDvsuUtUZbcg6HTpy","shortUrl":"http://localhost:8080/WeT6rtDvsuUtUZbcg6HTpy","longUrl":"https://MALWARE.Example.COM./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.302764Z","expiresAt":"2026-09-10T15:51:29.302764Z","clickCount":0}>
+[ERROR]   HostEvasionRefusalTest.aDenylistedHostWithATrailingDotIsRefusedIdenticallyToTheHostItself:51 Multiple Failures (5 failures)
+	org.opentest4j.AssertionFailedError: {"code":"bSKOURWKbIySSscOm9wO23","shortUrl":"http://localhost:8080/bSKOURWKbIySSscOm9wO23","longUrl":"https://malware.example.com./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.179871Z","expiresAt":"2026-09-10T15:51:29.179871Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: expected: <The submitted URL cannot be shortened.> but was: <null>
+	org.opentest4j.AssertionFailedError: the trailing dot is a spelling of the same host, not a different request ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: byte-identical, or the response says which route the request took ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"bSKOURWKbIySSscOm9wO23","shortUrl":"http://localhost:8080/bSKOURWKbIySSscOm9wO23","longUrl":"https://malware.example.com./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.179871Z","expiresAt":"2026-09-10T15:51:29.179871Z","clickCount":0}>
+[ERROR]   HostEvasionRefusalTest.aRefusedSpellingCreatesNoLink:161 Multiple Failures (7 failures)
+	org.opentest4j.AssertionFailedError: {"code":"JHDpkkCvRm7kgzxcETQawL","shortUrl":"http://localhost:8080/JHDpkkCvRm7kgzxcETQawL","longUrl":"https://malware.example.com./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.099079Z","expiresAt":"2026-09-10T15:51:29.099079Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: {"code":"Pws6TUPEkS8ZkiUblzWl1H","shortUrl":"http://localhost:8080/Pws6TUPEkS8ZkiUblzWl1H","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.111435Z","expiresAt":"2026-09-10T15:51:29.111435Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: {"code":"E8Vn8koKNFKL7rlWDDfhDt","shortUrl":"http://localhost:8080/E8Vn8koKNFKL7rlWDDfhDt","longUrl":"http://4294967296/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.120219Z","expiresAt":"2026-09-10T15:51:29.120219Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: a refusal hands back no code: {"code":"JHDpkkCvRm7kgzxcETQawL","shortUrl":"http://localhost:8080/JHDpkkCvRm7kgzxcETQawL","longUrl":"https://malware.example.com./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.099079Z","expiresAt":"2026-09-10T15:51:29.099079Z","clickCount":0} ==> expected: <false> but was: <true>
+	org.opentest4j.AssertionFailedError: {"code":"Pws6TUPEkS8ZkiUblzWl1H","shortUrl":"http://localhost:8080/Pws6TUPEkS8ZkiUblzWl1H","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.111435Z","expiresAt":"2026-09-10T15:51:29.111435Z","clickCount":0} ==> expected: <false> but was: <true>
+	org.opentest4j.AssertionFailedError: {"code":"E8Vn8koKNFKL7rlWDDfhDt","shortUrl":"http://localhost:8080/E8Vn8koKNFKL7rlWDDfhDt","longUrl":"http://4294967296/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.120219Z","expiresAt":"2026-09-10T15:51:29.120219Z","clickCount":0} ==> expected: <false> but was: <true>
+	org.opentest4j.AssertionFailedError: a refused target must not leave a row somebody could still resolve ==> expected: <13> but was: <16>
+[ERROR]   HostEvasionRefusalTest.anInternalAddressWrittenAsOneDecimalNumberIsRefusedIdenticallyToTheDottedForm:98 Multiple Failures (5 failures)
+	org.opentest4j.AssertionFailedError: {"code":"8w30ET9JYmdfFjvpYznq9j","shortUrl":"http://localhost:8080/8w30ET9JYmdfFjvpYznq9j","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.699225Z","expiresAt":"2026-09-10T15:51:28.699225Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: expected: <The submitted URL cannot be shortened.> but was: <null>
+	org.opentest4j.AssertionFailedError: 2130706433 is the loopback address written as one decimal number ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: and the refusal must not say which of the two spellings was used ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"8w30ET9JYmdfFjvpYznq9j","shortUrl":"http://localhost:8080/8w30ET9JYmdfFjvpYznq9j","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.699225Z","expiresAt":"2026-09-10T15:51:28.699225Z","clickCount":0}>
+[ERROR]   HostEvasionRefusalTest.everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay:128 Multiple Failures (10 failures)
+	org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: https://malware.example.com./x reached the host policy and must be refused there: {"code":"5F2XwqhktDL7ZKvL8jyJ0s","shortUrl":"http://localhost:8080/5F2XwqhktDL7ZKvL8jyJ0s","longUrl":"https://malware.example.com./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.895190Z","expiresAt":"2026-09-10T15:51:28.895190Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: https://malware.example.com./x: {"code":"5F2XwqhktDL7ZKvL8jyJ0s","shortUrl":"http://localhost:8080/5F2XwqhktDL7ZKvL8jyJ0s","longUrl":"https://malware.example.com./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.895190Z","expiresAt":"2026-09-10T15:51:28.895190Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: https://malware.example.com./x ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"5F2XwqhktDL7ZKvL8jyJ0s","shortUrl":"http://localhost:8080/5F2XwqhktDL7ZKvL8jyJ0s","longUrl":"https://malware.example.com./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.895190Z","expiresAt":"2026-09-10T15:51:28.895190Z","clickCount":0}>
+	org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: https://MALWARE.Example.COM./x reached the host policy and must be refused there: {"code":"jopvZnf8RmFy3gtridPCnS","shortUrl":"http://localhost:8080/jopvZnf8RmFy3gtridPCnS","longUrl":"https://MALWARE.Example.COM./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.909717Z","expiresAt":"2026-09-10T15:51:28.909717Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: https://MALWARE.Example.COM./x: {"code":"jopvZnf8RmFy3gtridPCnS","shortUrl":"http://localhost:8080/jopvZnf8RmFy3gtridPCnS","longUrl":"https://MALWARE.Example.COM./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.909717Z","expiresAt":"2026-09-10T15:51:28.909717Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: https://MALWARE.Example.COM./x ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"jopvZnf8RmFy3gtridPCnS","shortUrl":"http://localhost:8080/jopvZnf8RmFy3gtridPCnS","longUrl":"https://MALWARE.Example.COM./x","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.909717Z","expiresAt":"2026-09-10T15:51:28.909717Z","clickCount":0}>
+	org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: https://phishing.example.net./signin reached the host policy and must be refused there: {"code":"CDRcfRrOR0fKa8hFiT9kBg","shortUrl":"http://localhost:8080/CDRcfRrOR0fKa8hFiT9kBg","longUrl":"https://phishing.example.net./signin","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.923324Z","expiresAt":"2026-09-10T15:51:28.923324Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: https://phishing.example.net./signin: {"code":"CDRcfRrOR0fKa8hFiT9kBg","shortUrl":"http://localhost:8080/CDRcfRrOR0fKa8hFiT9kBg","longUrl":"https://phishing.example.net./signin","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.923324Z","expiresAt":"2026-09-10T15:51:28.923324Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: https://phishing.example.net./signin ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"CDRcfRrOR0fKa8hFiT9kBg","shortUrl":"http://localhost:8080/CDRcfRrOR0fKa8hFiT9kBg","longUrl":"https://phishing.example.net./signin","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.923324Z","expiresAt":"2026-09-10T15:51:28.923324Z","clickCount":0}>
+	org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: http://2130706433/ reached the host policy and must be refused there: {"code":"o56nQrLlsgNrkYyhiGfv3N","shortUrl":"http://localhost:8080/o56nQrLlsgNrkYyhiGfv3N","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.935445Z","expiresAt":"2026-09-10T15:51:28.935445Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: http://2130706433/: {"code":"o56nQrLlsgNrkYyhiGfv3N","shortUrl":"http://localhost:8080/o56nQrLlsgNrkYyhiGfv3N","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.935445Z","expiresAt":"2026-09-10T15:51:28.935445Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://2130706433/ ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"o56nQrLlsgNrkYyhiGfv3N","shortUrl":"http://localhost:8080/o56nQrLlsgNrkYyhiGfv3N","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.935445Z","expiresAt":"2026-09-10T15:51:28.935445Z","clickCount":0}>
+	org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: http://0x7f000001/ reached the host policy and must be refused there: {"code":"5KYFIf6pe8qt1e0yVZmsIz","shortUrl":"http://localhost:8080/5KYFIf6pe8qt1e0yVZmsIz","longUrl":"http://0x7f000001/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.946007Z","expiresAt":"2026-09-10T15:51:28.946007Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: http://0x7f000001/: {"code":"5KYFIf6pe8qt1e0yVZmsIz","shortUrl":"http://localhost:8080/5KYFIf6pe8qt1e0yVZmsIz","longUrl":"http://0x7f000001/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.946007Z","expiresAt":"2026-09-10T15:51:28.946007Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://0x7f000001/ ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"5KYFIf6pe8qt1e0yVZmsIz","shortUrl":"http://localhost:8080/5KYFIf6pe8qt1e0yVZmsIz","longUrl":"http://0x7f000001/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.946007Z","expiresAt":"2026-09-10T15:51:28.946007Z","clickCount":0}>
+	org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: http://017700000001/ reached the host policy and must be refused there: {"code":"xAb2qMJBdMZzCamRWkFbKJ","shortUrl":"http://localhost:8080/xAb2qMJBdMZzCamRWkFbKJ","longUrl":"http://017700000001/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.956001Z","expiresAt":"2026-09-10T15:51:28.956001Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: http://017700000001/: {"code":"xAb2qMJBdMZzCamRWkFbKJ","shortUrl":"http://localhost:8080/xAb2qMJBdMZzCamRWkFbKJ","longUrl":"http://017700000001/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.956001Z","expiresAt":"2026-09-10T15:51:28.956001Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://017700000001/ ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"xAb2qMJBdMZzCamRWkFbKJ","shortUrl":"http://localhost:8080/xAb2qMJBdMZzCamRWkFbKJ","longUrl":"http://017700000001/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.956001Z","expiresAt":"2026-09-10T15:51:28.956001Z","clickCount":0}>
+	org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: http://0177.0.0.1/ reached the host policy and must be refused there: {"code":"bGzOm96MoVc1HffFTDthwq","shortUrl":"http://localhost:8080/bGzOm96MoVc1HffFTDthwq","longUrl":"http://0177.0.0.1/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.966821Z","expiresAt":"2026-09-10T15:51:28.966821Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: http://0177.0.0.1/: {"code":"bGzOm96MoVc1HffFTDthwq","shortUrl":"http://localhost:8080/bGzOm96MoVc1HffFTDthwq","longUrl":"http://0177.0.0.1/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.966821Z","expiresAt":"2026-09-10T15:51:28.966821Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://0177.0.0.1/ ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"bGzOm96MoVc1HffFTDthwq","shortUrl":"http://localhost:8080/bGzOm96MoVc1HffFTDthwq","longUrl":"http://0177.0.0.1/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.966821Z","expiresAt":"2026-09-10T15:51:28.966821Z","clickCount":0}>
+	org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: http://012.0.0.1/ reached the host policy and must be refused there: {"code":"hqvRRByrFNojaQcnYSFvkv","shortUrl":"http://localhost:8080/hqvRRByrFNojaQcnYSFvkv","longUrl":"http://012.0.0.1/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.979711Z","expiresAt":"2026-09-10T15:51:28.979711Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: http://012.0.0.1/: {"code":"hqvRRByrFNojaQcnYSFvkv","shortUrl":"http://localhost:8080/hqvRRByrFNojaQcnYSFvkv","longUrl":"http://012.0.0.1/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.979711Z","expiresAt":"2026-09-10T15:51:28.979711Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://012.0.0.1/ ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"hqvRRByrFNojaQcnYSFvkv","shortUrl":"http://localhost:8080/hqvRRByrFNojaQcnYSFvkv","longUrl":"http://012.0.0.1/","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.979711Z","expiresAt":"2026-09-10T15:51:28.979711Z","clickCount":0}>
+	org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: http://localhost./internal reached the host policy and must be refused there: {"code":"XDnzyWEiRJk3N0mINTgzKN","shortUrl":"http://localhost:8080/XDnzyWEiRJk3N0mINTgzKN","longUrl":"http://localhost./internal","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.992631Z","expiresAt":"2026-09-10T15:51:28.992631Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: http://localhost./internal: {"code":"XDnzyWEiRJk3N0mINTgzKN","shortUrl":"http://localhost:8080/XDnzyWEiRJk3N0mINTgzKN","longUrl":"http://localhost./internal","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.992631Z","expiresAt":"2026-09-10T15:51:28.992631Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://localhost./internal ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"XDnzyWEiRJk3N0mINTgzKN","shortUrl":"http://localhost:8080/XDnzyWEiRJk3N0mINTgzKN","longUrl":"http://localhost./internal","status":"ACTIVE","createdAt":"2026-08-11T15:51:28.992631Z","expiresAt":"2026-09-10T15:51:28.992631Z","clickCount":0}>
+	org.opentest4j.MultipleFailuresError: Multiple Failures (3 failures)
+	org.opentest4j.AssertionFailedError: http://4294967296/ reached the host policy and must be refused there: {"code":"QUfGYDViFbT8ZrwjaIKiZu","shortUrl":"http://localhost:8080/QUfGYDViFbT8ZrwjaIKiZu","longUrl":"http://4294967296/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.008119Z","expiresAt":"2026-09-10T15:51:29.008119Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: http://4294967296/: {"code":"QUfGYDViFbT8ZrwjaIKiZu","shortUrl":"http://localhost:8080/QUfGYDViFbT8ZrwjaIKiZu","longUrl":"http://4294967296/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.008119Z","expiresAt":"2026-09-10T15:51:29.008119Z","clickCount":0} ==> expected: <url_rejected> but was: <null>
+	org.opentest4j.AssertionFailedError: one message for every host-policy refusal, or the response is a probe of the denylist: http://4294967296/ ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"QUfGYDViFbT8ZrwjaIKiZu","shortUrl":"http://localhost:8080/QUfGYDViFbT8ZrwjaIKiZu","longUrl":"http://4294967296/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.008119Z","expiresAt":"2026-09-10T15:51:29.008119Z","clickCount":0}>
+[ERROR]   HostEvasionRefusalTest.theRefusalRevealsNothingAboutWhichCheckFired:191 Multiple Failures (4 failures)
+	org.opentest4j.AssertionFailedError: {"code":"W9l5tMMYeczv3d1LspfKvV","shortUrl":"http://localhost:8080/W9l5tMMYeczv3d1LspfKvV","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.430857Z","expiresAt":"2026-09-10T15:51:29.430857Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: {"code":"CK2AOANTd2QiXNcvwjwFXa","shortUrl":"http://localhost:8080/CK2AOANTd2QiXNcvwjwFXa","longUrl":"http://4294967296/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.443933Z","expiresAt":"2026-09-10T15:51:29.443933Z","clickCount":0} ==> expected: <422> but was: <201>
+	org.opentest4j.AssertionFailedError: an internal address and a denylisted host are one answer ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"W9l5tMMYeczv3d1LspfKvV","shortUrl":"http://localhost:8080/W9l5tMMYeczv3d1LspfKvV","longUrl":"http://2130706433/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.430857Z","expiresAt":"2026-09-10T15:51:29.430857Z","clickCount":0}>
+	org.opentest4j.AssertionFailedError: and so is a host that could not be canonicalised - it fails closed to the same 422 rather than to a 400 that would say the spelling did not parse ==> expected: <{"error":"url_rejected","message":"The submitted URL cannot be shortened."}> but was: <{"code":"CK2AOANTd2QiXNcvwjwFXa","shortUrl":"http://localhost:8080/CK2AOANTd2QiXNcvwjwFXa","longUrl":"http://4294967296/","status":"ACTIVE","createdAt":"2026-08-11T15:51:29.443933Z","expiresAt":"2026-09-10T15:51:29.443933Z","clickCount":0}>
+[INFO] 
+[ERROR] Tests run: 11, Failures: 6, Errors: 0, Skipped: 0
+[INFO] 
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  16.898 s
+[INFO] Finished at: 2026-08-11T10:51:29-05:00
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal org.apache.maven.plugins:maven-surefire-plugin:3.5.6:test (default-test) on project url-shortener: There are test failures.
+[ERROR] 
+[ERROR] See /home/neil/repos/url-shortener/runs/brownfield-1/ac3-evidence/service/target/surefire-reports for the individual test results.
+[ERROR] See dump files (if any exist) [date].dump, [date]-jvmRun[N].dump and [date].dumpstream.
+[ERROR] -> [Help 1]
+[ERROR] 
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
+[ERROR] 
+[ERROR] For more information about the errors and possible solutions, please read the following articles:
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException

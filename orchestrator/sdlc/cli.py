@@ -28,10 +28,10 @@ from .audit import Journal, TamperError
 from .budget import BudgetGuard
 from .checkpoint import CheckpointManager, Git
 from .engine import Engine, new_run_id
-from .graph import load_pipeline, parallel_groups
+from .graph import descendants, load_pipeline, parallel_groups
 from .metrics import compute, render_text
 from .mock import load_script
-from .model import Approval, ApprovalDecision, RunStatus
+from .model import Approval, ApprovalDecision, NodeStatus, RunStatus
 from .state import RunStore
 
 DEFAULT_PIPELINE = "orchestrator/pipelines/sdlc.yaml"
@@ -179,6 +179,51 @@ def cmd_resume(args: argparse.Namespace) -> int:
     manifest = _load_manifest(runs_root, args.run_id)
     status = _engine(runs_root, args.run_id, manifest).run(resume=True)
     return _report_status(runs_root, args.run_id, status)
+
+
+def cmd_repair(args: argparse.Namespace) -> int:
+    """Send work back to a branch on a human's say-so.
+
+    The gap this fills: `triage` can route a repair, but only out of a `verify`
+    failure. A run whose build is green and whose *review* found something has
+    no route back at all -- rejecting the reviewing node re-runs the reviewer,
+    which cannot change code, and approving it accepts the finding. A human who
+    reads a blocker and wants it fixed was left with no move the orchestrator
+    understood.
+
+    Recorded as `human_repair_requested`, deliberately not as `repair_routed`:
+    the journal should never say the machine decided something a person decided.
+    """
+    runs_root = Path(args.runs_dir)
+    manifest = _load_manifest(runs_root, args.run_id)
+    pipeline = load_pipeline(Path(manifest["pipeline"]))
+    store = _store(runs_root)
+    journal = _journal(runs_root, args.run_id)
+
+    unknown = [n for n in args.node_id if n not in set(pipeline.node_ids)]
+    if unknown:
+        raise SystemExit(f"unknown node(s): {', '.join(unknown)}")
+
+    reset: set[str] = set()
+    for node_id in args.node_id:
+        reset |= {node_id} | descendants(pipeline, node_id)
+    for node_id in sorted(reset):
+        store.set_node(args.run_id, node_id, NodeStatus.PENDING, attempt=0)
+        store.clear_approval(args.run_id, node_id)
+
+    for node_id in args.node_id:
+        journal.append(
+            "human_repair_requested",
+            node_id=node_id,
+            approver=args.approver,
+            reason=args.note,
+            reset_nodes=sorted(reset),
+        )
+
+    print(f"repair requested by {args.approver} at: {', '.join(args.node_id)}")
+    print(f"  reset to pending: {', '.join(sorted(reset))}")
+    print(f"  next: python -m sdlc.cli resume {args.run_id}")
+    return 0
 
 
 def _report_status(runs_root: Path, run_id: str, status: RunStatus) -> int:
@@ -367,6 +412,20 @@ def build_parser() -> argparse.ArgumentParser:
             ),
         )
         cmd.set_defaults(func=lambda a, d=decision: cmd_decide(a, d))
+
+    repair = sub.add_parser(
+        "repair", help="send work back to a node on a human's decision"
+    )
+    repair.add_argument("run_id")
+    repair.add_argument("node_id", nargs="+", help="node(s) to re-run")
+    repair.add_argument("--approver", required=True)
+    repair.add_argument(
+        "--note",
+        required=True,
+        help="what to fix and why; reaches the node as its brief, so it is the "
+        "whole instruction rather than a label",
+    )
+    repair.set_defaults(func=cmd_repair)
 
     stop = sub.add_parser("stop", help="request a safe stop at the next node boundary")
     stop.add_argument("run_id")

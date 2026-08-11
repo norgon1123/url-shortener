@@ -38,12 +38,41 @@ public final class TestInfrastructure {
     public static final int REDIS_PORT = 6379;
 
     /**
+     * Connection slots the shared database offers, well above the sum of every
+     * pool the suite holds open at once.
+     *
+     * <p>This number is the suite's connection budget and it is arithmetic, not
+     * taste. Each distinct {@code @SpringBootTest} property set gets its own
+     * cached application context (see {@link AbstractIntegrationTest}), Spring
+     * keeps those contexts for the lifetime of the JVM -- surefire runs one fork
+     * -- and every one of them holds a HikariCP pool at the Spring Boot default
+     * maximum of ten connections, plus the applications
+     * {@link AbstractRestartIntegrationTest} boots itself. At PostgreSQL's stock
+     * {@code max_connections=100} that ceiling is reached at the tenth context,
+     * and the eleventh fails at Flyway with {@code FATAL: sorry, too many clients
+     * already} -- a whole test class erroring in context startup, before any test
+     * body runs, for a reason that has nothing to do with what it asserts and
+     * that lands on whichever class happens to sort last.
+     *
+     * <p>Raising the ceiling here rather than shrinking the pools keeps the
+     * suite's concurrency behaviours honest: several of them
+     * (racing sign-ups, concurrent clicks) depend on requests genuinely
+     * overlapping, and a pool small enough to queue them would turn a real race
+     * into a queue and pass against an implementation that has none.
+     */
+    public static final int MAX_CONNECTIONS = 500;
+
+    /**
      * Real PostgreSQL, never an in-memory dialect: this service leans on a
      * unique constraint for code collisions and on timestamp comparison for
      * expiry, and a fake dialect would fake exactly the behaviour under test.
+     *
+     * <p>Started with a raised {@code max_connections}; see
+     * {@link #MAX_CONNECTIONS} for the arithmetic that forces it.
      */
     public static final PostgreSQLContainer<?> POSTGRES =
-            new PostgreSQLContainer<>(DockerImageName.parse("postgres:17-alpine"));
+            new PostgreSQLContainer<>(DockerImageName.parse("postgres:17-alpine"))
+                    .withCommand("postgres", "-c", "max_connections=" + MAX_CONNECTIONS);
 
     /**
      * Real Redis: the click counters, the resolution cache and the token buckets

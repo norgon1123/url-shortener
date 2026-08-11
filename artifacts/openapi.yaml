@@ -2,29 +2,103 @@ openapi: 3.0.3
 
 info:
   title: URL Shortener API
-  version: 1.0.0
+  version: 1.1.0
   description: |
-    Signed-in customers turn long URLs into short links; anyone may click one and
-    is redirected; every click is counted exactly and reported back to the link's
-    owner.
+    Customers turn long URLs into short links; anyone may click one and is
+    redirected; every click is counted exactly and reported back to the link's
+    owner. Anyone may also create an account, and anyone may create a short link
+    without one.
 
     This document is the frozen contract. The implementation and the tests are
     written in parallel, in isolation, by authors who never see each other's
     work, so anything not fixed here is something they can disagree about. What
     follows is therefore more prescriptive than an API description usually is.
 
-    ## Two surfaces
+    ## What changed in 1.1.0
+
+    A minor version, not a major one, and the reasoning is worth stating because
+    one of the three items narrows an existing endpoint.
+
+    1. **The safety filter now resists equivalent-form evasion.** Two confirmed
+       bypasses of `POST /api/v1/links` are closed - a denylisted host written
+       with a trailing dot, and an internal address written as a plain number -
+       along with the family they belong to. This *narrows* what that endpoint
+       accepts: targets such as `http://2130706433/` returned 201 before and
+       return 422 now. It is versioned as additive anyway, because the document
+       always said internal and denylisted hosts are refused; the old behaviour
+       was a defect against this contract, not a promise in it. Links already
+       created through those forms keep redirecting - there is no retroactive
+       rescan - so the service will refuse to mint a URL it is still serving.
+       That is deliberate; see `POST /api/v1/links`.
+    2. **`POST /api/v1/customers`** - self-service account creation, and with it
+       one new value in the closed error catalogue, `account_unavailable`.
+    3. **`POST /api/v1/public/links`** - link creation with no credentials, for
+       links nobody owns.
+
+    ## Three surfaces
 
     | Surface | Path | Authentication |
     |---|---|---|
-    | Management API | `/api/v1/**`, JSON | `Authorization: Bearer <token>`, except sign-in |
+    | Management API | `/api/v1/**`, JSON | `Authorization: Bearer <token>` |
+    | Unauthenticated API | `POST /api/v1/sessions`, `POST /api/v1/customers`, `POST /api/v1/public/links` | none |
     | Click path | `/{code}` at the root | none, ever (AC14) |
+
+    The three unauthenticated routes are exhaustive and are listed here because
+    they are also the exemption list in the session filter, which is the whole of
+    the access-control policy for `/api/v1/**`. Two properties of that list bind
+    the implementation:
+
+    - The match is **exact path equality**, never a prefix, never `startsWith`,
+      never a trailing-slash or case variant. A loose match on
+      `/api/v1/public/links` or `/api/v1/customers` unauthenticates neighbouring
+      management routes, and it does so with a green build, because no existing
+      test asserts 401 for a token-free request against a newly exempted
+      neighbour.
+    - The exemption is **not method-aware**: an exempted path is outside the
+      filter for every verb. `GET`, `PUT`, `PATCH` and `DELETE` on the two new
+      paths must therefore reach Spring's dispatcher and answer **405**, not an
+      unauthenticated handler and not 401. No operation is declared for them
+      here, for the same reason 405 on `/{code}` is not declared.
 
     The redirect lives at the root and not under a prefix because that is what
     makes a short link short. Uniqueness of a code is scoped to
     `(domain, code)` from day one, with a single configured domain in this
     build, so customer-owned domains arrive later as data rather than as a
     migration.
+
+    ## Host policy and equivalent forms
+
+    Both host-based decisions - "is this an internal address" and "is this host
+    on the threat denylist" - are taken on one canonical form of the host,
+    produced at a single point (`HostNormalizer`) and shared by both. Two hosts
+    that a browser would reach the same machine through are one host here.
+
+    Canonicalisation is: lower-case; strip trailing dots; punycode a unicode
+    name; and render every numeric IPv4 form as a dotted quad - decimal
+    (`2130706433`), hexadecimal (`0x7f000001`), octal (`017700000001`,
+    `0177.0.0.1`) and short forms (`127.1`) all become `127.0.0.1`. A host that
+    cannot be canonicalised unambiguously - an out-of-range numeric address like
+    `999.999.999.999`, an empty label - is **refused with 422 `url_rejected`**,
+    never accepted and never downgraded to 400. This check fails closed.
+
+    Three consequences that both branches depend on:
+
+    - Canonicalisation is for **checking only**. The stored `longUrl` and the
+      `Location` header on a redirect stay byte-identical to what was submitted.
+      Nothing rewrites a target.
+    - No label is ever removed, so denylist matching stays label-based:
+      `sub.campaign.malware.example.com` is refused;
+      `notmalware.example.com` and `malware.example.com.evil.test` are not.
+    - **DNS is still not resolved**, on either create path. A name that resolves
+      publicly at create time can resolve internally at click time, so the lookup
+      buys less than it appears to, and it would put a network round trip on a
+      write path that is meant to stay thin. "Equivalent form" here means
+      textual and numeric equivalence of what was written, and nothing more.
+
+    Forms that `java.net.URI` cannot parse a host from at all - `http://127.1/`,
+    `http://0x7f.0.0.1/`, a unicode authority - are unaffected: they were already
+    refused with 400 `invalid_request` before this change and still are. The
+    400-vs-422 split is unchanged.
 
     ## The single 404
 
@@ -53,6 +127,7 @@ info:
     | `unauthorized` | 401 | Authentication required. |
     | `not_found` | 404 | Not found |
     | `alias_unavailable` | 409 | That short code is not available. |
+    | `account_unavailable` | 409 | That account name is not available. |
     | `link_not_modifiable` | 409 | This link can no longer be modified. |
     | `url_rejected` | 422 | The submitted URL cannot be shortened. |
     | `rate_limited` | 429 | Too many requests. |
@@ -61,6 +136,16 @@ info:
     Messages never echo request content. `fields` is present only on
     `invalid_request` and is omitted otherwise, so the not-found body is
     identical everywhere.
+
+    `account_unavailable` is new in 1.1.0 and is the one entry that cuts against
+    this API's habit of refusing to be an existence oracle. It is reachable only
+    from `POST /api/v1/customers`, so no existing client can receive it. It is
+    there because AC6 requires a duplicate sign-up to be visibly refused, and
+    every wording of a visible refusal tells the caller that address has an
+    account: the choice was which status carries the disclosure, not whether to
+    disclose. 409 is the same answer `alias_unavailable` gives to the same shape
+    of question. The IP-keyed sign-up bucket is what bounds the enumeration this
+    permits, which makes that bucket load-bearing rather than decorative.
 
     ## Conventions
 
@@ -73,7 +158,7 @@ info:
 
     ## Rate limits (AC19)
 
-    Five independent token buckets, all of them configuration:
+    Seven independent token buckets, all of them configuration:
 
     | Bucket | Keyed by | Applies to | Default |
     |---|---|---|---|
@@ -82,6 +167,8 @@ info:
     | write | customer id | `POST/PATCH/DELETE` under `/api/v1/links` | `app.rate-limit.write-per-minute`, 300 |
     | abuse-report | customer id | `POST /api/v1/links/{code}/abuse-reports` | `app.rate-limit.abuse-report-per-minute`, 60 |
     | sign-in | client IP | `POST /api/v1/sessions` | `app.rate-limit.sign-in-per-minute`, 60 |
+    | sign-up | client IP | `POST /api/v1/customers` | `app.rate-limit.sign-up-per-minute`, 60 |
+    | anonymous-create | client IP | `POST /api/v1/public/links` | `app.rate-limit.anonymous-create-per-minute`, 30 |
 
     The not-found bucket is much tighter than the click bucket on purpose: an
     enumeration sweep is a long run of 404s, while a link that has gone viral is
@@ -90,11 +177,31 @@ info:
     an ordinary integration test running from one address never trips them; a
     test that wants to observe a 429 lowers the relevant property.
 
+    The two new buckets are keyed by client IP because an unauthenticated caller
+    has no customer id, and they are keyed by `getRemoteAddr()` specifically:
+    `X-Forwarded-For` is **not** trusted, because trusting a client-supplied
+    header with no configured trusted-proxy list would make every IP-keyed bucket
+    in this service spoofable, including the two that already defend the click
+    path. The operational consequence is that behind a proxy which does not
+    preserve the source address, every anonymous caller shares one bucket and
+    these numbers are global ceilings rather than per-caller ones. That is
+    recorded in the runbook, not fixed in code.
+
+    Bucket keys in Redis are `ratelimit:<bucket>:<key>`, so no bucket can spend
+    another's tokens. This is what gives AC14 - "the anonymous path cannot be
+    used to bypass the limits on authenticated creation" - a mechanical meaning
+    rather than an argued one: exhausting `anonymous-create` leaves `write`
+    untouched and vice versa, and `anonymous-create` is an order of magnitude
+    below `write`, so the unauthenticated route is never the cheaper way to mint
+    links.
+
     ## Seeded fixtures (part of the freeze)
 
-    There is no registration endpoint - provisioning was never in scope - so
-    accounts arrive by migration. Both branches depend on these values: the
-    migration writes them, the tests sign in with them.
+    Accounts can now be created through `POST /api/v1/customers`. These two still
+    arrive by migration and are unchanged by that: both branches depend on the
+    values, the migration writes them, and the tests sign in with them. They must
+    still sign in after the new `lower(email)` uniqueness constraint lands
+    (AC16).
 
     | Customer id | email | password |
     |---|---|---|
@@ -133,6 +240,37 @@ info:
        integration test at once and read like a broken harness.
     5. Credentials and keys stay in the unquoted `${VAR:default}` placeholder
        style the configuration already uses.
+    6. An anonymous link is a `links` row whose owner column is NULL - not a
+       sentinel "anonymous customer". Every owner-scoped query is an equality
+       match on that column and SQL equality never matches NULL, so AC13 holds
+       in the query plan rather than in a filter somebody has to remember. A
+       sentinel account would be a row that could be signed into and whose link
+       list would be every anonymous link in the system.
+    7. Two schema changes ship ahead of the code, in that order: relax
+       `links.customer_id` to nullable, and add a unique index over
+       `lower(email)` on `customers`. Both are Flyway migrations in a
+       pipeline-protected directory and both need a human on the diff. The
+       second one **fails to apply** if the live table already holds two
+       addresses differing only in case, so the duplicate check
+       (`SELECT lower(email), count(*) FROM customers GROUP BY 1 HAVING
+       count(*) > 1`) belongs in the migration's review note, not in a comment.
+       Neither migration is written by `design`: that directory is outside this
+       node's write paths.
+    8. New configuration, all with defaults in `AppProperties` so nothing must
+       change in `application.yml`: `app.links.anonymous-ttl` (P30D),
+       `app.rate-limit.sign-up-per-minute` (60),
+       `app.rate-limit.anonymous-create-per-minute` (30).
+    9. The anonymous create path is the *same* code path as the authenticated
+       one - same validator, same threat check, same 22-character CSPRNG code
+       generator, same `(domain, code)` uniqueness, same pre-issue cache
+       invalidation and the same 503 when it fails. It differs in three
+       arguments: no owner, the anonymous TTL, and a different bucket. Anything
+       written as a parallel implementation will drift, and AC11, AC12 and AC15
+       are all statements that it must not.
+    10. During a rolling deploy the two new paths answer 401 (old pod: filtered,
+       not exempt) or their documented status (new pod), for the length of the
+       rollout. No code fixes this; announce the endpoints only once the rollout
+       has completed.
 
 servers:
   - url: http://localhost:8080
@@ -141,8 +279,15 @@ servers:
 tags:
   - name: sessions
     description: Sign-in. Issues the stateless token every other management call carries.
+  - name: customers
+    description: Account creation. The only operation on customers in this build.
   - name: links
     description: Owner-scoped link management.
+  - name: public
+    description: >
+      Link creation with no credentials, for links nobody owns. Separated from
+      `links` because it is a different ownership model, not a different
+      authentication mode for the same one.
   - name: abuse
     description: Abuse reporting and takedown.
   - name: click
@@ -208,6 +353,236 @@ paths:
         '429':
           $ref: '#/components/responses/RateLimited'
 
+  /api/v1/customers:
+    post:
+      tags: [customers]
+      operationId: signUp
+      summary: Create an account
+      description: |
+        Creates a customer account from an account name and a password (AC4),
+        with no credentials required. The credentials then work at
+        `POST /api/v1/sessions`, and the token that returns is accepted by every
+        endpoint an existing customer's token is accepted by (AC5) - it is the
+        same token, from the same issuer, for an account that differs from a
+        seeded one only in how the row got there.
+
+        **"Account name" is the email address.** The requirement left this open
+        and this contract closes it: sign-up posts the same two fields sign-in
+        posts, uniqueness is over the lower-cased email, and `SignInRequest`,
+        `SignInResponse` and `POST /api/v1/sessions` are untouched. A separate
+        username would need a new column, a second sign-in identifier, an edit to
+        a frozen request schema, and a ruling on which of the two identifies the
+        seeded accounts. If that is what was wanted, it must be said before the
+        parallel branches start, not after.
+
+        **No session token in the response.** AC5 describes signing in as a
+        separate subsequent step, and issuing a token from an endpoint that is
+        not the session endpoint duplicates the issuing path - two places to get
+        lifetime, claims and throttling wrong instead of one.
+
+        **No `Location` header on the 201.** There is no
+        `GET /api/v1/customers/{id}` in this build and none is planned here, so a
+        `Location` would name a path that answers 401 without a token and 405
+        with one, for every caller including the account just created. A header
+        that resolves for nobody is still a contract statement, and removing it
+        later would be a breaking change rather than an edit. This is the same
+        objection that keeps `Location` off anonymous creation; taking it one way
+        there and the other way here would be an inconsistency a client has to
+        learn. The created id is in the body.
+
+        **Uniqueness is decided by the database, not by a lookup.** AC6 requires
+        that when two sign-ups for the same address race, exactly one wins - a
+        read-then-write cannot promise that at any isolation level this service
+        runs at. The insert is attempted and the unique constraint over
+        `lower(email)` decides; the loser is translated into 409
+        `account_unavailable`. The constraint is over the *lower-cased* address
+        because `findByEmailIgnoreCase` already treats case variants as one
+        account: without it, `Alice@` and `alice@` both insert and the next
+        sign-in for either one fails on a non-unique result.
+
+        The password is hashed with the same Argon2id mechanism, at the same
+        parameters, that holds the seeded accounts' passwords (AC7). It is never
+        logged and appears in no response body, on this endpoint or any other.
+
+        This endpoint is unauthenticated, writes to PostgreSQL, and does ~25 ms
+        of memory-hard hashing before it does. The IP-keyed sign-up bucket is the
+        only thing between that and a CPU exhaustion vector, and the only thing
+        bounding the account enumeration the 409 permits.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignUpRequest'
+            example:
+              email: carol@example.com
+              password: correct-horse-battery-staple
+      responses:
+        '201':
+          description: |
+            The account exists and can sign in. No `Location` header, and no
+            token - see the description.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignUpResponse'
+              example:
+                customerId: 3f1b2c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d
+                email: carol@example.com
+                createdAt: '2026-08-11T12:00:00Z'
+        '400':
+          description: |
+            Malformed body, unknown property, `email` absent or not a
+            well-formed address, or `password` absent, shorter than 12
+            characters or longer than 256.
+
+            `fields` names the field and the rule, never the value - an error
+            body that echoed a password would defeat the point of hashing it.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: invalid_request
+                message: The request is not valid.
+                fields:
+                  password: size must be between 12 and 256
+        '409':
+          description: |
+            That account name already exists. Says nothing else: not who holds
+            it, not when it was taken, and not whether the loss was to a
+            registration two years ago or to a request racing this one a
+            millisecond ago.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: account_unavailable
+                message: That account name is not available.
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /api/v1/public/links:
+    post:
+      tags: [public]
+      operationId: createAnonymousLink
+      summary: Create a short link with no account
+      description: |
+        Turns a long URL into a short link for a caller who is not signed in
+        (AC9). Nobody owns the result: holding the link is the whole of the
+        holder's relationship with it.
+
+        **What "nobody owns it" means on the wire.** The code never appears in
+        any customer's list, and `GET`, `PATCH` and `DELETE`
+        `/api/v1/links/{code}` answer 404 for it - for every caller, signed in or
+        not, including whoever created it (AC13). That is not a special case in
+        those endpoints; the row has no owner and every owner-scoped query is an
+        equality match on the owner, which NULL never satisfies. There is no way
+        to change its target, extend its expiry, take it down, or read its click
+        count. The response below is the only copy of the link's details the
+        holder will ever get, which is why it carries `expiresAt` rather than
+        leaving it implicit.
+
+        **Everything else is identical to an owned link** (AC11), because it is
+        literally the same code: the same 22-character CSPRNG code from the same
+        namespace, the same redirect with the same status and cache headers, the
+        same exact click counting, and the same 60-second takedown bound if it is
+        reported for abuse. `POST /api/v1/links/{code}/abuse-reports` still
+        answers 202 for an anonymous code and still blocks it - an unowned link
+        is the one most in need of a takedown path, and carving it out would
+        reintroduce the existence oracle that endpoint exists to avoid.
+
+        **The same safety rules apply** (AC12), through the same validator and
+        the same denylist as the authenticated path, including the equivalent-form
+        normalisation described at the top of this document. There is no target
+        this endpoint accepts that `POST /api/v1/links` would refuse.
+
+        **Expiry is fixed, not chosen.** `app.links.anonymous-ttl` from creation,
+        30 days by default (AC10). After that instant the code answers 404 on the
+        click path like any expired link. The caller cannot supply `expiresAt`
+        and cannot supply `alias`: both are undeclared properties and are
+        therefore 400. Aliases are refused because codes are never reissued, so
+        an unidentified caller choosing memorable ones is permanent namespace
+        squatting with no owner to revoke it.
+
+        **No `Location` header.** It would have to point at
+        `/api/v1/links/{code}`, which answers 401 or 404 for every caller
+        including the creator.
+
+        There is no 401 on this operation, by construction: the path is exempt
+        from the session filter, so a request carrying a bad token is treated
+        exactly like one carrying none.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAnonymousLinkRequest'
+            example:
+              longUrl: https://example.com/a/very/long/path?with=query
+      responses:
+        '201':
+          description: |
+            Created, unowned. No `Location` header - see the description.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnonymousLinkResponse'
+              example:
+                code: 4Rp8xJ2tQw6Yb1Nd7Kv3Ls
+                shortUrl: http://localhost:8080/4Rp8xJ2tQw6Yb1Nd7Kv3Ls
+                longUrl: https://example.com/a/very/long/path?with=query
+                createdAt: '2026-08-11T12:00:00Z'
+                expiresAt: '2026-09-10T12:00:00Z'
+        '400':
+          description: |
+            Malformed body, `longUrl` absent, not absolute http(s), or longer
+            than 2048 characters - or an `alias` or `expiresAt` property, which
+            this operation does not define and therefore refuses.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: invalid_request
+                message: The request is not valid.
+                fields:
+                  longUrl: must be an absolute http or https URL
+        '422':
+          description: |
+            The URL parses but may not be shortened: denylisted, internal,
+            loopback, private, link-local, this service's own origin, or an
+            equivalent-form spelling of any of those. Byte-identical to the 422
+            the authenticated create path returns, and one message for all of
+            them.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: url_rejected
+                message: The submitted URL cannot be shortened.
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          description: |
+            A dependency the create path needs is unavailable - in practice the
+            pre-issue cache invalidation, which refuses rather than issue a code
+            it cannot clear a stale negative entry for. The click path keeps
+            serving redirects throughout: degradation is spent on refusing new
+            links, never on serving clicks (AC15), and this endpoint is subject
+            to that rule exactly as `POST /api/v1/links` is.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: service_unavailable
+                message: Temporarily unable to accept new links.
+
   /api/v1/links:
     post:
       tags: [links]
@@ -233,6 +608,20 @@ paths:
         answer, the link is accepted and the event is logged at WARN - AC20's
         stated preference is availability, and this is where that preference is
         actually spent.
+
+        **Narrowed in 1.1.0.** Host policy and the denylist are now decided on a
+        canonical form of the host, so equivalent spellings of a refused host are
+        refused too: `https://malware.example.com./x` and `http://2130706433/`
+        answer 422, where both answered 201 before. See "Host policy and
+        equivalent forms" at the top of this document for the full rule. Callers
+        submitting numeric-literal targets are the exposed population and are
+        exactly the population the change is for. There is no retroactive rescan:
+        links already created through those forms keep redirecting, so for a
+        while the service refuses to mint URLs it is still serving. That
+        asymmetry is deliberate - a sweep that retired live links would be a
+        bigger, separately-reviewable change than closing the hole - and the
+        refusals are logged at INFO so the new 422 rate can be watched after
+        deploy.
 
         The same long URL submitted twice yields two independent links with
         independent counts. Deduplicating would share a count across customers and
@@ -309,9 +698,13 @@ paths:
         '422':
           description: |
             The URL parses but may not be shortened: a denylisted target (AC21),
-            an internal/loopback/private/link-local host, or this service's own
-            origin (A14). One message for all of them, so the response is not a
-            probe of the denylist or of our internal network.
+            an internal/loopback/private/link-local host, this service's own
+            origin (A14), an equivalent-form spelling of any of those, or a host
+            that cannot be canonicalised unambiguously. One message for all of
+            them, so the response is not a probe of the denylist or of our
+            internal network - which also means a caller cannot tell from the
+            wire which check fired. That is the intended trade, and the reason
+            the refusals are logged.
           content:
             application/json:
               schema:
@@ -349,6 +742,11 @@ paths:
         customer's link is not omitted from this list, it is invisible to it
         (AC13). Without a UI, this is also the only way a customer who has lost a
         code can reach their own link again.
+
+        Anonymously created links are invisible here for the same reason and by
+        the same mechanism - they have no owner, and the query matches on owner
+        equality. They appear in no customer's list, ever, including the list of
+        whoever created them.
       parameters:
         - $ref: '#/components/parameters/PageParam'
         - $ref: '#/components/parameters/SizeParam'
@@ -742,8 +1140,10 @@ components:
             message: Authentication required.
     NotFound:
       description: |
-        The code does not resolve for this caller: never issued, or somebody
-        else's. Byte-identical to every other not-found in this API.
+        The code does not resolve for this caller: never issued, somebody else's,
+        or created anonymously and therefore nobody's. Byte-identical to every
+        other not-found in this API - the three are not distinguishable, which is
+        the point.
       content:
         application/json:
           schema:
@@ -785,6 +1185,7 @@ components:
             - unauthorized
             - not_found
             - alias_unavailable
+            - account_unavailable
             - link_not_modifiable
             - url_rejected
             - rate_limited
@@ -820,6 +1221,58 @@ components:
           type: string
           maxLength: 256
           format: password
+
+    SignUpRequest:
+      type: object
+      description: |
+        The same two fields `SignInRequest` carries, deliberately: "create an
+        account, then sign in with it" is then the same body posted to two paths
+        rather than a translation the caller performs. `SignInRequest` itself is
+        unchanged.
+      required: [email, password]
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+          description: |
+            The account name and the login identity. Validated as an email
+            address - a value with no `@` is 400 with `fields.email`. Uniqueness
+            is over the lower-cased value and is enforced by a database
+            constraint, so two addresses differing only in case are one account.
+        password:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 256
+          description: |
+            Minimum 12 characters, maximum 256. No composition rules and no
+            denylist: the requirement speaks only to how passwords are held, 12
+            is the smallest rule that stops a one-character password, and
+            composition rules mostly buy predictable substitutions. The maximum
+            matches `SignInRequest`, so a password that can be chosen can always
+            be typed back.
+
+    SignUpResponse:
+      type: object
+      description: |
+        The created account, and nothing else. No token, no password field in
+        any form, no `Location` header on the response that carries it.
+      required: [customerId, email, createdAt]
+      additionalProperties: false
+      properties:
+        customerId:
+          type: string
+          format: uuid
+          description: The same id `SignInResponse` returns for these credentials.
+        email:
+          type: string
+          format: email
+          description: The address as stored.
+        createdAt:
+          type: string
+          format: date-time
 
     SignInResponse:
       type: object
@@ -865,6 +1318,58 @@ components:
             from creation. There is no way to request a link that never expires;
             the permanent tier is a later build, and it arrives as a null column
             rather than a schema change.
+
+    CreateAnonymousLinkRequest:
+      type: object
+      description: |
+        One field, and `additionalProperties: false` is enforced rather than
+        documentary. `alias` and `expiresAt` are not merely absent here, they are
+        refused: a body carrying either is 400. This is a separate schema from
+        `CreateLinkRequest` for exactly that reason - reusing that one would
+        silently accept both.
+      required: [longUrl]
+      additionalProperties: false
+      properties:
+        longUrl:
+          type: string
+          maxLength: 2048
+          description: Absolute http or https URL with a host.
+
+    AnonymousLinkResponse:
+      type: object
+      description: |
+        Narrower than `LinkResponse`, and the two missing fields are the point.
+        `status` and `clickCount` are absent because nobody may read an anonymous
+        link's numbers (AC13); including them would invite a client to expect to
+        fetch them again from an endpoint that will only ever answer 404. This
+        body is the only record of the link the holder gets.
+      required: [code, shortUrl, longUrl, createdAt, expiresAt]
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          description: |
+            The stable identifier, from the same 22-character CSPRNG namespace as
+            every other code. Never reissued.
+        shortUrl:
+          type: string
+          format: uri
+          description: '`app.base-url` + `/` + `code`.'
+        longUrl:
+          type: string
+          description: |
+            The target, byte-identical to what was submitted. Host
+            canonicalisation is used for checking only and never rewrites what is
+            stored or served.
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+          description: |
+            `createdAt` plus `app.links.anonymous-ttl` (30 days by default).
+            Never caller-supplied and never changeable afterwards.
 
     UpdateLinkExpiryRequest:
       type: object

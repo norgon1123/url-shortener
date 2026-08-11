@@ -1,11 +1,16 @@
 # URL Shortener — API guide
 
-Two surfaces:
+Three surfaces:
 
 | Surface | Path | Auth |
 |---|---|---|
-| Management API | `/api/v1/**`, JSON | `Authorization: Bearer <token>`, except sign-in |
+| Management API | `/api/v1/**`, JSON | `Authorization: Bearer <token>` |
+| Unauthenticated API | `POST /api/v1/sessions`, `POST /api/v1/customers`, `POST /api/v1/public/links` | none |
 | Click path | `GET /{code}` at the root | none, ever |
+
+The three unauthenticated paths are exhaustive, matched by exact path equality,
+and exempt for every HTTP method — so `GET`/`PUT`/`DELETE` on them answer `405`,
+not `401`.
 
 The machine-readable contract is [`../artifacts/openapi.yaml`](../artifacts/openapi.yaml).
 To start a service to run these commands against, see
@@ -16,9 +21,45 @@ Every command below works verbatim against a local service on
 
 ---
 
-## 1. Sign in
+## 1. Create an account
 
-There is no registration endpoint. Two accounts are created by migration
+```bash
+curl -s -X POST http://localhost:8080/api/v1/customers \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"carol@example.com","password":"correct-horse-battery-staple"}'
+```
+
+`201`:
+
+```json
+{
+  "customerId": "3f1b2c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+  "email": "carol@example.com",
+  "createdAt": "2026-08-11T12:00:00Z"
+}
+```
+
+The **account name is the email address** — the same two fields sign-in takes.
+There is no separate username.
+
+- `email` — required, validated as an address, ≤ 320 characters.
+- `password` — required, 12–256 characters. No composition rules.
+- Any other property is a `400`. `fields` names the rule, never the value, so a
+  password is never echoed back.
+
+**No token and no `Location` header on the 201.** Signing in is the next
+request (section 2); there is no `GET /api/v1/customers/{id}` to point at.
+
+Posting an address that already exists — in any case variant, `Alice@` and
+`alice@` are one account — is `409 account_unavailable`. The refusal is decided
+by a unique index over `lower(email)`, not by a lookup, so when two sign-ups for
+one address race, exactly one wins. That 409 does disclose that an address is
+registered; the IP-keyed sign-up bucket (60/min) is what bounds enumeration
+through it.
+
+## 2. Sign in
+
+Two accounts are also created by migration
 (`V2__seed_customers_and_denylist.sql`) and exist for local and test use only:
 
 | Customer id | Email | Password |
@@ -55,7 +96,7 @@ service. It is **not refreshable and cannot be revoked** — there is no sign-ou
 endpoint. A wrong password and an unknown email give the same 401
 `invalid_credentials` and take the same time to answer.
 
-## 2. Create a link
+## 3. Create a link
 
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/links \
@@ -109,7 +150,56 @@ Body rules:
 Submitting the same long URL twice gives two independent links with independent
 counts; there is no deduplication.
 
-## 3. Follow a link
+The target host is checked in canonical form, so equivalent spellings of a
+refused host are refused too — see [Host rules](#host-rules).
+
+## 4. Create a link without an account
+
+No credentials at all:
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/public/links \
+  -H 'Content-Type: application/json' \
+  -d '{"longUrl":"https://example.com/a/very/long/path?with=query"}'
+```
+
+`201`, no `Location` header:
+
+```json
+{
+  "code": "4Rp8xJ2tQw6Yb1Nd7Kv3Ls",
+  "shortUrl": "http://localhost:8080/4Rp8xJ2tQw6Yb1Nd7Kv3Ls",
+  "longUrl": "https://example.com/a/very/long/path?with=query",
+  "createdAt": "2026-08-11T12:00:00Z",
+  "expiresAt": "2026-09-10T12:00:00Z"
+}
+```
+
+**Nobody owns the result — keep that response.** It is the only copy of the
+link's details anyone will get. The code appears in no customer's list, and
+`GET`, `PATCH` and `DELETE /api/v1/links/{code}` answer `404` for it, for every
+caller including whoever created it. There is no way to change its target,
+extend its expiry, delete it, or read its click count. That is not a special
+case: the row's owner column is NULL and every owner-scoped query is an equality
+match, which NULL never satisfies.
+
+- `longUrl` is the only accepted property. `alias` and `expiresAt` are `400` —
+  the expiry is fixed at `app.links.anonymous-ttl` (30 days) from creation, and
+  aliases are refused because codes are never reissued and there would be no
+  owner to revoke a squatted one.
+- Everything else matches an owned link: same 22-character CSPRNG code from the
+  same namespace, same redirect, same exact click counting, same URL and
+  denylist checks (there is no target this path accepts that
+  `POST /api/v1/links` refuses), and the same `503` when a create-path
+  dependency is down.
+- Abuse reporting still works on an anonymous code and still blocks it.
+- No `401` is possible here; a bad token is treated exactly like no token.
+
+Its own rate-limit bucket, keyed by client IP, at 30/min — an order of magnitude
+below the authenticated write bucket, so this is never the cheaper way to mint
+links.
+
+## 5. Follow a link
 
 ```bash
 curl -i http://localhost:8080/7Qk2mZa9Xr4Lb0Nc8Tv1Ps
@@ -133,7 +223,7 @@ body. Every other method is `405`.
 
 No credentials are accepted or required here. `Authorization` is ignored.
 
-## 4. Read your links
+## 6. Read your links
 
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" \
@@ -155,7 +245,7 @@ and includes expired, deleted and blocked links of your own. `page` ≥ 0,
 still pending in Redis, so a click made a second ago is already in the number.
 Clicks that 404 are never counted.
 
-## 5. Change the expiry
+## 7. Change the expiry
 
 The only mutable property.
 
@@ -171,7 +261,7 @@ is a `400` too — `DELETE` is the takedown. Shortening the expiry takes effect
 within the same bound as a delete, because the caches are invalidated on the
 change.
 
-## 6. Delete a link
+## 8. Delete a link
 
 ```bash
 curl -i -X DELETE http://localhost:8080/api/v1/links/7Qk2mZa9Xr4Lb0Nc8Tv1Ps \
@@ -186,7 +276,7 @@ already-deleted link of yours is another `204`.
 Soft delete: the row and its click total are retained, and the code is never
 reissued to anyone.
 
-## 7. Report abuse
+## 9. Report abuse
 
 ```bash
 curl -i -X POST http://localhost:8080/api/v1/links/7Qk2mZa9Xr4Lb0Nc8Tv1Ps/abuse-reports \
@@ -225,8 +315,9 @@ echo request content.
 | `unauthorized` | 401 | Missing, malformed, expired or unverifiable token. Carries `WWW-Authenticate: Bearer` |
 | `not_found` | 404 | Code unknown, expired, deleted, blocked, malformed, or owned by someone else |
 | `alias_unavailable` | 409 | The requested alias is taken |
+| `account_unavailable` | 409 | Sign-up for an address that already has an account |
 | `link_not_modifiable` | 409 | `PATCH` on your own deleted or blocked link |
-| `url_rejected` | 422 | Denylisted host, internal/loopback/private/link-local host, or this service's own host |
+| `url_rejected` | 422 | Denylisted host, internal/loopback/private/link-local host, this service's own host, an equivalent-form spelling of any of those, or a host that cannot be canonicalised |
 | `rate_limited` | 429 | A token bucket is empty. Carries `Retry-After` in whole seconds, never 0 |
 | `service_unavailable` | 503 | Only on link creation — a dependency it needs is down |
 
@@ -238,6 +329,34 @@ Either other status would confirm that a code exists.
 A reserved alias (`api`, `actuator`, `health`, `admin`, `robots.txt`, … — the
 full list is `AliasPolicy.RESERVED_CODES`) is a `400`, not a `409`: nobody holds
 it, and `409` would imply somebody does.
+
+### Host rules
+
+Both host decisions — "is this internal" and "is this on the threat denylist" —
+are taken on one canonical form of the host, on both create paths. Two spellings
+a browser would reach the same machine through are one host here.
+
+Canonicalisation: lower-case, trailing dots stripped, unicode punycoded, and
+every numeric IPv4 form rendered as a dotted quad. `2130706433`, `0x7f000001`,
+`017700000001`, `0177.0.0.1` and `127.1` are all `127.0.0.1`, so all are `422`.
+`https://malware.example.com./x` is `422` for the same reason.
+
+- **Checking only.** The stored `longUrl` and the `Location` header on a
+  redirect stay byte-identical to what was submitted; nothing rewrites a target.
+- **No label is ever dropped**, so denylist matching stays label-based:
+  `sub.campaign.malware.example.com` is refused, while
+  `notmalware.example.com` and `malware.example.com.evil.test` are not.
+- **Fails closed.** A host that cannot be canonicalised unambiguously —
+  `999.999.999.999`, `4294967296`, `a..b` — is `422`, never accepted.
+- **DNS is never resolved**, on either create path. "Equivalent form" means
+  textual and numeric equivalence of what was written, and nothing more.
+- Forms `java.net.URI` cannot parse a host from at all (`http://127.1/`,
+  `http://0x7f.0.0.1/`, a unicode authority) are `400 invalid_request`, not
+  `422`. The 400/422 split is by parse failure vs policy refusal.
+
+Links created before this rule existed keep redirecting: there is no
+retroactive rescan, so for a while the service refuses to mint a URL it is still
+serving. Refusals are logged, so the 422 rate can be watched.
 
 ### Edges worth knowing
 
@@ -260,6 +379,24 @@ curl -s -X POST http://localhost:8080/api/v1/links -H "Authorization: Bearer $TO
   -H 'Content-Type: application/json' \
   -d '{"longUrl":"http://192.168.0.1/admin"}'
 
+# Equivalent spellings of the above -> 422 url_rejected as well
+curl -s -X POST http://localhost:8080/api/v1/links -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"longUrl":"http://2130706433/"}'
+curl -s -X POST http://localhost:8080/api/v1/public/links \
+  -H 'Content-Type: application/json' \
+  -d '{"longUrl":"https://malware.example.com./download"}'
+
+# Sign-up for an address that exists -> 409 account_unavailable
+curl -s -X POST http://localhost:8080/api/v1/customers \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"alice@example.com","password":"correct-horse-battery-staple"}'
+
+# alias or expiresAt on the anonymous path -> 400 invalid_request
+curl -s -X POST http://localhost:8080/api/v1/public/links \
+  -H 'Content-Type: application/json' \
+  -d '{"longUrl":"https://example.com/x","alias":"mine"}'
+
 # Unknown property -> 400 invalid_request
 curl -s -X PATCH http://localhost:8080/api/v1/links/spring-sale -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
@@ -274,24 +411,32 @@ Note that with the default `app.base-url` of `http://localhost:8080`, any
 
 ### Rate limits
 
-Five independent token buckets, refilled over a one-minute window. Exceeding one
-gives `429` with `Retry-After`.
+Seven independent token buckets, refilled over a one-minute window. Exceeding one
+gives `429` with `Retry-After` in whole seconds, never 0.
 
 | Bucket | Keyed by | Applies to | Default/min |
 |---|---|---|---|
 | click | client IP | `GET /{code}` | 3000 |
 | not-found | client IP | `GET /{code}` that does not resolve | 300 |
-| write | customer id | `POST`/`PATCH`/`DELETE` on links | 300 |
+| write | customer id | `POST`/`PATCH`/`DELETE` on `/api/v1/links` | 300 |
 | abuse-report | customer id | `POST .../abuse-reports` | 60 |
 | sign-in | client IP | `POST /api/v1/sessions` | 60 |
+| sign-up | client IP | `POST /api/v1/customers` | 60 |
+| anonymous-create | client IP | `POST /api/v1/public/links` | 30 |
 
 The not-found bucket is far tighter than the click bucket on purpose: an
 enumeration sweep is a long run of 404s, while a popular link is a long run of
 302s, and throttling the first must not throttle the second.
 
+The buckets are namespaced separately in Redis, so exhausting `anonymous-create`
+leaves `write` untouched and vice versa. IP-keyed buckets use the socket peer
+address; `X-Forwarded-For` is deliberately not trusted (see
+[RUNBOOK.md](RUNBOOK.md#failure-modes-from-the-outside)).
+
 ## Not in this build
 
-Registration, sign-out, token refresh or revocation, editing a link's target
-URL, permanent (non-expiring) links, custom domains, per-click analytics beyond
-a total count, a moderation console, and any admin endpoint for the threat
-denylist.
+Sign-out, token refresh or revocation, editing a link's target URL, permanent
+(non-expiring) links, custom domains, per-click analytics beyond a total count,
+a moderation console, any admin endpoint for the threat denylist, any read or
+update endpoint for a customer account, and any way to reach an anonymously
+created link through the management API.

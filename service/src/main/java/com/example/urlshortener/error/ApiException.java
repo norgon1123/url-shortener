@@ -78,6 +78,17 @@ public class ApiException extends RuntimeException {
         return new ApiException(ErrorCode.LINK_NOT_MODIFIABLE, ErrorCode.LINK_NOT_MODIFIABLE.defaultMessage());
     }
 
+    /**
+     * The sign-up refusal. Like {@link #aliasUnavailable()}, callers must not
+     * add detail: the message is fixed so that "taken years ago" and "taken a
+     * millisecond ago by the request racing yours" are one answer, and so that
+     * the body carries nothing about the account beyond the fact that the name
+     * is not available.
+     */
+    public static ApiException accountUnavailable() {
+        return new ApiException(ErrorCode.ACCOUNT_UNAVAILABLE, ErrorCode.ACCOUNT_UNAVAILABLE.defaultMessage());
+    }
+
     public static ApiException urlRejected() {
         return new ApiException(ErrorCode.URL_REJECTED, ErrorCode.URL_REJECTED.defaultMessage());
     }

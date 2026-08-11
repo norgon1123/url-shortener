@@ -1,9 +1,11 @@
 package com.example.urlshortener.support;
 
+import com.example.urlshortener.api.AnonymousLinkResponse;
 import com.example.urlshortener.api.ApiError;
 import com.example.urlshortener.api.LinkPage;
 import com.example.urlshortener.api.LinkResponse;
 import com.example.urlshortener.api.SignInResponse;
+import com.example.urlshortener.api.SignUpResponse;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -54,6 +56,18 @@ public final class ApiClient {
 
     /** Collection resource for links. */
     public static final String LINKS_PATH = "/api/v1/links";
+
+    /** {@code POST} here to create an account. Unauthenticated, and there is no GET. */
+    public static final String CUSTOMERS_PATH = "/api/v1/customers";
+
+    /**
+     * {@code POST} here to create a link with no account.
+     *
+     * <p>Note that it is <em>not</em> {@link #LINKS_PATH} with a flag and not
+     * {@code /public} at the root: it is a distinct path under the API prefix,
+     * exempt from the session filter. A test never spells it itself.
+     */
+    public static final String PUBLIC_LINKS_PATH = "/api/v1/public/links";
 
     private static final ObjectMapper JSON = JsonMapper.builder()
             .addModule(new JavaTimeModule())
@@ -146,7 +160,90 @@ public final class ApiClient {
         return asSession(response).accessToken();
     }
 
+    // ---- accounts ---------------------------------------------------------
+
+    /**
+     * Creates an account. No credential is sent and none is needed: the path is
+     * exempt from the session filter, so there is no 401 on this operation.
+     *
+     * <p>Null fields are omitted from the body entirely rather than sent as JSON
+     * null, exactly as {@link #createLink}: "absent" and "null" are different
+     * requests against a strict body, and both have to be reachable.
+     */
+    public HttpResponse<String> signUp(String email, String password) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        if (email != null) {
+            body.put("email", email);
+        }
+        if (password != null) {
+            body.put("password", password);
+        }
+        return send("POST", CUSTOMERS_PATH, toJson(body), null);
+    }
+
+    /** Sign-up with an arbitrary body, for unknown-property and malformed cases. */
+    public HttpResponse<String> signUpRaw(String jsonBody) {
+        return send("POST", CUSTOMERS_PATH, jsonBody, null);
+    }
+
+    /**
+     * Sign-up carrying a credential, to show that presenting one changes nothing:
+     * an exempt path is outside authentication for every caller, so a forged token
+     * must not turn a 201 into a 401.
+     */
+    public HttpResponse<String> signUpWithBearer(String email, String password, String bearer) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("email", email);
+        body.put("password", password);
+        return send("POST", CUSTOMERS_PATH, toJson(body), bearer);
+    }
+
+    /**
+     * Signs in with credentials a test chose itself, rather than with a seeded
+     * account, and hands back the bearer.
+     *
+     * <p>This is the AC5 path: an account that was created through the API is
+     * expected to work at the untouched session endpoint, so it uses the same
+     * request {@link #signInFor(Fixtures.SeededCustomer)} uses and fails loudly in
+     * the same way when the precondition does not hold.
+     */
+    public String sessionFor(String email, String password) {
+        HttpResponse<String> response = signIn(email, password);
+        if (response.statusCode() != 200) {
+            throw new IllegalStateException(
+                    "could not sign in as " + email + ": HTTP " + response.statusCode()
+                            + " " + response.body());
+        }
+        return asSession(response).accessToken();
+    }
+
     // ---- links ------------------------------------------------------------
+
+    /** Create a link with no account, the whole body being the target. */
+    public HttpResponse<String> createAnonymousLink(String longUrl) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        if (longUrl != null) {
+            body.put("longUrl", longUrl);
+        }
+        return send("POST", PUBLIC_LINKS_PATH, toJson(body), null);
+    }
+
+    /**
+     * Anonymous create with a body this client would not otherwise produce. This
+     * is how {@code alias} and {@code expiresAt} are shown to be refused rather
+     * than silently dropped: they are properties the operation does not define.
+     */
+    public HttpResponse<String> createAnonymousLinkRaw(String jsonBody) {
+        return send("POST", PUBLIC_LINKS_PATH, jsonBody, null);
+    }
+
+    /** Anonymous create carrying a credential; the path takes none, either way. */
+    public HttpResponse<String> createAnonymousLinkWithBearer(String longUrl, String bearer) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("longUrl", longUrl);
+        return send("POST", PUBLIC_LINKS_PATH, toJson(body), bearer);
+    }
+
 
     /** Create with the default expiry and a generated code. */
     public HttpResponse<String> createLink(String bearer, String longUrl) {
@@ -288,6 +385,23 @@ public final class ApiClient {
     /** The response body as a sign-in result. */
     public static SignInResponse asSession(HttpResponse<String> response) {
         return parse(response.body(), SignInResponse.class);
+    }
+
+    /** The response body as a created account. */
+    public static SignUpResponse asAccount(HttpResponse<String> response) {
+        return parse(response.body(), SignUpResponse.class);
+    }
+
+    /**
+     * The response body as an anonymously created link.
+     *
+     * <p>Deliberately a different type from {@link #asLink}: the anonymous shape
+     * has no {@code status} and no {@code clickCount}, and parsing it as a
+     * {@link LinkResponse} would quietly produce nulls for both instead of showing
+     * that they are absent.
+     */
+    public static AnonymousLinkResponse asAnonymousLink(HttpResponse<String> response) {
+        return parse(response.body(), AnonymousLinkResponse.class);
     }
 
     /** The response body as a JSON tree, for shapes with no frozen type. */

@@ -86,6 +86,38 @@ cannot be corrected retroactively:
 
 Later runs are the ones to quote.
 
+### `greenfield-3` — the one to quote
+
+The 21-node graph end to end: completed, 148 tests green, 20 of 20 scheduled
+nodes passed, $108.70 with 56% rework. `orchestrator/fixtures/runs/greenfield-3`
+has the full account; the two things worth knowing before quoting it:
+
+- **it was signed off over a `ready: false` verdict.** `release-readiness`
+  refused, a human approved anyway to close the run, and the residual risks are
+  in `docs/TODO.md`. "Completed" here means the pipeline reached its end with
+  every decision recorded — not that the service is shippable, and the record
+  says so in three places;
+- **its rework figure is the most useful number in it.** $60.51 of $108.70 went
+  on attempts that were thrown away. Four of the causes were defects in the
+  orchestrator itself, each now a test.
+
+### A note on resuming after a session limit
+
+A Max subscription's session limit ends a node mid-run with
+`success; You've hit your session limit · resets <time>`. The engine no longer
+spends retry attempts on it (a wall is not weather), so the node fails cleanly
+and the run is resumable once the quota returns:
+
+```bash
+python -m sdlc.cli status <run-id>       # see which node stopped
+python -m sdlc.cli resume <run-id>
+```
+
+A node left at `RUNNING` because the *process* died — rather than the node
+failing — needs its row reset to `pending` before a resume will schedule it.
+That is a gap: there is no `reset` subcommand, and it is currently a SQL update
+against `runs/state.db`.
+
 ---
 
 ## Cost
