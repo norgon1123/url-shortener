@@ -1,0 +1,246 @@
+{
+  "risks": [
+    "Q1 (blocking) has no recorded human answer, and the clarification's proposed answer \u2014 the Referer reduced to a registrable domain \u2014 is not buildable: feasibility evidence shows no public-suffix list on the classpath and A1 forbids adding one. T7 therefore stores the canonicalised full host per feasibility's recommended option (U1). Because A3 rules out backfill, this choice is permanent for every row written before it is revisited. A reviewer must confirm 'full host is fine' or approve a PSL dependency at the design gate.",
+    "Q2 (blocking) has no recorded human answer. The plan takes only phase 1 of the impact analysis's mitigation: the aggregate /actuator/health keeps its current membership and Redis stays gating on it. If some platform outside this repository is routing on that aggregate, the service continues to amplify a Redis blip into a fleet-wide outage \u2014 i.e. AC3 remains partially unmet by design until whoever owns the deployment manifests confirms the probe is repointed at /actuator/health/readiness. U6 (whether readiness should include PostgreSQL) is unresolved for the same reason and is deliberately not acted on.",
+    "T3 depends on U3: with no Spring Security filter chain, a health group inherits show-details: when-authorized and 'authorized' is never satisfied, so the dependencies group must be set to show-details: always to satisfy AC2. Actuator shares the public port 8080 and no ingress rule exists in this repository, so as planned this publishes 'redis is DOWN' to any caller. A8's internal-only assumption is unverified and is the load-bearing part of AC2's design.",
+    "T7/T8 sit inside RedirectController's catch(RuntimeException) -> notFound() block: a derivation or counter defect converts live 302s into 404s with no 5xx on any dashboard and no counted click. This failure is invisible to error-rate monitoring and would first surface as a customer reporting vanished campaign traffic.",
+    "T8's origin keyspace must stay disjoint from clicks:pending. If origin fields land in that hash, old pods running read_click_deltas.lua during a rolling deploy HDEL zero-valued fields and discard non-UUID fields with a WARN, corrupting the durable+pending invariant that AC7's clickCount rests on \u2014 and single-instance tests would all pass.",
+    "T4's breaker must not cover ResolutionCache.invalidateBeforeIssuing, the service's only deliberate 503. A breaker there keeps refusing creates for the whole open window after Redis recovers, lengthening an outage the change exists to shorten, and suppresses the eviction that makes issuing a code safe.",
+    "T9 puts a second writer in the flush transaction. A rollup row that fails permanently rolls back links.addClicks for that link, so its delta stays pending forever and its clickCount silently stops advancing; conversely a rollup failure that skips counter.settle() double-counts clicks. Both are AC7 regressions with no external error signal.",
+    "T6's V5 migration must be applied before any pod maps the new entity: ddl-auto is validate, so an image deployed ahead of the migration fails to start outright rather than degrading.",
+    "T8's distinct-origin cap is the only defence against attacker-controlled cardinality: Referer is unvalidated on an unauthenticated route with a 3000/min/IP bucket, so without the cap one sweep mints unbounded Redis fields and rollup rows, starving the 500-entry flush batch. U2 fixes no number; the plan assumes the storage cap equals the response top-N.",
+    "T11 mounts the customer-wide aggregate at /api/v1/analytics rather than /api/v1/links/analytics because a literal path under /api/v1/links/ would shadow GET /api/v1/links/{code} for any existing link whose code is 'analytics' \u2014 permitted by the alias charset and absent from RESERVED_CODES. If design moves it back under /api/v1/links, that collision returns silently.",
+    "The two increments are planned as independently deployable (A13), but T2 and T4 both edit RedisClickCounter and ResolutionCache while T8 and T9 edit the same click and flush classes. Landing them out of order, or in one release, concentrates unrelated risk on the highest-volume path."
+  ],
+  "tasks": [
+    {
+      "acceptance_criteria_ids": [
+        "AC2"
+      ],
+      "deliverables": [
+        "service/src/main/resources/application.yml (new app.resilience.*, app.analytics.{window-max-days,default-window-days,top-n,max-origins-per-link-day,retention} keys and management.endpoint.health.group.dependencies with an explicit show-details)",
+        "service/src/main/java/com/example/urlshortener/config/AppProperties.java (nested Resilience and Analytics records, defaults matching application.yml)"
+      ],
+      "depends_on": [],
+      "id": "T1",
+      "title": "Bound configuration for resilience, analytics and the dependency health group"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC1"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/observability/ (meter registration: click deltas dropped, flush pass success/failure and seconds-since-last-successful-flush gauge, pending-delta backlog size, Redis command failures by call site, create-path 503 count, click-path latency timer and outcome counter)",
+        "service/src/main/java/com/example/urlshortener/click/RedisClickCounter.java (instrument record/readPending/settle failures without changing the clicks:pending field space)",
+        "service/src/main/java/com/example/urlshortener/click/ClickFlushJob.java (instrument pass outcome and staleness)",
+        "service/src/main/java/com/example/urlshortener/redirect/ResolutionCache.java (instrument swallowed failures and the invalidateBeforeIssuing 503)",
+        "service/src/main/java/com/example/urlshortener/ratelimit/RedisTokenBucketRateLimiter.java (instrument fail-open events)"
+      ],
+      "depends_on": [],
+      "id": "T2",
+      "title": "Micrometer metrics covering the runbook's documented failure modes"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC2",
+        "AC8"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/health/RedisHealthIndicator.java or equivalent binding of the auto-configured redis/db contributors into the dependencies group",
+        "service/src/main/java/com/example/urlshortener/health/FlushStalenessHealthIndicator.java",
+        "service/src/main/java/com/example/urlshortener/health/DependencyStatusGauges.java (one 1/0 gauge per dependency on /actuator/prometheus)",
+        "GET /actuator/health/dependencies returning per-dependency status; GET /actuator/health, /actuator/health/liveness and /actuator/health/readiness payloads and membership left exactly as today (phase 1 of the impact analysis's two-phase mitigation)"
+      ],
+      "depends_on": [
+        "T1",
+        "T2"
+      ],
+      "id": "T3",
+      "title": "Per-dependency health detail on a named group and Prometheus gauges, with the aggregate's membership unchanged"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC3",
+        "AC7"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/resilience/ (hand-rolled bounded breaker built from Micrometer, java.util.concurrent and the existing Lettuce 1s timeouts; no new dependency)",
+        "Breaker applied to ResolutionCache reads/writes, RedisClickCounter.record/pendingDelta and RedisTokenBucketRateLimiter.consume",
+        "ResolutionCache.invalidateBeforeIssuing left on its own per-request attempt so create recovers the instant Redis does; open state bounded well below app.cache.ttl with half-open on first request",
+        "Breaker state and trip-count gauges on /actuator/prometheus"
+      ],
+      "depends_on": [
+        "T1",
+        "T2"
+      ],
+      "id": "T4",
+      "title": "Bounded Redis degradation guard scoped to best-effort calls only"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC1",
+        "AC2",
+        "AC8"
+      ],
+      "deliverables": [
+        "docs/RUNBOOK.md: health table updated with /actuator/health/dependencies, failure-mode rows updated for the breaker and fail-open behaviour, recommended Prometheus alert expressions for each documented failure mode, and an explicit note that repointing external probes at /actuator/health/readiness is a prerequisite for any later change to the aggregate"
+      ],
+      "depends_on": [
+        "T2",
+        "T3",
+        "T4"
+      ],
+      "id": "T5",
+      "title": "Runbook describing the new signals, recommended alert expressions and the health-probe migration"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC5",
+        "AC6"
+      ],
+      "deliverables": [
+        "service/src/main/resources/db/migration/V5__click_rollup.sql (additive only: new table, primary key on (link_id, origin, day), index supporting owner-scoped window queries; no existing table, column or index altered)",
+        "service/src/main/java/com/example/urlshortener/domain/ClickRollup.java",
+        "service/src/main/java/com/example/urlshortener/repository/ClickRollupRepository.java (upsert and window finders)"
+      ],
+      "depends_on": [],
+      "id": "T6",
+      "title": "Daily click rollup schema keyed by (link, origin, UTC day) with its JPA mapping"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC6",
+        "AC7"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/redirect/OriginResolver.java: canonicalised Referer host via the existing HostNormalizer, no eTLD+1 reduction, absent/empty/malformed/non-URL Referer bucketed as 'direct', total function returning a value for every input including IDN, IPv4 literal and maximum-length headers",
+        "service/src/main/java/com/example/urlshortener/redirect/RedirectController.java (derive the origin from headers already parsed; no new network hop, no synchronous PostgreSQL write, and no path by which derivation reaches the catch(RuntimeException) -> notFound() branch)"
+      ],
+      "depends_on": [],
+      "id": "T7",
+      "title": "Referer-to-origin derivation that cannot fail the redirect"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC3",
+        "AC6",
+        "AC7"
+      ],
+      "deliverables": [
+        "service/src/main/resources/redis/record_click.lua (single script incrementing both the clicks:pending link field and the clicks:origins:<yyyy-mm-dd> origin field, keeping the click path at three Redis round trips)",
+        "service/src/main/java/com/example/urlshortener/click/ClickCounter.java (origin argument or sibling method preserving the 'never throws, never delays the 302' contract)",
+        "service/src/main/java/com/example/urlshortener/click/RedisClickCounter.java (origin keyspace disjoint from clicks:pending so old pods' read_click_deltas.lua is unaffected; per-(link,day) distinct-origin cap folding overflow into an 'other' field)",
+        "service/src/main/resources/redis/read_click_deltas.lua left byte-identical"
+      ],
+      "depends_on": [
+        "T1",
+        "T7"
+      ],
+      "id": "T8",
+      "title": "Origin counters in their own Redis keyspace, written in the click's existing round trip"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC5",
+        "AC6",
+        "AC7"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/click/ClickFlushWriter.java (rollup upsert in the same @Transactional as links.addClicks, so a failure retries rather than double-counts)",
+        "service/src/main/java/com/example/urlshortener/click/ClickFlushJob.java (drains the origin keyspace in the same pass; a rollup failure must not skip counter.settle() for an already-written click delta, and must not stall a link's durable click writes indefinitely)",
+        "No new scheduler, queue or thread pool"
+      ],
+      "depends_on": [
+        "T6",
+        "T8"
+      ],
+      "id": "T9",
+      "title": "Rollup rows written by the existing flush pass without changing click-delta settlement"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC4",
+        "AC5",
+        "AC6"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/repository/ClickRollupRepository.java queries: totals over a window, lifetime total, link count, per-day series, top links, and origin breakdown at customer and per-link scope",
+        "Owner scoping by SQL equality on links.customer_id so anonymous links (NULL) are excluded mechanically; cost bounded by the requested window, not by click volume",
+        "service/src/main/java/com/example/urlshortener/repository/LinkRepository.java (additive finder only; existing finders untouched)"
+      ],
+      "depends_on": [
+        "T6"
+      ],
+      "id": "T10",
+      "title": "Owner-scoped aggregate and origin-breakdown queries served from the rollups"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC4",
+        "AC5",
+        "AC6",
+        "AC8"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/analytics/AnalyticsController.java: GET /api/v1/analytics (customer-wide, one request) and GET /api/v1/links/{code}/origins, both under the /api/v1/* session filter, mounted so no path shadows GET /api/v1/links/{code}",
+        "service/src/main/java/com/example/urlshortener/api/ (new response records; LinkResponse unchanged in shape)",
+        "Window and paging validation that refuses rather than clamps: 400 invalid_request with a field map, 0-based page and 1..100 size matching LinkController, window capped at the configured maximum, no new ErrorCode value and a byte-identical not_found body",
+        "Top-N results with the remainder folded into an 'other' bucket; no new rate-limit bucket"
+      ],
+      "depends_on": [
+        "T1",
+        "T10"
+      ],
+      "id": "T11",
+      "title": "Analytics endpoints under the existing authenticated API"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC3",
+        "AC5"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/analytics/ (aggregate includes un-flushed Redis deltas when Redis is reachable; falls back to durable PostgreSQL figures with HTTP 200 and a freshness instant when it is not \u2014 never 503)",
+        "Freshness field on both analytics responses naming the instant the figures are complete to",
+        "Per-link clickCount on LinkResponse keeps its exact durable + un-flushed-delta semantics unchanged"
+      ],
+      "depends_on": [
+        "T4",
+        "T11"
+      ],
+      "id": "T12",
+      "title": "Analytics that degrade to durable figures with an explicit freshness marker"
+    },
+    {
+      "acceptance_criteria_ids": [],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/analytics/RollupRetentionJob.java (deletes rollup rows older than app.analytics.retention, default 90 days, in bounded batches off the click path)",
+        "Purge outcome metric on /actuator/prometheus"
+      ],
+      "depends_on": [
+        "T1",
+        "T6"
+      ],
+      "id": "T13",
+      "title": "Scheduled purge bounding rollup table growth"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC4",
+        "AC6",
+        "AC8"
+      ],
+      "deliverables": [
+        "artifacts/openapi.yaml bumped to 1.2.0, additively: the two analytics paths, their query parameters, response schemas including the freshness field, and the existing closed error catalogue unchanged",
+        "docs/API.md updated with both endpoints, the window cap, the top-N/'other' behaviour and the freshness semantics",
+        "service/src/main/java/com/example/urlshortener/api/LinkResponse.java javadoc corrected where it asserts no referrer or time-series data exists (prose only; record shape untouched)"
+      ],
+      "depends_on": [
+        "T11",
+        "T12"
+      ],
+      "id": "T14",
+      "title": "Published contract and client docs at 1.2.0 covering the new endpoints"
+    }
+  ]
+}

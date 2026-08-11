@@ -1,0 +1,395 @@
+{
+  "risks": [
+    "The feasibility verdict is 'blocked' and three unknowns are still open at plan time: U1 (does the edge proxy preserve the clicker's source address), U2 (which country database, from where, at which pinned Maven coordinate) and U5 (is a protected-path application.yml edit approved for the Hikari/JDBC timeouts, and with what numbers). T1 escalates them rather than planning around them; T10-T11 and T14 cannot be built correctly until U1 and U2 are answered, and T5's pool-level half cannot be built at all until U5 is.",
+    "U1 is one-way in the stored data. Country comes from request.getRemoteAddr(), X-Forwarded-For is deliberately distrusted, and nothing sets server.forward-headers-strategy. If the edge terminates L7, every click geolocates to one bucket, every test still passes, the endpoint looks healthy and the account that asked for analytics is shown a false number that can never be recomputed - no per-click data is stored. The tempting fix (read XFF in the geo path only) makes every IP-keyed rate-limit bucket spoofable, so it is forbidden in T14's deliverables.",
+    "A circuit breaker's open state outlives the dependency's recovery, and the current degraded contract is instant recovery: DegradedDependencyTest.countingResumesWhenTheTierReturnsWithoutLosingEarlierClicks asserts exactly +4 on the request after Redis returns, and AnonymousCreateDegradationTest pins the 503-on-create behaviour. T6 must use a first-call half-open probe, never a fixed cool-down, and must not wrap ResolutionCache.invalidateBeforeIssuing in a way that changes when the documented 503 fires or skips invalidateAfterCommit evictions (which would put the published 60-second takedown bound back on TTL alone).",
+    "A statement timeout on LinkResolver's read surfaces through RedirectController's catch(RuntimeException) as a 404 with no-store headers for a live link - indistinguishable on the wire from an unissued code, invisible to every existing test and to every alert in the runbook, which look for a 5xx or a hang. A cold cache plus a slow database then reads as mass link deletion. T5 must derive the number from measured click-path latency, meter the timed-out case separately, and T7 must fail on a wrong 404 specifically and not only on a 5xx.",
+    "Any throw from the new geo lookup or geo counter inside RedirectController.follow() produces the same silent wrong-404. The geo reader is memory-mapped I/O and the counter is a network call; both are in the blast radius of the one method in this service that converts exceptions into a plausible-looking success-shaped response.",
+    "Mixed-version rolling deploy is the condition that breaks the durable-total-plus-pending invariant. If country counters share clicks:pending or change the drain script's field format, an old pod drops fields it cannot parse while a new pod settles fields an old pod wrote, and the overcount branch reaches customers on links.click_count - the number AC8 freezes - within one flush interval. T13 keeps clicks:pending and read_click_deltas.lua byte-identical and asserts it by reading the file.",
+    "The click path makes three Redis calls today under a 1s command timeout, and both application.yml and the runbook are sized for that. A fourth call for the country counter raises worst-case redirect latency by a full timeout while Redis is paused and holds servlet threads - the exact amplification AC3 exists to stop, delivered by the analytics half. DegradedDependencyTest asserts status only under a 90s class timeout and would pass a 4x latency regression, so T14 needs its own latency and round-trip-count assertion.",
+    "Three protected paths are on the critical path and each routes the run to human approval: service/pom.xml (geoip2 and resilience4j coordinates, neither managed by the Boot 3.5.16 BOM, both needing literal pins that must be right once), service/src/main/resources/db/migration/V5__*.sql, and service/src/main/resources/application.yml if U5 is approved. The build can reach only repo1.maven.org and repo.maven.apache.org, so the geo database file cannot be fetched at build time - it arrives as a committed binary in a repository with no Git LFS, or the feature is inert.",
+    "The bundled country database goes stale in the jar with no signal: refresh means a human fetch, a commit and a redeploy. Accuracy degrades silently unless a build-date gauge and a runbook procedure exist (T11, T20).",
+    "The clicker's IP is today used for exactly one thing and never stored - a short-lived Redis rate-limit key. This change routes it through a lookup on every served redirect. One careless log line or one exception message carrying the address turns a bounded ephemeral use into retained personal data, in a codebase that already logs WARN from RedisClickCounter and ERROR from RedirectController.",
+    "/actuator/prometheus is unauthenticated. A meter tagged with customer id, link id or IP leaks tenant data to anyone who can reach the pod; a country tag is bounded at ~250 but only if 'unknown' is a single bucket and unmapped inputs cannot mint new tag values.",
+    "Per A6 the rollup starts at deploy while links.click_count is lifetime, and openapi.yaml:797 tells clients clickCount is 'exact and current'. For every link created before the change the two numbers disagree permanently and the aggregate is the smaller one; if the coverage-start instant is not in the response body and in both docs, the first customer comparison reads as a bug.",
+    "Retention for the per-(link, day, country) rollup is unset (U6) and is far cheaper to choose before the table exists than to shorten after customers can see history. T12 must land the retention decision in the migration and T21 in a pruning job, or the commitment defaults to forever by accident."
+  ],
+  "tasks": [
+    {
+      "acceptance_criteria_ids": [
+        "AC5",
+        "AC3"
+      ],
+      "deliverables": [
+        "artifacts/escalations/U1-source-address.md: does the edge preserve the clicker's address (L4/PROXY) or does the service see the proxy on every click; the two acceptable outcomes (edge preserves source, which also fixes the rate-limit buckets and needs no code change; or server.forward-headers-strategy plus an explicit trusted-proxy list as an escalated application.yml edit with the rate-limit consequence stated); an explicit statement that reading X-Forwarded-For only in the geo path is forbidden, and that a wrong answer here is unrecoverable because no per-click data is stored",
+        "artifacts/escalations/U2-geo-database.md: the three options with their costs (org.elasticsearch:geolite2-databases:20191119, 2019 data, 35 MB, no refresh path, CC BY-SA attribution; a current GeoLite2-Country.mmdb committed by a human under service/src/main/resources/geo, ~9 MB, no Git LFS in this repo; or a runtime-mounted path), the reader pin com.maxmind.geoip2:geoip2:4.2.1 which resolves and pulls only BOM-managed Jackson, and the fact that the build can reach only the two Maven mirrors",
+        "artifacts/escalations/U5-postgres-timeouts.md: application.yml is protected and Boot 3.5.16 ships no HikariConfigCustomizer, so the pool-level timeouts have nowhere else to live; the query-level timeout can be done in code today; a request for measured click-path p99.9 or acceptance that the number comes from a load run in this repo",
+        "artifacts/decisions.md recording the settled human answers (Q1 country from a bundled database, ISO code only, never the address; Q2 timeouts, bounded retry, breaker with fallback, /actuator/health unchanged) and, for U3, U4 and U6, the operating answer being built to: the AppProperties key name that gives the test branch a geo-database seam, first-call half-open recovery, and the rollup retention in days",
+        "each entry flagged 'settled by human' or 'operating assumption, unconfirmed'"
+      ],
+      "depends_on": [],
+      "id": "T1",
+      "title": "Escalation record for the unsettled deployment facts, with the country dimension's correctness stated as contingent on U1"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC2"
+      ],
+      "deliverables": [
+        "service/src/test/java/com/example/urlshortener/behaviour/OperationalSurfaceTest.java asserting 200 and the Prometheus text content type from /actuator/prometheus for an unauthenticated caller, and that /actuator/health answers exactly what it answers today",
+        "an adjudication note in docs/TODO.md for the previously unattributed /actuator/prometheus 404, since the whole A7 deliverable rests on this surface existing"
+      ],
+      "depends_on": [],
+      "id": "T2",
+      "title": "Proof that /actuator/prometheus answers 200 with a scrape body on this build"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC1",
+        "AC2"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/observability/ReliabilityMetrics.java: per-dependency reachability gauge for Redis and PostgreSQL, uncounted-click counter, click-path outcome counter split live-302 / miss-404 / error, click-path timer, dependency-call timeout counter",
+        "instrumentation call sites in RedirectController, LinkResolver, RedisClickCounter, ResolutionCache and RedisTokenBucketRateLimiter that cannot throw into the redirect path",
+        "meter names and tag sets documented in the class javadoc with a stated prohibition on customer id, link id, IP or any caller-supplied value as a tag",
+        "service/src/test/java/com/example/urlshortener/behaviour/ReliabilityMetricsTest.java asserting the meters appear in the scrape and that no meter carries a tenant-identifying or unbounded tag",
+        "no new Maven dependency: micrometer-core is already compile-scope via spring-boot-starter-actuator"
+      ],
+      "depends_on": [
+        "T2"
+      ],
+      "id": "T3",
+      "title": "Dependency-reachability and click-path meters on the existing Actuator surface"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC1",
+        "AC2"
+      ],
+      "deliverables": [
+        "flush instrumentation in ClickFlushJob: seconds-since-last-successful-flush gauge, entries-drained counter, flush-failure counter, flush duration timer",
+        "service/src/test/java/com/example/urlshortener/behaviour/FlushObservabilityTest.java asserting the lag gauge advances while the flush cannot complete and resets when it does",
+        "AppProperties defaults for any new flush-observability setting, with no application.yml edit"
+      ],
+      "depends_on": [
+        "T3"
+      ],
+      "id": "T4",
+      "title": "Flush-loop stall made visible: flush lag and last-successful-flush signals"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC3",
+        "AC8"
+      ],
+      "deliverables": [
+        "a jakarta.persistence.query.timeout hint on the resolver's read path (LinkRepository.findByDomainAndCode inside LinkResolver's readOnly transaction), separate from and shorter than the write path's, with the value taken from a measured click-path figure recorded in the deliverable rather than a round number",
+        "a dedicated timed-out-resolution counter so the resulting 404 is visible as degradation rather than as a not-found",
+        "service/src/test/java/com/example/urlshortener/behaviour/SlowDatabaseTest.java driving a slow PostgreSQL and asserting the click path stays bounded, the timeout meter increments, and request threads are not held past the timeout",
+        "AppProperties defaults for the timeout values; no edit to service/src/main/resources/application.yml unless U5 is approved, in which case the yml diff carries the numbers and their derivation"
+      ],
+      "depends_on": [
+        "T1",
+        "T3"
+      ],
+      "id": "T5",
+      "title": "Bounded PostgreSQL boundary: per-query timeout in code, metered, with the pool-level settings escalated rather than approximated"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC3",
+        "AC8"
+      ],
+      "deliverables": [
+        "service/pom.xml (PROTECTED PATH, human on the diff): io.github.resilience4j:resilience4j-spring-boot3:2.3.0 pinned literally, since the Boot 3.5.16 BOM manages no resilience4j version; CircuitBreakerRegistry used programmatically so spring-boot-starter-aop is not required",
+        "breakers with defined fallbacks around click counting, resolution-cache reads and the denylist check, with a bounded retry policy (finite attempts, bounded total wait) replacing the unbounded waiting named in the Q2 answer",
+        "half-open configured to probe on the first call after recovery, never a fixed cool-down, so counting resumes on the exact request after Redis returns",
+        "breaker state exposed as a gauge per dependency and a degraded-but-serving gauge, on the existing Prometheus surface",
+        "explicitly out of scope for the breaker: anything that would change when ResolutionCache.invalidateBeforeIssuing produces the documented 503, skip invalidateAfterCommit evictions, or make the rate limiter deny rather than fail open",
+        "AppProperties defaults for every breaker and retry threshold",
+        "service/src/test/java/com/example/urlshortener/behaviour/BreakerRecoveryTest.java asserting first-call recovery, fail-open limiting while open, and the 60-second takedown bound preserved"
+      ],
+      "depends_on": [
+        "T1",
+        "T3"
+      ],
+      "id": "T6",
+      "title": "Circuit breaker with fallback and bounded retry on boundary calls that are not required to serve a redirect"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC1",
+        "AC2",
+        "AC3",
+        "AC8"
+      ],
+      "deliverables": [
+        "new tests in service/src/test/java/com/example/urlshortener/behaviour/DegradedDependencyTest.java reusing TestInfrastructure.withCounterTierUnavailable: a live code still answers 302 with a failure message that distinguishes a wrong 404 from a 5xx, the degradation is queryable from /actuator/prometheus while the outage is in progress, and link creation refuses with the byte-identical existing 503 body",
+        "a click-path latency assertion while Redis is paused and while Redis is slow, so a latency regression cannot pass a status-only check",
+        "the five existing tests in that file left passing and unweakened, including countingResumesWhenTheTierReturnsWithoutLosingEarlierClicks at exactly +4",
+        "AnonymousCreateDegradationTest and ClickCountingTest re-run as part of the same evidence"
+      ],
+      "depends_on": [
+        "T3",
+        "T4",
+        "T5",
+        "T6"
+      ],
+      "id": "T7",
+      "title": "Automated dependency-outage evidence: redirects serve, degradation is queryable, creation still 503s"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC1",
+        "AC2",
+        "AC3"
+      ],
+      "deliverables": [
+        "docs/RUNBOOK.md: every new meter with its meaning and tags, plus example alert expressions for a slow-then-unresponsive database, a slow-then-unresponsive Redis, a stalled flush loop, elevated 5xx rate, elevated timed-out-resolution rate and uncounted-click rate, each with the threshold stated as operator configuration rather than baked into code",
+        "an updated 'Failure modes, from the outside' table reflecting the breaker's states and what recovery now looks like",
+        "new rows in the runbook configuration table for every AppProperties default added by T3, T4, T5 and T6"
+      ],
+      "depends_on": [
+        "T3",
+        "T4",
+        "T5",
+        "T6"
+      ],
+      "id": "T8",
+      "title": "Runbook metric catalogue and alert expressions for the two incident shapes and the invisible third"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC8"
+      ],
+      "deliverables": [
+        "service/src/test/java/com/example/urlshortener/behaviour/HealthUnchangedTest.java asserting the aggregate /actuator/health body and status are what they are today, including DOWN when Redis is unreachable, and that no new HealthIndicator bean has joined the aggregate",
+        "docs/RUNBOOK.md statement that dependency state is expressed as meters, not as a health contribution, per the settled Q2 answer that the platform does not route on health and the probes were not implicated",
+        "no edit to service/src/main/resources/application.yml"
+      ],
+      "depends_on": [
+        "T3"
+      ],
+      "id": "T9",
+      "title": "/actuator/health left exactly as documented, asserted rather than assumed"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC5"
+      ],
+      "deliverables": [
+        "service/pom.xml (PROTECTED PATH): com.maxmind.geoip2:geoip2:4.2.1 pinned literally, with the note that it pulls only maxmind-db 3.1.1 and BOM-managed Jackson",
+        "the country database landed per the U2 ruling from T1: either the resolved Maven artifact, or a human-committed GeoLite2-Country.mmdb under service/src/main/resources/geo with its licence file and attribution text",
+        "an AppProperties key (default: the bundled location) that points the reader at a database file, named in the deliverable so the test branch can use it as a seam",
+        "a gauge exposing the loaded database's build date, so staleness is observable rather than silent",
+        "docs/RUNBOOK.md refresh procedure: how a human obtains a new file, where it goes, and that refresh means a redeploy"
+      ],
+      "depends_on": [
+        "T1"
+      ],
+      "id": "T10",
+      "title": "Bundled country database and its reader, landed as a pinned dependency with licence and attribution"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC5"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/analytics/CountryResolver.java: takes the socket address, returns a two-letter ISO code or the single literal 'unknown' bucket for loopback, private ranges, unmapped and malformed addresses and for an absent or unreadable database; never throws for any input; never logs, stores or returns the address",
+        "service/src/test/java/com/example/urlshortener/unit/CountryResolverTest.java covering 8.8.8.8 -> US against the shipped database, 127.0.0.1 and 10.0.0.5 -> unknown, IPv6, garbage input, and a missing database file",
+        "an assertion that no log statement on this path can emit the address"
+      ],
+      "depends_on": [
+        "T10"
+      ],
+      "id": "T11",
+      "title": "IP-to-country resolver that returns an ISO code or a single 'unknown' bucket and never throws"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC4",
+        "AC5",
+        "AC6"
+      ],
+      "deliverables": [
+        "service/src/main/resources/db/migration/V5__click_country_rollup.sql (PROTECTED PATH, human on the diff): rows keyed (link_id, day_utc, country) with customer_id denormalised onto the row, TIMESTAMP(6) WITH TIME ZONE / UUID conventions matching V1, an index on (customer_id, day_utc) so the account aggregate does not depend on ix_links_owner_listing, a comment recording that the migration ships ahead of the code under ddl-auto: validate, and a comment recording the retention period decided in T1",
+        "service/src/main/java/com/example/urlshortener/domain/ClickCountryRollupEntity.java mapped to agree exactly with the DDL",
+        "service/src/main/java/com/example/urlshortener/repository/ClickCountryRollupRepository.java",
+        "service/src/test/java/com/example/urlshortener/behaviour/RollupSchemaTest.java asserting the migration applies over a database holding existing links and that the context starts under validate"
+      ],
+      "depends_on": [
+        "T1"
+      ],
+      "id": "T12",
+      "title": "V5 click-country rollup table, entity, owner-scoped repository and its retention decision"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC5",
+        "AC8"
+      ],
+      "deliverables": [
+        "a distinct Redis key namespace for country counters, never clicks:pending, with its own AppProperties-defaulted prefix and a key expiry",
+        "service/src/main/resources/redis/read_country_deltas.lua: single-key, copy-then-settle (non-destructive read, exact-zero sweep), matching the invariants documented in read_click_deltas.lua",
+        "service/src/main/java/com/example/urlshortener/analytics/RedisCountryCounter.java",
+        "service/src/main/resources/redis/read_click_deltas.lua left byte-identical, asserted by a test that reads the file",
+        "service/src/test/java/com/example/urlshortener/behaviour/CountryBufferTest.java covering drain-then-settle under an interrupted pass, coexistence with an untouched clicks:pending, and an old-format reader ignoring the new key"
+      ],
+      "depends_on": [
+        "T1"
+      ],
+      "id": "T13",
+      "title": "Separate Redis country-counter buffer with its own single-key drain script, leaving clicks:pending byte-identical"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC3",
+        "AC5",
+        "AC8"
+      ],
+      "deliverables": [
+        "an additive overload or default method on ClickCounter so record(UUID) and LinkService.toResponse's call site are provably unchanged in the diff",
+        "RedirectController resolving the country from request.getRemoteAddr() only - X-Forwarded-For is not read in this path under any circumstances - and the country increment pipelined with the existing HINCRBY so the click stays at three Redis round trips",
+        "capture wrapped so no failure can reach RedirectController's catch(RuntimeException) block and no failure can turn a live code into a 404",
+        "service/src/test/java/com/example/urlshortener/behaviour/CountryCaptureTest.java: a live code still 302s with byte-identical Location and no-store headers with the geo database absent, with an unmappable address, and while Redis is paused; the Redis round-trip count per click does not grow; click-path latency stays within the bound asserted in T7",
+        "an assertion that no client IP reaches a log line, the rollup, or a meter tag"
+      ],
+      "depends_on": [
+        "T6",
+        "T7",
+        "T11",
+        "T13"
+      ],
+      "id": "T14",
+      "title": "Best-effort country capture on the click path with no extra round trip and no new way to 404 a live link"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC5",
+        "AC8"
+      ],
+      "deliverables": [
+        "ClickFlushJob draining the country buffer alongside the click deltas with per-concern isolation, so a failing or slow rollup drain cannot prevent links.click_count being updated or settled in the same pass",
+        "ClickFlushWriter upsert into the V5 rollup carrying customer_id and day_utc, in a transaction separate from the click_count increment",
+        "service/src/test/java/com/example/urlshortener/behaviour/RollupFlushTest.java: a hostile rollup drain leaves click_count advancing, drained counts land exactly once, and DurabilityAcrossRestartTest still passes with both drains sharing the schedule"
+      ],
+      "depends_on": [
+        "T12",
+        "T13"
+      ],
+      "id": "T15",
+      "title": "Rollup drain in the existing flush loop, isolated so the click-count flush always advances"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC4",
+        "AC5",
+        "AC6"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/analytics/AnalyticsService.java: account totals, a breakdown by country (top N by clicks with the remainder folded into an exact 'other' so totals reconcile), optional per-link rows, optional from/to ISO-8601 instants defaulting to the last 30 days in UTC day buckets, and the coverage-start instant in the result",
+        "scoping by customer_id equality inside the query rather than by post-filtering, so NULL-owner links fall out by construction",
+        "AppProperties defaults for top-N and the analytics rate-limit bucket; ANALYTICS added to RateLimitBucket",
+        "service/src/test/java/com/example/urlshortener/behaviour/AnalyticsAggregationTest.java asserting country totals reconcile with the account total including 'other', and that window boundaries are UTC day buckets"
+      ],
+      "depends_on": [
+        "T12"
+      ],
+      "id": "T16",
+      "title": "Owner-scoped aggregate analytics query with country breakdown, default window and coverage start"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC4",
+        "AC5",
+        "AC6",
+        "AC7",
+        "AC8"
+      ],
+      "deliverables": [
+        "service/src/main/java/com/example/urlshortener/analytics/AnalyticsController.java under /api/v1, path spelled as a literal string on the mapping annotation so the routes_match_openapi gate can read it, authenticated by the existing /api/v1/* filter and not added to the three-path exemption set",
+        "artifacts/openapi.yaml: info.version 1.2.0, the new operation with its parameters, response schema and error responses, a 'What changed in 1.2.0' section, the coverage-start caveat placed beside the existing 'clickCount is exact and current' sentence, and no change to any existing path, schema, status code or error body",
+        "paging validation shared with LinkController (MAX_PAGE_SIZE 100, refuse rather than clamp, identical field bodies) rather than duplicated",
+        "no 503 declared or emitted by the analytics operation, no new ErrorCode, no 403 and no 410"
+      ],
+      "depends_on": [
+        "T16"
+      ],
+      "id": "T17",
+      "title": "Analytics endpoint and the OpenAPI 1.2.0 entry landed in one change, on the existing conventions"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC4",
+        "AC5",
+        "AC6",
+        "AC7"
+      ],
+      "deliverables": [
+        "service/src/test/java/com/example/urlshortener/behaviour/AggregateAnalyticsTest.java: clicks become country rows in the aggregate after a flush, localhost traffic lands in the single 'unknown' bucket, totals reconcile, and the response states its coverage start",
+        "service/src/test/java/com/example/urlshortener/behaviour/AnalyticsTenantIsolationTest.java: another customer's links contribute nothing and are not distinguishable by their absence; anonymous NULL-owner links appear in nobody's aggregate",
+        "tests for 401 on token-free, malformed, expired and foreign-key-signed requests; 400 on page<0, size outside 1..100, inverted or unparseable from/to; 400 on an unknown request property",
+        "a test that points the reader at a fixture database via the AppProperties key from T10 and asserts a real country code appears in the aggregate, so the dimension is exercised without trusting a header"
+      ],
+      "depends_on": [
+        "T14",
+        "T15",
+        "T17"
+      ],
+      "id": "T18",
+      "title": "Behaviour tests for the analytics endpoint: tenancy, auth, paging, and click-to-aggregate end to end"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC8"
+      ],
+      "deliverables": [
+        "assertions that per-link clickCount is still links.click_count plus the Redis pending delta, read durable-first, immediately after a flush and after a settle failure",
+        "assertions that redirect Location bytes, no-store headers, the never-5xx property and the never-404-a-live-code property are unchanged, including while a dependency is slow rather than dead",
+        "assertion that 503 service_unavailable with its exact existing message is produced by link creation and by no other operation, analytics included",
+        "a run record showing the suite at or above the recorded test/assertion baseline with zero disabled tests, and coverage at or above the 70% floor"
+      ],
+      "depends_on": [
+        "T14",
+        "T15",
+        "T17"
+      ],
+      "id": "T19",
+      "title": "Regression evidence that the frozen behaviour still holds after both halves land"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC4",
+        "AC5",
+        "AC7"
+      ],
+      "deliverables": [
+        "docs/API.md walkthrough for the new operation, including the coverage-start field and an explicit statement that country-broken-down totals begin at deploy and will not reconcile with the lifetime clickCount of any link created before it",
+        "docs/API.md and docs/RUNBOOK.md statement of what is stored (ISO country code per link-day) and what is not (never the address, never a raw header)",
+        "docs/RUNBOOK.md rows for the rollup: growth characteristics, retention and pruning, geo database refresh and staleness gauge, and every AppProperties default added by T10, T13, T15 and T16"
+      ],
+      "depends_on": [
+        "T17"
+      ],
+      "id": "T20",
+      "title": "Customer- and operator-facing documentation for the analytics capability"
+    },
+    {
+      "acceptance_criteria_ids": [
+        "AC5",
+        "AC8"
+      ],
+      "deliverables": [
+        "a scheduled delete of rollup rows older than the retention period decided in T1, with the period as an AppProperties default and a counter for rows pruned",
+        "service/src/test/java/com/example/urlshortener/behaviour/RollupRetentionTest.java asserting rows past the boundary are removed, rows inside it are not, and that pruning cannot block or slow the click-count flush",
+        "no effect on links.click_count, asserted"
+      ],
+      "depends_on": [
+        "T12",
+        "T15"
+      ],
+      "id": "T21",
+      "title": "Rollup retention enforced by a pruning job on the existing schedule"
+    }
+  ]
+}

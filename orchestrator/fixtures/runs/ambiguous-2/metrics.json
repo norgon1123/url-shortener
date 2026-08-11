@@ -1,0 +1,24 @@
+{
+  "run_id": "ambiguous-2",
+  "status": "safe_stopped",
+  "node_success_rate": 1.0,
+  "gate_pass_rate": 1.0,
+  "retry_frequency": 0.6,
+  "rollback_frequency": 0.0,
+  "replans": 0,
+  "rollbacks": 0,
+  "safe_stops": 2,
+  "human_decisions": 1,
+  "parallel_groups": 0,
+  "mttr_seconds": null,
+  "e2e_latency_seconds": 2446.19,
+  "total_cost_usd": 11.372,
+  "rework_cost_usd": 4.4564,
+  "node_cost_usd": {
+    "clarify": 1.2115,
+    "decompose": 1.9332,
+    "feasibility": 4.3293,
+    "impact-analysis": 3.6389,
+    "intake": 0.2591
+  }
+}
