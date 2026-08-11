@@ -155,13 +155,35 @@ class ShortCodeUnguessabilityTest {
         shared.retainAll(new HashSet<>(fromAnother));
 
         // And the randomness really comes from the injected source rather than
-        // from a counter the constructor argument never touches.
+        // from a counter the constructor argument never touches. Every public
+        // way of drawing from it is counted, because which one the generator
+        // reaches for is an implementation choice the contract does not make:
+        // pinning it to nextBytes would fail a perfectly cryptographic draw
+        // that happened to ask for an int.
         AtomicInteger drawsFromTheInjectedSource = new AtomicInteger();
         SecureRandom watched = new SecureRandom() {
             @Override
             public void nextBytes(byte[] bytes) {
                 drawsFromTheInjectedSource.incrementAndGet();
                 super.nextBytes(bytes);
+            }
+
+            @Override
+            public int nextInt() {
+                drawsFromTheInjectedSource.incrementAndGet();
+                return super.nextInt();
+            }
+
+            @Override
+            public int nextInt(int bound) {
+                drawsFromTheInjectedSource.incrementAndGet();
+                return super.nextInt(bound);
+            }
+
+            @Override
+            public long nextLong() {
+                drawsFromTheInjectedSource.incrementAndGet();
+                return super.nextLong();
             }
         };
         List<String> fromTheWatchedSource = sample(new ShortCodeGenerator(watched), 50);
