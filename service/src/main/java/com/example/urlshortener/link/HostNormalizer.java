@@ -1,5 +1,7 @@
 package com.example.urlshortener.link;
 
+import java.net.IDN;
+import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -139,6 +141,12 @@ import java.util.Optional;
  */
 public final class HostNormalizer {
 
+    /** Five parts is a name, not an address, however numeric every part is. */
+    private static final int MAX_ADDRESS_PARTS = 4;
+
+    /** Not a radix, so it cannot be confused with one. */
+    private static final int NOT_A_NUMBER = 0;
+
     private HostNormalizer() {
         // Pure function over its argument; there is no state worth an instance,
         // and a static call site cannot be wired to the wrong bean.
@@ -151,6 +159,143 @@ public final class HostNormalizer {
      *         {@code url_rejected}, never into acceptance and never into 400
      */
     public static Optional<String> normalize(String host) {
-        throw new UnsupportedOperationException("HostNormalizer.normalize");
+        if (host == null || host.isBlank()) {
+            return Optional.empty();
+        }
+        if (isIpv6Literal(host)) {
+            return Optional.of(host.toLowerCase(Locale.ROOT));
+        }
+
+        String canonical = stripTrailingDots(host).toLowerCase(Locale.ROOT);
+        if (canonical.isEmpty()) {
+            return Optional.empty();
+        }
+        if (!isAscii(canonical)) {
+            try {
+                canonical = IDN.toASCII(canonical).toLowerCase(Locale.ROOT);
+            } catch (IllegalArgumentException notConvertible) {
+                return Optional.empty();
+            }
+        }
+
+        String[] labels = canonical.split("\\.", -1);
+        for (String label : labels) {
+            if (label.isEmpty()) {
+                return Optional.empty();
+            }
+        }
+        return isAddressCandidate(labels) ? asDottedQuad(labels) : Optional.of(canonical);
+    }
+
+    private static boolean isIpv6Literal(String host) {
+        return host.length() > 1 && host.charAt(0) == '[' && host.charAt(host.length() - 1) == ']';
+    }
+
+    private static String stripTrailingDots(String host) {
+        int end = host.length();
+        while (end > 0 && host.charAt(end - 1) == '.') {
+            end--;
+        }
+        return host.substring(0, end);
+    }
+
+    private static boolean isAscii(String value) {
+        for (int index = 0; index < value.length(); index++) {
+            if (value.charAt(index) > 0x7F) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** One to four parts, every one of them a number in some base a client reads. */
+    private static boolean isAddressCandidate(String[] parts) {
+        if (parts.length > MAX_ADDRESS_PARTS) {
+            return false;
+        }
+        for (String part : parts) {
+            if (radixOf(part) == NOT_A_NUMBER) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * The base a part is written in, or {@link #NOT_A_NUMBER}.
+     *
+     * <p>A part with a leading zero is octal or nothing, which is what makes
+     * {@code 09} a label rather than the decimal 9: that is how a client reads it,
+     * and reading it as decimal here would canonicalise a name onto an address.
+     */
+    private static int radixOf(String part) {
+        if (part.length() >= 2 && part.charAt(0) == '0' && (part.charAt(1) == 'x' || part.charAt(1) == 'X')) {
+            return allDigitsIn(part, 2, 16) ? 16 : NOT_A_NUMBER;
+        }
+        if (part.length() > 1 && part.charAt(0) == '0') {
+            return allDigitsIn(part, 1, 8) ? 8 : NOT_A_NUMBER;
+        }
+        return allDigitsIn(part, 0, 10) ? 10 : NOT_A_NUMBER;
+    }
+
+    private static boolean allDigitsIn(String part, int from, int radix) {
+        if (from >= part.length()) {
+            // Only reachable for "0x", whose empty remainder is zero.
+            return radix == 16;
+        }
+        for (int index = from; index < part.length(); index++) {
+            if (Character.digit(part.charAt(index), radix) < 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * The dotted quad a candidate denotes, or empty when it is out of range.
+     *
+     * <p>Out of range is a refusal rather than a fallback to "it must have been a
+     * name": {@code 4294967296} is not a registered name anybody can hold, and
+     * passing it through would be the one case where an unparseable address
+     * reached the internal-address test as a string it cannot recognise.
+     */
+    private static Optional<String> asDottedQuad(String[] parts) {
+        long address = 0;
+        for (int index = 0; index < parts.length - 1; index++) {
+            long part = valueOf(parts[index]);
+            if (part < 0 || part > 255) {
+                return Optional.empty();
+            }
+            address |= part << (8 * (3 - index));
+        }
+
+        // The last part fills whatever bytes the earlier ones did not: 127.1 is
+        // 127.0.0.1, not 127.1.0.0, because that is how a client expands it.
+        long remainder = valueOf(parts[parts.length - 1]);
+        if (remainder < 0 || remainder >= (1L << (8 * (5 - parts.length)))) {
+            return Optional.empty();
+        }
+        address |= remainder;
+
+        return Optional.of((address >>> 24) + "." + ((address >>> 16) & 0xFF)
+                + "." + ((address >>> 8) & 0xFF) + "." + (address & 0xFF));
+    }
+
+    /** The part's value, or -1 when it does not fit a long and so cannot fit an address. */
+    private static long valueOf(String part) {
+        int radix = radixOf(part);
+        String digits = switch (radix) {
+            case 16 -> part.substring(2);
+            case 8 -> part.substring(1);
+            default -> part;
+        };
+        if (digits.isEmpty()) {
+            return 0L;
+        }
+        try {
+            return Long.parseLong(digits, radix);
+        } catch (NumberFormatException tooLarge) {
+            return -1L;
+        }
     }
 }

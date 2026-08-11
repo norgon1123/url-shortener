@@ -1,8 +1,9 @@
 package com.example.urlshortener.threat;
 
+import com.example.urlshortener.link.HostNormalizer;
 import com.example.urlshortener.repository.ThreatDenylistRepository;
 import java.net.URI;
-import java.util.Locale;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,8 +52,16 @@ public class DenylistThreatCheck implements ThreatCheck {
         if (host == null) {
             return ThreatVerdict.ALLOW;
         }
+        Optional<String> canonical = HostNormalizer.normalize(host);
+        if (canonical.isEmpty()) {
+            // Fails closed here as well as in UrlValidator, which has already
+            // refused it. Two checks agreeing costs one comparison; a security
+            // property that holds only because they run in a particular order is
+            // one reordering away from not holding.
+            return ThreatVerdict.BLOCK;
+        }
         try {
-            return isListed(host.toLowerCase(Locale.ROOT)) ? ThreatVerdict.BLOCK : ThreatVerdict.ALLOW;
+            return isListed(canonical.get()) ? ThreatVerdict.BLOCK : ThreatVerdict.ALLOW;
         } catch (RuntimeException unavailable) {
             // Never propagates: an exception escaping into the create path would
             // turn a degraded dependency into a 500. The caller decides what an

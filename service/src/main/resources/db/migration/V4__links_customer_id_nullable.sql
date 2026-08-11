@@ -1,0 +1,24 @@
+-- A link created through POST /api/v1/public/links has no owner.
+--
+-- NULL rather than a sentinel "anonymous customer" row, and that is a security
+-- decision rather than a modelling preference. Every owner-scoped query in this
+-- service is an equality match on customer_id -- findByDomainAndCodeAndCustomerId
+-- and findOwnedBy's `where l.customerId = :customerId` -- and SQL equality never
+-- matches NULL, so "nobody can list, read, edit or delete an anonymous link"
+-- holds in the query plan rather than in a filter somebody has to remember to
+-- write. A sentinel customer would be an account row that could in principle be
+-- signed into and whose link list would be every anonymous link in the system.
+--
+-- The foreign key stays: a non-NULL value must still name a real customer. So
+-- does ix_links_owner_listing, which simply never serves an anonymous row,
+-- because the listing query cannot ask for one.
+--
+-- This is one-way in production terms. Re-adding NOT NULL later means deleting
+-- or re-homing every anonymous row, which is why app.links.anonymous-ttl is
+-- configurable and the rollback plan is "stop creating them and let the TTL
+-- drain" rather than a data deletion.
+--
+-- Ship this before the code that writes NULLs, not with it: on the other order,
+-- the first anonymous create during a rolling deploy hits a NOT NULL column.
+
+ALTER TABLE links ALTER COLUMN customer_id DROP NOT NULL;
