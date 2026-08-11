@@ -1,0 +1,92 @@
+Build the URL shortener.
+
+We sell a link shortening service. A customer gives us a long URL, we give them
+back a short link, and when someone clicks that short link we send them on to
+the original address. That much is table stakes and everyone offers it.
+
+What customers actually pay us for is knowing how their links performed. When a
+marketing team puts a short link in a campaign, the number of times it was
+clicked is the thing they report to their own management. So the click counts
+have to be ours to measure, on every click, for the life of the link — not an
+estimate, and not something a browser or an intermediary can take away from us
+by remembering where the link went and skipping us next time. If we lose the
+ability to count a click, we have lost the product.
+
+## Scale
+
+We create about 10 million new links a day today. The business plan we are
+funded against gets us to 100 million a day within two years, and we would
+rather build for that now than rewrite in eighteen months. Clicks run about ten
+times the rate of creations, and they are much spikier — a single link in a
+television advert or a viral post can be a large fraction of a day's traffic in
+a few minutes.
+
+The click path is the one that matters. A creation that is slow is an annoyance
+to one customer; a click that is slow or fails is a broken promise to whoever
+they gave the link to, and those links are already printed, posted and sent. It
+should stay fast and stay up even when the rest of the system is unhappy, and
+we would sooner serve a click correctly than accept a new link.
+
+We expect the great majority of clicks to land on a small minority of links,
+and the same handful of links to be hit over and over while they are hot.
+
+## Accounts
+
+Customers sign in before creating links. We need to know whose links are whose,
+because the reporting is per customer and because a customer must not be able
+to see or interfere with anybody else's links. Passwords are ours to store, so
+store them in a way that is still defensible if the database is stolen. Once
+signed in, a customer's session should carry across our services without every
+request going back to a login system. Clicking a link is public — whoever
+clicks it is not our customer and will never sign in.
+
+## What a customer can do
+
+Create a short link from a long URL. Ask for a specific short link instead of
+the one we would generate, because our customers want links that read as their
+brand and they will pay for that. See how a link has performed. Delete a link
+they no longer want live.
+
+Links expire about a month after they are created. That is deliberate: it keeps
+the estate from growing without bound, and it is the lever for the paid tier we
+intend to sell next, where a customer pays for links that never expire. Expiry
+should be something we can change our minds about per link rather than a number
+welded into the code.
+
+Once a customer deletes a link, or reports one as abusive, it needs to stop
+working quickly. "Quickly" is a number someone should hold us to, because the
+case we care about is a link being used for fraud and us being asked to take it
+down.
+
+## Being attacked
+
+We are a shortening service, which means two things. People will hammer us — to
+mine short links, to scrape which links exist, to burn through our storage with
+junk links, or just to knock us over — and we need to keep serving real
+customers while that is happening. And people will try to use us as the
+respectable-looking front end of a phishing or malware campaign, because a
+short link hides where it really goes and ours would carry our name. Both of
+those are our problem, not the customer's.
+
+Short links are also treated as secrets by the people who hold them. Somebody
+who was not given a link should not be able to find it by guessing, or work out
+what other links exist from the ones they have.
+
+## Where we are going
+
+Not for this build, but do not paint us into a corner:
+
+- Customers will want links on their own domain rather than ours.
+- Customers will want a QR code for a link.
+- We intend to sell permanent links as a paid tier while free links keep
+  expiring.
+- We will want to add database capacity for reading as the click load grows.
+
+## Constraints
+
+We are a Java shop. This is Java 21 and Spring Boot, and our data lives in
+PostgreSQL — every team here runs Postgres and we are not taking on a second
+database technology for this. We already run Redis and there is capacity for
+this service on it.
+
+The deliverable is the HTTP API. There is no UI in this build.

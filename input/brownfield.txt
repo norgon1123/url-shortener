@@ -1,0 +1,76 @@
+Change request against the shortener we already run.
+
+The service is live and the code in this repository is what it runs. This is a
+change to it, not a rebuild. Three things, in the order they matter to us.
+
+## 1. Our malware and phishing filter can be walked straight past
+
+We promised that a URL we know to be dangerous cannot be turned into one of our
+short links. That promise is not being kept, and we have confirmed two ways
+past it:
+
+- putting a dot on the end of the host — https://malware.example.com./x — is the
+  same destination as far as a browser is concerned, and our check does not
+  recognise it as the host we blocked;
+- writing an address as a plain number — http://2130706433/ — reaches an
+  internal machine, and our check for internal addresses does not recognise it
+  as one.
+
+Both of these were found by reading the code and confirmed by hand. Neither is
+caught by any test we have, which is the more worrying half: today the suite
+tells us this rule works, and it does not. Assume there are more ways past it
+than the two we happened to find, and treat the ones we found as examples of a
+weak check rather than as the whole list.
+
+Whoever fixes this: we want to see the failing test before we see the fix, and
+we want that test kept afterwards.
+
+## 2. People cannot sign themselves up
+
+There is no way to create an account. The only accounts that exist are the two
+that were put in the database by hand when the service was built, and everybody
+knows both passwords. That was fine for a demo and is not fine now.
+
+A person should be able to create their own account and then sign in with it and
+use the service exactly as an existing customer does. The same rules that
+already apply to us holding passwords apply to the ones they choose. Two people
+must not be able to end up with the same account name, however close together
+they try. Beyond that we have no strong opinions about the shape of it — no
+email verification, no invitations, no plan tiers; those are separate arguments
+we are not having in this change.
+
+Out of scope, deliberately: removing the two hand-installed accounts. That is
+tracked separately and depends on this landing first.
+
+## 3. Let people shorten a link without signing up
+
+Most people who want a short link want one link, once, and will not create an
+account to get it. We are losing all of them. We want somebody who is not signed
+in to be able to turn a long URL into a short link.
+
+A link made this way expires one month after it is created. That is the trade:
+no account, no permanence. Everything else about it behaves like any other short
+link — it redirects the same way, it is counted the same way, and the same
+safety rules apply to it, including the filter in item 1.
+
+Nobody owns a link created this way, so nobody can list it, change it, delete
+it, or see its numbers. Whoever holds the link is the only person who can use
+it, and that is the whole of their relationship with us.
+
+Be careful here. This is an unauthenticated endpoint that writes to our
+database, on a service whose stated problem is people hammering it to burn
+storage with junk links. We are not asking you to design an anti-abuse system
+from scratch — we already have one — but an anonymous creation path that ignores
+it would be worse than not shipping this at all. The click path stays the
+priority it has always been: we would sooner refuse a new anonymous link than
+serve a click slowly.
+
+## What has not changed
+
+Everything else in the service stands as built, including who can see whose
+links. An account created under item 2 must be as isolated from other customers
+as the existing ones are, and a link created under item 3 must not become a way
+to see anything that is not it.
+
+Java 21 and Spring Boot, PostgreSQL and Redis, as before. The deliverable is the
+HTTP API; there is still no UI.

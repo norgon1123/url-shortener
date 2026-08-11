@@ -149,6 +149,28 @@ is closed.
 
 ---
 
+## The run's input should be `input/<scenario>.txt`, not one file overwritten
+
+`intake` reads `input/requirement.txt`, hard-coded in its prompt and in an
+`artifact_present` gate. So each run overwrites the last run's ask, and the
+history of *what was asked* survives only in git — which is exactly the history
+worth having side by side when comparing a greenfield build against a brownfield
+change.
+
+`input/` now keeps `greenfield.txt` and `brownfield.txt` alongside the live
+`requirement.txt`, which is a copy. That works and is a duplication waiting to
+drift: nothing checks that the copy matches the file it was copied from.
+
+**Fix.** Derive the path from the run's scenario, which the manifest already
+carries: `input/{scenario}.txt`. Two touch points, both small — the gate's
+`path` parameter and the line in `intake.md`.
+
+**Do it between runs.** Editing `intake.md` changes its content hash, which
+marks `intake` stale and re-runs everything downstream of it. That is the
+change-driven replanning working correctly, and it costs a full run.
+
+---
+
 ## The graph has no node where a new test meets the old code
 
 A bug fix is supposed to produce a test that fails for the reason the bug exists.
