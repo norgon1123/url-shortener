@@ -1,5 +1,7 @@
 package com.example.urlshortener.link;
 
+import com.example.urlshortener.api.AnonymousLinkResponse;
+import com.example.urlshortener.api.CreateAnonymousLinkRequest;
 import com.example.urlshortener.api.CreateLinkRequest;
 import com.example.urlshortener.api.LinkPage;
 import com.example.urlshortener.api.LinkResponse;
@@ -53,6 +55,7 @@ public class LinkService {
     private final String baseUrl;
     private final String domain;
     private final Duration defaultTtl;
+    private final Duration anonymousTtl;
     private final boolean threatFailOpen;
 
     public LinkService(
@@ -74,6 +77,7 @@ public class LinkService {
         this.baseUrl = properties.baseUrl();
         this.domain = properties.domain();
         this.defaultTtl = properties.links().defaultTtl();
+        this.anonymousTtl = properties.links().anonymousTtl();
         this.threatFailOpen = properties.threat().failOpen();
     }
 
@@ -91,8 +95,8 @@ public class LinkService {
         requirePermittedTarget(target);
 
         LinkEntity link = request.alias() == null
-                ? insertWithGeneratedCode(caller, request.longUrl(), now, expiresAt)
-                : insertWithAlias(caller, request.alias(), request.longUrl(), now, expiresAt);
+                ? insertWithGeneratedCode(caller.id(), request.longUrl(), now, expiresAt)
+                : insertWithAlias(caller.id(), request.alias(), request.longUrl(), now, expiresAt);
 
         // Clears any "no such code" a probe of this code left behind. It is the one
         // cache operation that refuses the request when it cannot be done: see
@@ -102,6 +106,45 @@ public class LinkService {
 
         log.info("Customer {} created link {}", caller.id(), link.getCode());
         return toResponse(link, now);
+    }
+
+    /**
+     * Creates a link nobody owns (AC9).
+     *
+     * <p>The same sequence as {@link #create}, in the same order, through the same
+     * validator, threat check, generator and pre-issue cache invalidation: an
+     * anonymous link differs from an owned one in the owner it stores and the
+     * expiry it is given, and in nothing else. Written as a second method rather
+     * than a nullable-caller branch through the first because the two differ in
+     * their request and response types, but they must never differ in what they
+     * accept - there is no target this path takes that {@link #create} refuses
+     * (AC12).
+     *
+     * <p>The expiry is {@code app.links.anonymous-ttl} from creation and is never
+     * caller-supplied: nobody owns the row, so nobody could shorten it afterwards
+     * if the creator chose it (A9).
+     */
+    @Transactional
+    public AnonymousLinkResponse createAnonymous(CreateAnonymousLinkRequest request) {
+        Instant now = Instant.now();
+        Instant expiresAt = now.plus(anonymousTtl);
+
+        URI target = urlValidator.parseOrThrow(request.longUrl());
+        urlValidator.requireShortenable(target);
+        requirePermittedTarget(target);
+
+        LinkEntity link = insertWithGeneratedCode(null, request.longUrl(), now, expiresAt);
+        resolutionCache.invalidateBeforeIssuing(link.getCode());
+
+        // No customer to attribute it to, and none is invented for the log line:
+        // the absence is the fact worth recording.
+        log.info("Created anonymous link {}", link.getCode());
+        return new AnonymousLinkResponse(
+                link.getCode(),
+                baseUrl + "/" + link.getCode(),
+                link.getLongUrl(),
+                link.getCreatedAt(),
+                link.getExpiresAt());
     }
 
     @Transactional(readOnly = true)
@@ -150,12 +193,12 @@ public class LinkService {
     }
 
     private LinkEntity insertWithAlias(
-            CurrentCustomer caller, String alias, String longUrl, Instant now, Instant expiresAt) {
+            UUID owner, String alias, String longUrl, Instant now, Instant expiresAt) {
         if (links.existsByDomainAndCode(domain, alias)) {
             throw ApiException.aliasUnavailable();
         }
         try {
-            return links.saveAndFlush(newLink(caller, alias, longUrl, now, expiresAt));
+            return links.saveAndFlush(newLink(owner, alias, longUrl, now, expiresAt));
         } catch (DataIntegrityViolationException takenMeanwhile) {
             // The unique constraint, not the check above, is what actually decides:
             // two callers can pass that check at the same moment and only one row
@@ -165,7 +208,7 @@ public class LinkService {
     }
 
     private LinkEntity insertWithGeneratedCode(
-            CurrentCustomer caller, String longUrl, Instant now, Instant expiresAt) {
+            UUID owner, String longUrl, Instant now, Instant expiresAt) {
         // At 128 bits a collision is not something that happens; the loop is here so
         // that if one ever did, a customer would get a link rather than an error.
         // The unique constraint stays the authority - this check only picks a code
@@ -176,15 +219,16 @@ public class LinkService {
                 log.warn("Generated short code was already taken on attempt {}", attempt);
                 continue;
             }
-            return links.saveAndFlush(newLink(caller, code, longUrl, now, expiresAt));
+            return links.saveAndFlush(newLink(owner, code, longUrl, now, expiresAt));
         }
         log.error("Could not find a free short code in {} attempts", ShortCodeGenerator.MAX_INSERT_ATTEMPTS);
         throw ApiException.dependencyUnavailable(ErrorCode.SERVICE_UNAVAILABLE.defaultMessage());
     }
 
+    /** @param owner the customer the link belongs to, or null when it belongs to nobody. */
     private LinkEntity newLink(
-            CurrentCustomer caller, String code, String longUrl, Instant now, Instant expiresAt) {
-        return new LinkEntity(UUID.randomUUID(), domain, code, caller.id(), longUrl, now, expiresAt);
+            UUID owner, String code, String longUrl, Instant now, Instant expiresAt) {
+        return new LinkEntity(UUID.randomUUID(), domain, code, owner, longUrl, now, expiresAt);
     }
 
     private void requirePermittedTarget(URI target) {

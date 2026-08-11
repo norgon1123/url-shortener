@@ -1,0 +1,27 @@
+-- Uniqueness of an account name, over the lower-cased address.
+--
+-- CustomerRepository.findByEmailIgnoreCase already treats addresses differing
+-- only in case as one account, so the case-sensitive ux_customers_email from V1
+-- is not the constraint that promise actually rests on: without this index,
+-- 'Alice@example.com' and 'alice@example.com' both insert and the *next* sign-in
+-- for either of them fails on a non-unique result -- a 500 on an endpoint this
+-- change never touches, for an account that may have been seeded.
+--
+-- It is also what decides a duplicate sign-up. POST /api/v1/customers does not
+-- look before it inserts: a read-then-write cannot promise that exactly one of
+-- two simultaneous sign-ups for one address wins, and this index can.
+--
+-- BEFORE APPLYING, in every environment this runs against:
+--
+--   SELECT lower(email) FROM customers GROUP BY lower(email) HAVING count(*) > 1;
+--
+-- If that returns rows, this migration fails and stops the deploy mid-way. It
+-- cannot be checked from this repository, which holds only the two seeded
+-- accounts; the result belongs with the approval for this file. The remedy is a
+-- decision about which row keeps the address, not a looser index.
+--
+-- ux_customers_email is left in place. It is implied by this one for
+-- same-case duplicates and dropping it would be a second, unrelated change to
+-- what the table promises.
+
+CREATE UNIQUE INDEX ux_customers_lower_email ON customers (lower(email));

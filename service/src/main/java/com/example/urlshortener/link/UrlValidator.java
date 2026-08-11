@@ -6,7 +6,6 @@ import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -65,6 +64,9 @@ public class UrlValidator {
 
     private final String ownHost;
 
+    /** {@link #ownHost} in the form a target is compared against; null when unset. */
+    private final String canonicalOwnHost;
+
     /** For unit use: every rule except the "our own domain" check. */
     public UrlValidator() {
         this(null);
@@ -73,10 +75,13 @@ public class UrlValidator {
     /**
      * @param ownHost this shortener's public host, refused as a target so a short
      *                link cannot point at another short link and build a redirect
-     *                loop through us
+     *                loop through us. Canonicalised once here rather than on every
+     *                request, so the self-referential rule is evaded by a trailing
+     *                dot or a numeric spelling no more than the others are.
      */
     public UrlValidator(String ownHost) {
         this.ownHost = ownHost;
+        this.canonicalOwnHost = ownHost == null ? null : HostNormalizer.normalize(ownHost).orElse(null);
     }
 
     /** The host refused as self-referential, or null when unset. */
@@ -115,11 +120,14 @@ public class UrlValidator {
 
     /**
      * @throws com.example.urlshortener.error.ApiException {@code url_rejected}
-     *         (422) if the host is internal or is this service itself
+     *         (422) if the host is internal, is this service itself, or cannot be
+     *         canonicalised at all - the last of those is refused rather than
+     *         checked as written, because a host nobody can say what it means is
+     *         not a host we can say is safe (A3)
      */
     public void requireShortenable(URI url) {
-        String host = url.getHost().toLowerCase(Locale.ROOT);
-        if (ownHost != null && host.equals(ownHost.toLowerCase(Locale.ROOT))) {
+        String host = HostNormalizer.normalize(url.getHost()).orElseThrow(ApiException::urlRejected);
+        if (canonicalOwnHost != null && canonicalOwnHost.equals(host)) {
             throw ApiException.urlRejected();
         }
         if (isInternal(host)) {

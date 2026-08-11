@@ -9,6 +9,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -25,8 +26,19 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * is registered for {@code /api/v1/*} and nothing else, so the click path and the
  * actuator endpoints are outside it by construction rather than by exception.
  *
- * <p>Sign-in is the one unauthenticated route under that prefix, for the obvious
- * reason.
+ * <p>Three routes under that prefix take no credential: sign-in, for the obvious
+ * reason, and the two endpoints a caller without an account is entitled to reach
+ * -- sign-up and anonymous link creation. They are matched by exact equality
+ * rather than by prefix, and that is the whole of the difference between
+ * exempting one path and exempting its neighbours: {@code startsWith} on
+ * {@code /api/v1/links} would unauthenticate listing, editing and deletion, with
+ * nothing failing to say so.
+ *
+ * <p>The exemption is not method-aware, so an exempted path is outside
+ * authentication for every verb. What makes that safe is that no handler exists
+ * for the other verbs, so they reach 405 rather than an unauthenticated
+ * controller; adding a second method to either of those paths is therefore a
+ * security decision and not a routing one.
  *
  * <p>Every failure -- absent, malformed, expired, forged, signed by another key --
  * produces the same 401 with the same body. A caller must not be able to learn
@@ -38,6 +50,12 @@ public class SessionAuthenticationFilter extends OncePerRequestFilter {
     public static final String CURRENT_CUSTOMER_ATTRIBUTE = "urlshortener.currentCustomer";
 
     private static final String SESSIONS_PATH = "/api/v1/sessions";
+    private static final String CUSTOMERS_PATH = "/api/v1/customers";
+    private static final String PUBLIC_LINKS_PATH = "/api/v1/public/links";
+
+    private static final Set<String> UNAUTHENTICATED_PATHS =
+            Set.of(SESSIONS_PATH, CUSTOMERS_PATH, PUBLIC_LINKS_PATH);
+
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final JwtVerifier verifier;
@@ -50,7 +68,7 @@ public class SessionAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return SESSIONS_PATH.equals(request.getRequestURI());
+        return UNAUTHENTICATED_PATHS.contains(request.getRequestURI());
     }
 
     @Override
