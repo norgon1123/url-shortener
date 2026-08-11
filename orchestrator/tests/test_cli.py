@@ -168,6 +168,15 @@ class TestRunLifecycle:
         with pytest.raises(SystemExit, match="unknown node"):
             cli(env, "repair", "run-cli", "nope", "--approver", "neil", "--note", "x")
 
+    def test_verify_will_not_call_a_missing_journal_intact(self, env: dict) -> None:
+        """An empty chain is trivially intact, which is the most misleading true
+        sentence this command could print. From a fresh clone, `verify` on a
+        shipped run looked in the gitignored `runs/`, found nothing, and
+        reported "0 entries, chain intact"."""
+        start(env)
+        with pytest.raises(SystemExit, match="no journal for run"):
+            cli(env, "verify", "no-such-run")
+
     def test_a_manifest_makes_resume_self_contained(self, env: dict) -> None:
         """Resume takes a run id and nothing else -- CI does not re-supply flags."""
         start(env)

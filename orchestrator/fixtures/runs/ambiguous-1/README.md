@@ -6,9 +6,9 @@ human answered the questions the pipeline asked**. Both safe-stopped after
 `decompose`, because the plan is what the comparison is about.
 
 ```bash
-python -m sdlc.cli replay orchestrator/fixtures/runs/ambiguous-1
-python -m sdlc.cli verify ambiguous-1      # 35 entries
-python -m sdlc.cli verify ambiguous-2      # 52 entries
+PYTHONPATH=orchestrator python -m sdlc.cli replay orchestrator/fixtures/runs/ambiguous-1
+PYTHONPATH=orchestrator python -m sdlc.cli --runs-dir orchestrator/fixtures/runs verify ambiguous-1      # 35 entries
+PYTHONPATH=orchestrator python -m sdlc.cli --runs-dir orchestrator/fixtures/runs verify ambiguous-2      # 52 entries
 ```
 
 | | `ambiguous-1` | `ambiguous-2` |

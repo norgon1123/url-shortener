@@ -71,7 +71,7 @@ segregation of duties, four-eyes approval, audit trail.
 | Orchestrator runtime | Python + Claude Agent SDK | Built-in file/bash/grep tools, permission callbacks, hooks, subagents, enforced sandbox egress. No Agent SDK for Java; the Tool Runner would mean a day of undifferentiated tool plumbing |
 | Deployment | Local CLI, CI-ready by construction | No daemon, no shared mutable state — SQLite + JSONL + git checkpoints — so the same entry point runs unchanged as a CI job |
 | Service scope | Lean; Redis **and** Kafka documented, not built | Six of eight criteria score orchestration |
-| **Rate limiting** | **Excluded from the base build** | It is the brownfield scenario's deliverable; shipping it in the base makes that demo incoherent |
+| **Rate limiting** | **Excluded from the base build** — *reversed, see §9* | Planned as the brownfield deliverable. `greenfield-3` built it anyway: the requirement's abuse section made it load-bearing for the base service, and a `clarify` question established that. The brownfield ask changed rather than the rule bending |
 | Provenance | Hand-built scaffold; orchestrator produces features | Stated openly in `ENGINEERING_SUMMARY.md`; commit trailers make it auditable per commit |
 
 **The polyglot seam, defended proactively rather than when challenged:** the
@@ -170,8 +170,9 @@ gates) → HTML report (terminal/markdown table first) → service extras
 exit gates on every node instead, which is stricter — a secret cannot reach a
 checkpoint rather than being found at one. The HTML report: `report --json`
 feeds anything, and the terminal table is what an operator reads mid-run. The
-service extras survived; the review lenses asked for them and neither was
-expensive.
+`Idempotency-Key` was cut and stayed cut: nothing in the requirement asked for
+it and no review lens raised it. Negative caching survived, because the
+enumeration argument in the brief made it load-bearing rather than an extra.
 
 ---
 
@@ -361,21 +362,31 @@ cannot tell different stories.
 
 ## 7. The URL shortener (the work product)
 
-- `POST /api/v1/links` (custom alias, TTL, `Idempotency-Key`),
-  `GET /{code}` → **302** (301 caches away the analytics), `DELETE`,
-  `GET /api/v1/links/{code}/stats`; **410** expired vs **404** unknown.
-- **Code generation (ADR-004):** random 7-character base62 with a
-  unique-constraint retry, *not* a sequence — sequential codes are enumerable,
-  which is a real security defect for a shortener.
-- **Security:** scheme allowlist (http/https); reject private, loopback, and
-  link-local ranges (SSRF); reject self-referential hosts (redirect loops);
-  negative-cache 404s against enumeration.
-- **Data:** PostgreSQL via Testcontainers; **Caffeine only** — no Redis in the
-  build.
-- **Analytics:** transactional outbox → async consumer. Kafka is the documented
-  scale path, not a dependency.
-- Actuator/Micrometer, health probes, OpenAPI as a first-class artifact,
-  integration tests over mocks.
+**As planned**, in one line: a 302 redirect service with random base62 codes, a
+scheme allowlist and SSRF rejection, PostgreSQL, Caffeine, an `Idempotency-Key`,
+a `/stats` endpoint, and a transactional outbox for analytics.
+
+**As built**, which is different, and the differences are the runs' design
+decisions rather than drift. The authority is
+[`artifacts/openapi.yaml`](../artifacts/openapi.yaml) and
+[`API.md`](API.md); the notable deltas:
+
+| Planned | Built | Why |
+|---|---|---|
+| `Idempotency-Key` on create | not built | never asked for by a requirement or a review lens; the plan's own cut list named it |
+| `GET /links/{code}/stats` | click counts ride `LinkResponse` | `design` folded the read into the resource rather than adding a route |
+| Caffeine only, no Redis | **Redis in the build** — click counting, rate limiting, resolution cache | the requirement's click-path scaling section made an in-process cache insufficient across replicas |
+| transactional outbox → consumer | Redis counter buffer with a flush loop | same reason; Kafka remains the documented scale path, not a dependency |
+
+Unchanged from the plan and confirmed in the build: **302 not 301** (301 caches
+the analytics away), random 7-character base62 with a unique-constraint retry
+rather than a sequence ([ADR-004](adr/004-short-codes-are-random-not-sequential.md)),
+the scheme allowlist and internal-address rejection, 410-expired versus
+404-unknown, Actuator and Micrometer, OpenAPI as a first-class artifact, and
+behaviour tests over mocks.
+
+The brownfield run then added self-service sign-up, anonymous links, and the host
+canonicalisation that closed two live filter bypasses.
 
 ---
 
@@ -466,48 +477,18 @@ control that did not exist before — see §12.
 
 ---
 
-## 10. Demo script
+## 10. Walkthrough
 
-> **As planned, below. As it turned out, the walkthrough writes itself from the
-> two recorded runs** — every point this section proposes to stage has a journal
-> entry behind it, which is a stronger demonstration than a scripted one. The
-> ten-minute version:
->
-> 1. `pytest orchestrator/tests` — 425 tests, six seconds, no API key. The
->    machinery is exercised without spending anything.
-> 2. `python -m sdlc.cli verify greenfield-3` — 345 entries, chain intact.
->    Then edit one byte of the journal and run it again.
-> 3. `python -m sdlc.cli report brownfield-1` — metrics derived from that
->    journal, including the 53% rework figure.
-> 4. **The escalation that could not be faked**: `brownfield-1` seq 11 —
->    `clarify` refuses to proceed because any visible refusal of a duplicate
->    sign-up turns the endpoint into an account-existence oracle. Nobody
->    scripted that question.
-> 5. **The repair loop**: `greenfield-3` seq 205-207 — a mixed verdict routed to
->    both branches with separate briefs, 23 failures down to 1.
-> 6. **The human in the loop doing something a machine cannot**: seq 115, a
->    contract question adjudicated, the branch named, and the repair honouring
->    the ruling rather than evading it.
-> 7. **The system finding a hole in itself**: `brownfield-1`'s
->    `release-readiness` reporting that a gate was edited inside the run with no
->    lens auditing the diff.
+Superseded by the README's "Start here" and by the run READMEs, which is the
+right outcome: a demo script that has to argue a halt is unfakeable has already
+lost the argument, and the journals do not need the help. The three moments
+worth opening directly:
 
-The halt-on-ambiguity moment alone reads as a scripted `if`. Four things make it
-unfakeable:
-
-1. **Differential behaviour, identical machinery** — the same DAG, the same
-   prompts, zero scenario-specific branches. Greenfield passes through
-   `clarify`; ambiguous halts. The journals side by side are the proof.
-2. **Consequential approval** — run the ambiguous scenario **twice with
-   different human answers** ("reliability = rate limiting + idempotency" vs.
-   "reliability = health probes + retries") and show `decompose` producing
-   different task graphs and different code. If approval merely resumes to a
-   predetermined outcome, it is a pause button, not governance.
-3. **Show `reject`, not only `approve`** — reject at `design` → the node re-runs
-   with the note → a revised contract.
-4. **Fault injection as co-headliner** — a forced `verify` failure → bounded
-   retry → rollback → replan → safe-stop, visible in both the journal and the
-   metrics. The halt proves *policy*; fault injection proves the *machinery*.
+| Where | What it is |
+|---|---|
+| `brownfield-1` seq 11 | `clarify` refusing to proceed because any visible refusal of a duplicate sign-up makes the endpoint an account-existence oracle. Nobody scripted that question |
+| `greenfield-3` seq 205-207 | a mixed triage verdict routed to both branches with separate briefs; 23 failing methods to 1 |
+| `greenfield-3` seq 115 | a contract question adjudicated by a human, the branch named, and the repair honouring the ruling rather than evading it |
 
 ---
 

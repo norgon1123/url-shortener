@@ -63,49 +63,65 @@ is not. Prefer not to edit the workspace during a live run.
 `runs/` is gitignored; journals are exported to `orchestrator/fixtures/runs/`
 deliberately, so an evaluator can replay one with no API key and no spend.
 
+All of these need `sdlc` on the path; the package is not installed:
+
 ```bash
-python -m sdlc.cli report  <run-id>          # metrics, from the journal only
-python -m sdlc.cli verify  <run-id>          # re-check the hash chain
-python -m sdlc.cli replay  runs/<run-id>     # read a run without executing it
-python -m sdlc.cli lineage <run-id> <entry>  # trace an entry to its cause
+export PYTHONPATH=orchestrator
+# Shipped runs live in fixtures, not in the gitignored `runs/`. Point at them:
+alias sdlc='python -m sdlc.cli --runs-dir orchestrator/fixtures/runs'
+
+sdlc report  <run-id>                              # metrics, from the journal only
+sdlc verify  <run-id>                              # re-check the hash chain
+sdlc replay  orchestrator/fixtures/runs/<run-id>   # read a run without executing it
+sdlc lineage <run-id> <entry>                      # trace an entry to its cause
 ```
 
-### `greenfield-1` — read the caveats before quoting its numbers
+**Five runs ship** in `orchestrator/fixtures/runs/`: `greenfield-2`,
+`greenfield-3`, `brownfield-1`, `ambiguous-1`, `ambiguous-2`. Each has its own
+README. `greenfield-1` is **not** shipped — see below.
 
-The first live run. Preserved because it is the best evidence of a human
-checkpoint being *used*: the frozen contract was rejected over API versioning,
-the node revised it, and both decisions are in the journal.
+### `greenfield-1` — retained locally, deliberately not shipped
 
-Two things make its metrics unreliable, and the journal is hash-chained so they
-cannot be corrected retroactively:
+The first live run, on the 11-node pipeline. It is the best evidence of a human
+checkpoint being *used* — the frozen contract was rejected over API versioning
+and the node revised it — but it is not in `fixtures/` because its numbers are
+wrong and, the journal being hash-chained, cannot be corrected: it predates the
+cost-accounting fix, so `implement` and `author-tests` report `$0.00` against
+real work and re-gated entries are double-counted. Its journal says `$9.20`; the
+run store says `$17.43`, and the store is right.
 
-- it predates the cost-accounting fix, so `implement` and `author-tests` report
-  `$0.00` against real work, and re-gated entries are double-counted. Its
-  journal says `$9.20`; the run store says `$17.43`, and the store is right;
-- it ran against the 11-node pipeline. The graph is now 19 nodes.
+Shipping a journal whose own metrics command produces a wrong answer would be
+worse than not shipping it. What it demonstrated is demonstrated again, with
+sound numbers, in `greenfield-3`.
 
-Later runs are the ones to quote.
+### `greenfield-2` — the 19-node graph, stopped at `verify`
+
+Shipped, and worth reading precisely because it did not finish: 163 tests ran,
+160 passed, and the run is preserved as it ended rather than nursed to green.
+The graph is now 21 nodes, so its shape is one generation behind — `test-contract`
+and `triage` came out of what this run exposed.
+
+### The ambiguous pair — `ambiguous-1` and `ambiguous-2`
+
+One underspecified requirement, run twice with opposite answers, both
+safe-stopped after `decompose`. Read
+[`fixtures/runs/ambiguous-1/README.md`](../orchestrator/fixtures/runs/ambiguous-1/README.md)
+— the pair found that human answers were reaching no node at all.
 
 ### `greenfield-3` — the one to quote
 
 The 21-node graph end to end: completed, 148 tests green, 20 of 20 scheduled
 nodes passed, $108.70 with 56% rework. `orchestrator/fixtures/runs/greenfield-3`
-has the full account; the two things worth knowing before quoting it:
-
-- **it was signed off over a `ready: false` verdict.** `release-readiness`
-  refused, a human approved anyway to close the run, and the residual risks are
-  in `docs/TODO.md`. "Completed" here means the pipeline reached its end with
-  every decision recorded — not that the service is shippable, and the record
-  says so in three places;
-- **its rework figure is the most useful number in it.** $60.51 of $108.70 went
-  on attempts that were thrown away. Four of the causes were defects in the
-  orchestrator itself, each now a test.
+has the full account. Two things before quoting it: it was signed off over a
+`ready: false` verdict (see [METRICS.md](METRICS.md)), and its most useful number
+is the rework — $60.51 of $108.70 went on attempts that were thrown away, four of
+them caused by defects in the orchestrator itself.
 
 ### `brownfield-1` — the same graph against code that exists
 
 `orchestrator/fixtures/runs/brownfield-1`. Completed: 276 tests, 88.3% coverage,
-97% gate pass rate, zero replans, $98.16 with 53% rework. Signed off over a
-`ready: false` verdict, same as `greenfield-3`.
+97% gate pass rate, zero replans, $98.16 with 53% rework. Signed off the same way
+as `greenfield-3`.
 
 Read it for the things a greenfield run cannot show: an impact analysis with a
 real codebase to analyse, a security finding that no test could have caught

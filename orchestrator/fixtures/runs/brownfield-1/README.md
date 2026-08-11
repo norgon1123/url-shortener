@@ -3,8 +3,8 @@
 Replayable with no API key and no spend:
 
 ```bash
-python -m sdlc.cli replay orchestrator/fixtures/runs/brownfield-1
-python -m sdlc.cli verify brownfield-1      # re-check the hash chain yourself
+PYTHONPATH=orchestrator python -m sdlc.cli replay orchestrator/fixtures/runs/brownfield-1
+PYTHONPATH=orchestrator python -m sdlc.cli --runs-dir orchestrator/fixtures/runs verify brownfield-1      # re-check the hash chain yourself
 ```
 
 **Outcome: completed.** 276 tests green, 88.3% line coverage, 10 routes matching
