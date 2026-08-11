@@ -184,7 +184,13 @@ Both ways this fails have now happened, hours apart:
   as being structurally impossible.
 
 The second one is the tell: a denylist will keep meeting things nobody put on
-it.
+it. There is now a third, and it is not the orchestrator's fault: an operator
+committing a fix mid-run with `git add -A` swept a paused node's uncommitted
+skeleton into that commit. The consequence was not a wrong commit but a weakened
+gate — `no_assertions` diffs from the newest commit the node did not make, so
+work already committed by somebody else reads as inherited and is not examined.
+Operator commits during a live run need explicit pathspecs, and the gate's
+"0 file(s) scanned" is a result worth reading as a warning rather than a pass.
 
 **Fix.** Stage only what the node was permitted to write — its `write_paths`,
 minus its `deny_paths` and the run's `forbidden_paths`. `PolicyEngine.check_write`
