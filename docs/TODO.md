@@ -3,6 +3,53 @@
 Work identified but not built. Each item says why it matters, so a future
 reader can judge whether it still does.
 
+**Read this first.** Nothing here is deployed, and the deliverable is the
+orchestration layer rather than the service it builds. That is why these are
+documented rather than fixed — but "documented" is only a legitimate close when
+the entry is good enough to act on, so each one carries the mechanism, the blast
+radius, the specific fix, and what a partial mitigation does and does not buy.
+
+One class of problem was *not* deferred on those grounds: anything that makes
+the record itself wrong. A gate reporting a pass it did not earn, or a criterion
+marked met without evidence, is a defect in the thing being built. Those were
+fixed during the runs — see `docs/evidence/` for AC3's failing run, and the
+`no_assertions` / `tests_not_weakened` commits for two gates that only worked on
+an empty repository.
+
+---
+
+## Abuse-report takedown stays irreversible — adjudicated, brownfield-1
+
+**Status: confirmed and closed by neil at `review-synthesis`, brownfield-1, with
+no code change. The eligibility rule shipped; the posture below is accepted.**
+
+`SEC-1` on that run was the abuse-report takedown becoming reachable by anyone
+once sign-up went self-service. The rule asked for was built and is pinned by
+`AbuseReportReporterAgeTest` in both directions: a report takes a link down only
+if the reporting account pre-dates the link or has existed for
+`app.abuse.min-reporter-age`. `review-synthesis` verified that against the tree
+and found the security lens's premise superseded — then kept the finding at
+blocker anyway, because two things needed a person rather than a reviewer.
+
+**Confirmed (a): `P7D` is the production value.** The only definition is
+`@DefaultValue("P7D")` at `AppProperties.java:227`; there is one
+`application.yml` and no profile lowers it. Re-check this if profiles are ever
+added — the whole control is that number.
+
+**Accepted (b): an aged account may permanently disable any link whose code it
+has seen.** Takedown remains immediate, unmoderated and irreversible — there is
+no unblock path, and `updateExpiry` answers 409 for a non-ACTIVE link
+(`LinkService.java:169`) — so a wrongly-blocked link stays dead. `P7D` raises
+the cost of the attack to seven days of patience per cohort of minted accounts;
+it does not remove it.
+
+**What would close it properly**, in the order they are worth doing: an unblock
+path so a mistake is recoverable; then moderation for reports that cross tenant
+boundaries; then re-examining every remaining per-account limit, because the
+lens's underlying point survives its own finding — **free accounts change the
+economics of every per-account limit in the service**, and the abuse endpoint is
+only the first place that showed.
+
 ---
 
 ## Residual risks signed off at `release-readiness`, greenfield-3
