@@ -2,124 +2,107 @@
   "findings": [
     {
       "confidence": "high",
-      "file": "service/src/main/resources/db/migration/V2__seed_customers_and_denylist.sql",
-      "id": "SEC-1",
-      "line": 13,
-      "severity": "blocker",
-      "suggestion": "Move the two customer INSERTs into a separate location (e.g. `classpath:db/testdata`) added to `spring.flyway.locations` only under a dev/test profile, leaving the denylist rows in the main migration. Provision real accounts by an operator step. Then rotate the plaintexts out of openapi.yaml, or mark them clearly as fixtures that exist only when the test location is active.",
-      "summary": "Two customer accounts with published plaintext passwords are seeded by an ordinary Flyway migration that runs in every environment. artifacts/openapi.yaml lines 99-102 publish `alice-dev-password` / `bob-dev-password`, and the migration comment claims the accounts are \"for local and test use only\" \u2014 but nothing enforces that: application.yml sets `spring.flyway.enabled: true` with `locations: classpath:db/migration` and no profile or placeholder gate, so a production deploy installs both accounts. Since there is no registration endpoint, these are the accounts, and either one can create links, and \u2014 via the abuse endpoint \u2014 take down any link on the service (see SEC-5)."
-    },
-    {
-      "confidence": "high",
-      "file": "service/src/main/java/com/example/urlshortener/threat/DenylistThreatCheck.java",
-      "id": "SEC-2",
-      "line": 39,
-      "severity": "major",
-      "suggestion": "Normalise the host once in `UrlValidator.parseOrThrow` \u2014 lower-case, strip trailing dots, reject empty labels \u2014 and check and store that normalised form, so the denylist, the own-host check and the stored target all agree. Add a test asserting `https://malware.example.com./x` and `https://MALWARE.example.com/x` are both refused with the same 422 body as the plain form.",
-      "summary": "Denylist bypass by trailing-dot FQDN. `URI.getHost()` on `https://malware.example.com./campaign` returns `malware.example.com.` (verified on JDK 21); the check lower-cases but does not strip the root dot, so `existsByHost` misses, and the parent walk yields `example.com.`, `com.`, `` \u2014 never the listed `malware.example.com`. The link is created and redirects, and every browser and resolver treats the trailing dot as the same name. This defeats AC21 on the create path with a one-character change to the submitted URL."
-    },
-    {
-      "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/redirect/RedirectController.java",
-      "id": "SEC-3",
-      "line": 64,
-      "severity": "major",
-      "suggestion": "Either set `server.forward-headers-strategy: native|framework` and have the edge overwrite (not append to) `X-Forwarded-For` so the app sees a trustworthy client address, or state in the contract that the edge owns per-IP limiting and drop the app-side IP buckets. Do not read `X-Forwarded-For` directly without a trusted-proxy list \u2014 that turns the limit into something the attacker chooses. A test that drives two requests with different forwarded addresses through one socket would pin whichever choice is made.",
-      "summary": "The three buckets the contract documents as \"keyed by client IP\" (click, not-found, sign-in) are keyed by `request.getRemoteAddr()`, and nothing sets `server.forward-headers-strategy` in application.yml. Behind any load balancer or edge proxy that is the proxy's address for every request, so all callers share one bucket. Two consequences, both bad: per-source throttling for AC19 does not distinguish sources at all, and the global caps become a self-inflicted denial of service \u2014 3000 clicks/min and 60 sign-ins/min for the entire service, against a stated target of ~100M clicks/day. Same call at SignInController.java:40."
-    },
-    {
-      "confidence": "high",
-      "file": "service/src/main/java/com/example/urlshortener/ratelimit/RedisTokenBucketRateLimiter.java",
-      "id": "SEC-4",
-      "line": 70,
-      "severity": "major",
-      "suggestion": "Make the failure mode per bucket: keep fail-open for CLICK (that rationale is sound and AC20 asks for it), and fail closed \u2014 or fall back to a small in-process bucket per instance \u2014 for SIGN_IN, WRITE and ABUSE_REPORT, where refusing is the safe direction. Add a bounded concurrency limit around password verification so sign-in cannot consume the whole heap regardless of the limiter's state, and a test that asserts sign-in is still throttled with the Redis container stopped.",
-      "summary": "The limiter fails open for every bucket, not just the click path it is justified for. When Redis is unreachable the sign-in bucket also allows everything, so a Redis outage removes all brute-force and credential-stuffing protection at the same moment, and lets an unauthenticated caller drive unbounded memory-hard Argon2id work (16 MiB per attempt) against the service. The same outage removes the only bound on abuse-report takedowns and on junk-link creation. Note the outage need not be an accident \u2014 the click path itself is the cheapest way to pressure the shared Redis."
-    },
-    {
-      "confidence": "medium",
       "file": "service/src/main/java/com/example/urlshortener/abuse/AbuseReportService.java",
-      "id": "SEC-5",
-      "line": 74,
+      "id": "SEC-1",
+      "line": 61,
       "severity": "major",
-      "suggestion": "Add a per-reporter daily cap distinct from the per-minute bucket, and require either a second distinct reporter or an operator confirmation before blocking a link above a click threshold (the high-traffic links are exactly the ones worth attacking). Independently, add an operator-only unblock path so an incorrect takedown is recoverable; the audit rows already record who reported what.",
-      "summary": "Any signed-in customer can permanently disable any link whose code they have seen, and short codes are seen by everyone who is handed the link. The takedown is immediate, and it is irreversible in this build: `LinkService.updateExpiry` answers 409 for a non-ACTIVE link and there is no unblock path, so a false or malicious takedown is unrecoverable without a DBA. Clarification Q4 accepted the mechanism on the strength of \"rate-limited per reporter\" plus an audit row, but the limit chosen is 60/min \u2014 86,400 links a day from one account \u2014 which does not bound the attack the design said it bounded, and the accepted reasoning did not consider irreversibility."
+      "suggestion": "Decide explicitly whether an account of age zero may take a link down. Cheapest closures that need no new subsystem: (a) require the reporter's account to pre-date the reported link, or to be older than some app.abuse.min-reporter-age; (b) queue rather than block when the reporter has no links of their own, so the immediate-takedown power stays with established accounts; or (c) add a second bucket keyed by client address alongside the customer-id bucket, so minting accounts does not multiply takedown capacity. Whichever is chosen, add a test to SignUpIsolationTest asserting the outcome of a fresh account reporting another customer's code - that assertion is currently absent and is the security control this finding is about.",
+      "summary": "Self-service sign-up silently re-scopes every authenticated endpoint from \"two hand-provisioned accounts\" to \"anyone on the internet\", and the one authenticated capability that deliberately crosses tenant boundaries is the abuse-report takedown. report() resolves by (domain, code) with no owner scoping and immediately markBlocked()s the link, with no moderation queue and no unblock path (both explicitly out of scope). The only defence is ABUSE_REPORT keyed by customer id at 60/min - and after this change an attacker mints customer ids at 60/min per IP through POST /api/v1/customers, so the per-reporter bucket bounds nothing. Any published short link (and short links are published by definition) can now be permanently killed by an unauthenticated stranger who spends one sign-up. impact.json recorded this data flow as risk \"low\" on the stated basis that \"only signed-in callers can report\", which AC4 makes vacuous; SignUpIsolationTest pins that a new account cannot read/modify/delete/list another customer's link but does not pin what it can do to one via abuse-reports."
+    },
+    {
+      "confidence": "medium",
+      "file": "service/src/main/java/com/example/urlshortener/ratelimit/RedisTokenBucketRateLimiter.java",
+      "id": "SEC-2",
+      "line": 67,
+      "severity": "major",
+      "suggestion": "Make the fail-open decision per bucket rather than global: keep ALLOWED-on-error for CLICK and NOT_FOUND (a 429'd redirect is a self-inflicted outage), and fail closed with 503 service_unavailable for SIGN_UP. That is the same shape AC15 already asks for - degradation spent on refusing new writes, never on serving clicks - and it makes the sign-up path behave under a Redis outage the way the anonymous-create path already does. A boolean on RateLimitBucket, or a set of buckets consulted in the catch at line 67, is enough.",
+      "summary": "The limiter fails open on an unreachable Redis (deliberate, pre-existing, and correct for the click path). Anonymous link creation is incidentally protected from that during a Redis outage because ResolutionCache.invalidateBeforeIssuing throws 503 before a row is written. POST /api/v1/customers has no such gate: it touches only PostgreSQL, so with Redis down it is completely unmetered - unbounded 16 MiB/~25 ms Argon2id hashes (Tomcat's 200 default threads x 16 MiB is ~3.2 GiB of native memory), unbounded customer rows, and unbounded account minting, which compounds SEC-1 exactly when the operator is already busy. The requirement's non-functional list says an unauthenticated endpoint that writes to the database must not become an unmetered storage-burn vector; today the only thing enforcing that on sign-up is a dependency the design documents as fail-open."
+    },
+    {
+      "confidence": "high",
+      "file": "service/src/main/java/com/example/urlshortener/auth/SignUpService.java",
+      "id": "SEC-3",
+      "line": 60,
+      "severity": "minor",
+      "suggestion": "Hash before the transaction opens: compute the encoded hash in the controller or in a non-transactional method and pass it into a small @Transactional insert, so the connection is held only for the saveAndFlush. Behaviour, including the 409-from-constraint semantics, is unchanged.",
+      "summary": "passwordHasher.hash() runs inside the @Transactional signUp method, so each unauthenticated sign-up holds a pooled JDBC connection for the ~25 ms of memory-hard Argon2id work before it does any SQL. At the configured 60/min per IP (and unbounded per SEC-2) this starves the HikariCP pool, and the pool is shared with the click path's PostgreSQL fallback on a resolution-cache miss - the one path the requirement says degradation must never be spent on. SignInService has the same shape, so this is a pattern rather than a novelty, but sign-up doubles the exposed surface and adds a write."
     },
     {
       "confidence": "high",
       "file": "service/src/main/java/com/example/urlshortener/link/UrlValidator.java",
-      "id": "SEC-6",
-      "line": 152,
+      "id": "SEC-4",
+      "line": 149,
       "severity": "minor",
-      "suggestion": "Treat any host containing no alphabetic character as an address literal and run it through `InetAddress.getByName` before `isInternalAddress`, which covers decimal, octal and short-form IPv4 in one line. The DNS-name case is already documented as deliberately out of scope and can stay that way.",
-      "summary": "The loopback/private/link-local target check is bypassable with non-dotted-quad address literals. `IPV4_LITERAL` matches only `d.d.d.d`, so `isIpLiteral` returns false for `http://2130706433/` and `http://0/`, they are treated as ordinary names, and `InetAddress` is never consulted \u2014 verified on JDK 21 that `getByName(\"2130706433\")` is 127.0.0.1 and `getByName(\"0\")` is 0.0.0.0. Impact is bounded because nothing fetches the target server-side, so this is not SSRF; it is the shortener being usable to point clickers at loopback and LAN addresses under our name, which is the case the 422 rule exists to prevent."
-    },
-    {
-      "confidence": "high",
-      "file": "service/src/main/java/com/example/urlshortener/abuse/AbuseReportController.java",
-      "id": "SEC-7",
-      "line": 41,
-      "severity": "minor",
-      "suggestion": "Reject codes that cannot exist before touching the cache or the database: length 1..64 and charset `[A-Za-z0-9_-]`. On the click path answer the standard 404 (no cache write, no query); on the abuse path answer the standard 202 without writing a row, so neither response becomes an oracle. A test posting a 200-character code to the abuse endpoint would have caught the 500.",
-      "summary": "The `{code}` path variable is never validated for shape or length on either untrusted path. On the abuse endpoint it is persisted straight into `abuse_reports.code VARCHAR(64)`, so a code longer than 64 characters raises DataIntegrityViolationException, which no handler in ApiExceptionHandler catches \u2014 the caller gets a 500 where the contract promises a uniform 202, turning an untrusted input into an unhandled server error. On the click path an arbitrarily long code becomes a Redis negative-cache key, letting a caller burn shared Redis memory with entries that can never correspond to a real link."
+      "suggestion": "The design's rejection of DNS is defensible on TOCTOU grounds and I would not overturn it here. But record the residual gap where an operator will see it, and consider the cheap partial: refuse hosts whose canonical form ends in a label set known to be a loopback-mapping wildcard, or resolve at create time as a defence-in-depth signal that is allowed to fail open on lookup error. What would raise my confidence that this is acceptable rather than an oversight is a line in artifacts/design.json or docs/OPERATIONS.md stating that name-to-internal-address targets are knowingly out of scope.",
+      "summary": "HostNormalizer closes textual and numeric equivalence well (I checked the trailing-dot, case, IDN, empty-label, hex/octal/short-form and out-of-range paths against java.net.URI's own host parsing and they hold, including the InetAddress.getByName(\"0177.0.0.1\") trap the design calls out). But isInternal() returns false for anything that is not an IP literal and no DNS is resolved, so the simplest equivalent form of an internal address - a registered name that resolves to one - is still accepted: http://127.0.0.1.nip.io/, http://localtest.me/, or any attacker-controlled A record pointing at 127.0.0.1 or 169.254.169.254. The requirement's non-functional line asks the filter to resist equivalent-form evasion generally rather than only the two confirmed forms. Impact is bounded because nothing in this service fetches the target server-side (I grepped: no RestTemplate/WebClient/HttpClient/URLConnection anywhere in main), so this is not SSRF against us - the exposure is the clicker's own network, e.g. a corporate browser reaching an internal console via one of our links."
     },
     {
       "confidence": "medium",
-      "file": "service/src/main/resources/application.yml",
-      "id": "SEC-8",
-      "line": 63,
+      "file": "service/src/main/java/com/example/urlshortener/link/PublicLinkController.java",
+      "id": "SEC-5",
+      "line": 54,
       "severity": "minor",
-      "suggestion": "Bind actuator to a separate management port on the internal interface (`management.server.port`), or expose only `health,info` on the main port and keep metrics/prometheus on the management port. If the edge proxy is expected to block `/actuator`, say so in docs/OPERATIONS.md so the assumption is reviewable.",
-      "summary": "Actuator exposes health, info, metrics and prometheus, and the session filter is registered only for `/api/v1/*` (WebConfig.java:28), so those endpoints require no credential on the service port. `/actuator/metrics` and `/actuator/prometheus` disclose JVM internals, connection-pool state and per-route request volumes to anyone who can reach the port. Whether that is the internet depends on an edge configuration that is not in this repository and is not documented anywhere in docs/."
+      "suggestion": "Either write the deployment precondition into docs/OPERATIONS.md (the proxy must preserve the source address, e.g. PROXY protocol, or these limits are global ceilings and 30/min will be hit by ordinary traffic), or add a configurable trusted-proxy list so X-Forwarded-For can be honoured only from known hops. Note application.yml is a protected path, so a config-side fix needs a human either way.",
+      "summary": "Both new unauthenticated buckets key on httpRequest.getRemoteAddr() and deliberately do not trust X-Forwarded-For (a sound default with no trusted-proxy list). The requirement states the service sits behind an edge proxy. If that proxy terminates the connection without a PROXY-protocol or trusted-header path, getRemoteAddr() is the proxy for every request, so ANONYMOUS_CREATE (30/min) and SIGN_UP (60/min) become service-wide ceilings: one caller can consume the entire anonymous-create budget and deny the new feature to everybody, and neither bucket provides any per-attacker protection - which is the whole of what AC14 asks it for. The design explicitly deferred this to the runbook; docs/OPERATIONS.md was edited in this change and does not mention it, so the stated mitigation does not exist."
+    },
+    {
+      "confidence": "high",
+      "file": "service/src/main/java/com/example/urlshortener/link/LinkService.java",
+      "id": "SEC-6",
+      "line": 141,
+      "severity": "minor",
+      "suggestion": "Log the client address on the anonymous create path (it is already in hand at PublicLinkController line 54 and is the key the bucket is charged against), or pass it into createAnonymous for the log line only. This is deliberately not a proposal to store it on the row - a log line gives incident response a handle without adding a personal-data column to links.",
+      "summary": "An anonymously created link records no attribution at all: customer_id is NULL by design, and the log line is \"Created anonymous link {code}\" with no client address. When one of these links turns out to be a phishing redirect there is nothing to trace it to and no way to find the creator's other links, so the only response available is per-code abuse reports - which is the one takedown route that requires an account (SEC-1) and which nobody can use without already holding the code. The requirement asks that new behaviour be observable through the existing logging surface."
+    },
+    {
+      "confidence": "high",
+      "file": "service/src/main/java/com/example/urlshortener/error/ErrorCode.java",
+      "id": "SEC-7",
+      "line": 84,
+      "severity": "minor",
+      "suggestion": "If the oracle is accepted, tighten signUpPerMinute well below the sign-in bucket (they defend different things: sign-in throttles guesses at one known account, sign-up throttles enumeration of all of them) and close SEC-2 so the bound cannot evaporate. If it is not accepted, that is a contract change and belongs with whoever ratifies artifacts/openapi.yaml, not with implement.",
+      "summary": "409 account_unavailable is an account-existence oracle on an unauthenticated endpoint, in a service that goes to real lengths elsewhere to avoid being one (identical 401s, timing-equalised sign-in, no 403, no 410). The design node states this plainly and asks a reviewer to accept or reject it, so I am recording it from the review side rather than re-arguing it: AC6 does require a visible refusal and there is no wording of one that is not a disclosure. What I would push back on is the claim that the bucket makes it bounded - 60/min per IP is ~86,000 probes per address per day, and per SEC-2 it is unbounded whenever Redis is unreachable."
     },
     {
       "confidence": "medium",
       "file": "service/src/main/java/com/example/urlshortener/abuse/AbuseReportService.java",
-      "id": "SEC-9",
+      "id": "SEC-8",
       "line": 79,
       "severity": "minor",
-      "suggestion": "Strip or escape CR/LF (and other control characters) from any request-derived value before logging it; validating the code shape as suggested in SEC-7 also closes this, because a validated code cannot contain a newline.",
-      "summary": "Untrusted path input is written to the log unescaped. Tomcat percent-decodes the path before it reaches the handler, so a code containing `%0A` arrives as a real newline and is logged verbatim here and at RedirectController.java:87. An attacker can forge log lines \u2014 including plausible-looking abuse-report entries \u2014 in the log that this build relies on as the audit trail for takedowns, since no moderation console exists."
+      "suggestion": "Reject or strip control characters from {code} before it is logged or stored - the alias/code alphabet is base62, so a single guard in the controller (or an AliasPolicy-style character check) both closes this and costs nothing. Alternatively configure a log encoder that escapes newlines.",
+      "summary": "The {code} path variable is percent-decoded by Spring before it reaches this log line, so POST /api/v1/links/%0aWHATEVER/abuse-reports forges an arbitrary extra line into the application log and still answers 202 (the endpoint accepts any well-formed code by design, so nothing rejects it first). RedirectController line 88 has the same shape in its catch block. This is pre-existing code that this change did not touch - I am reporting it because open sign-up moves it from \"reachable by two provisioned accounts\" to \"reachable by anyone\", which is the trust-boundary shift SEC-1 is about."
     },
     {
-      "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/link/LinkService.java",
-      "id": "SEC-10",
-      "line": 103,
-      "severity": "nit",
-      "suggestion": "Log the link's UUID rather than its code; the UUID is already the join key for the click counters and identifies the row for any operator who needs it, without spreading the credential-like value into log aggregation.",
-      "summary": "Short codes are logged at INFO on create, expiry change, delete and abuse report. The design treats codes as secrets (AC16 \u2014 unguessable and non-enumerable), and this puts every issued code into the application log, where the audience is much wider than the audience for the link itself."
-    },
-    {
-      "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/link/LinkController.java",
-      "id": "SEC-11",
-      "line": 67,
+      "confidence": "low",
+      "file": "service/src/main/java/com/example/urlshortener/api/CreateAnonymousLinkRequest.java",
+      "id": "SEC-9",
+      "line": 40,
       "severity": "minor",
-      "suggestion": "Add a read bucket keyed by customer id (a number in AppProperties.RateLimit, like the other four), or state explicitly in the contract that authenticated reads are unmetered by design so the omission is a decision rather than an oversight.",
-      "summary": "The two owner read endpoints are charged to no bucket at all \u2014 the write bucket is deliberately applied only to create/patch/delete. A single authenticated account can therefore issue unlimited `GET /api/v1/links` requests, each of which runs a paged query plus a COUNT, and each `LinkResponse` also costs a Redis round trip for the pending click delta. That is unbounded database and Redis work triggered by one caller, on the tier AC20 wants left with headroom for clicks."
+      "suggestion": "Confidence is low because the edge proxy very likely caps body size already (nginx client_max_body_size defaults to 1 MB) - confirming that cap and recording it in docs/OPERATIONS.md as a deployment precondition would close this finding without code. If the cap cannot be relied on, a small OncePerRequestFilter rejecting Content-Length above a few KB on these two paths is the in-service equivalent.",
+      "summary": "@Size(max = 2048) on longUrl (and @Size(max = 256) on SignUpRequest.password) is bean validation, which runs after Jackson has already materialised the whole string. Spring Boot applies no default size limit to a non-multipart, non-form request body, so an unauthenticated POST of a multi-hundred-megabyte JSON document to /api/v1/public/links or /api/v1/customers is fully parsed into heap before any constraint fires. Two new unauthenticated body-accepting endpoints widen a surface that previously existed only at POST /api/v1/sessions."
     },
     {
-      "confidence": "medium",
-      "file": "service/src/main/java/com/example/urlshortener/config/LinkPolicyConfig.java",
-      "id": "SEC-12",
-      "line": 37,
+      "confidence": "high",
+      "file": "service/src/main/java/com/example/urlshortener/link/UrlValidator.java",
+      "id": "SEC-10",
+      "line": 84,
       "severity": "nit",
-      "suggestion": "Fail startup when `app.base-url` is still the localhost default outside a dev/test profile, or refuse any target whose host matches any configured serving domain rather than the single base-url host.",
-      "summary": "The self-referential-target check derives its host from `app.base-url`, which defaults to `http://localhost:8080`. A deployment that forgets `APP_BASE_URL` silently protects `localhost` instead of the real host, so short links pointing back at our own shortener are accepted and redirect chains loop through the service \u2014 the failure is invisible because the only symptom is a check that stops matching. It also covers exactly one host, so the planned customer-owned-domain feature will need it revisited."
+      "suggestion": "Fail fast at bean construction instead: if ownHost is non-null and does not normalise, throw from the UrlValidator constructor so a misconfigured base-url stops startup rather than quietly turning off a check nobody will notice is off.",
+      "summary": "canonicalOwnHost = HostNormalizer.normalize(ownHost).orElse(null) silently disables the self-referential check when the configured own host cannot be canonicalised, and line 130 then skips it because canonicalOwnHost is null. That is a fail-open inside a class whose documented contract two lines earlier is that an un-canonicalisable host fails closed. Reachable only through a misconfigured app.base-url, and the loopback rules would still catch the default localhost, so the practical exposure is small - a short link pointing at our own origin, i.e. a redirect loop through us."
     }
   ],
   "lens": "review-security",
   "not_examined": [
-    "Dependency vulnerabilities: no SCA tool or advisory feed was reachable, so jjwt 0.12.6, bcprov-jdk18on 1.81, Spring Boot 3.5.16 and their transitives were not checked for known CVEs. The pinning rationale in design.json was read but not verified against advisories.",
-    "Runtime behaviour: I did not build or run the service or its test suite. All findings are from reading source, plus a small standalone JDK 21 program probing java.net.URI and InetAddress parsing to confirm SEC-2 and SEC-6.",
-    "Infrastructure outside the repository: Redis authentication, network exposure and maxmemory/eviction policy (the design flags eviction as an unresolved risk to click counts); PostgreSQL user privileges; TLS termination, HSTS and whether the edge forces HTTPS on the redirect path; whether the edge blocks /actuator (SEC-8 depends on this).",
-    "Actuator health detail behaviour under `show-details: when-authorized` with no Spring Security on the classpath was reasoned about, not verified at runtime; if it renders details unauthenticated that is a further disclosure I did not confirm.",
-    "Test sources were read only for coverage of security controls (tenant isolation, unguessability, password storage, session expiry, rate limits, denylist and internal-host rejection are all covered). I did not assess test correctness or adequacy generally \u2014 that is the test lens.",
-    "Click-path privacy: no per-click IP or user-agent is stored, but log retention, log shipping and whether remote addresses reach long-lived logs were not examined, and the requirements brief flags click-record IPs as personal data.",
-    "ClickFlushJob scheduling, the read_click_deltas.lua script and the flush/settle invariant were read for injection and error-handling only, not audited for atomicity or lost-update behaviour.",
-    "Flyway operational concerns: migration checksum drift, the stale target/classes migration that impact.json flagged, and rollback behaviour.",
-    "HTTP-level parser differentials between Tomcat, the edge proxy and browsers (request smuggling, double-decoding of the /{code} path) \u2014 this needs a live service and a fuzzing tool I do not have here."
+    "Third-party dependency vulnerabilities: service/pom.xml is byte-identical per artifacts/design.json and I did not run or inspect an SCA/CVE scan against jjwt, Spring Boot 3.5, the Argon2 provider or the Redis client.",
+    "The redis/token_bucket.lua script itself - I read its Java call site and the key namespacing (ratelimit:<bucket>:<key>, which does make AC14's no-cross-spending property mechanical) but did not read the Lua for atomicity or refill-arithmetic bugs.",
+    "Live behaviour: I ran no tests and started no service. Every claim about java.net.URI host parsing, Spring path-variable decoding and JDK numeric-literal handling is read from source and from the JDK's documented parser behaviour, not measured. The HostNormalizer worked table in particular is asserted by HostCanonicalisationTest, which I read but did not execute.",
+    "Argon2PasswordHasher parameter adequacy and the Ed25519/jjwt verification path beyond confirming verifyWith(publicKey) plus requireIssuer (which does exclude alg=none and symmetric-key confusion) - both are unchanged by this run.",
+    "The two seeded credentials in V2 and the ephemeral-session-key default when app.session.*-key-pem is blank: unchanged pre-existing configuration risks, flagged in the existing docs, deliberately left alone.",
+    "orchestrator/sdlc/gates.py and orchestrator/tests/test_gates.py appear in the diff range but carry no Run-Id trailer - they are human commits outside this run, and I did not review the gate logic or whether it can be weakened.",
+    "TLS, CORS, security response headers (HSTS, X-Content-Type-Options, referrer policy on the redirect) - all edge-proxy concerns with no representation in this repository, so I could not assess them.",
+    "Timing-side-channel measurement: I read the sign-in equalisation and believe the argument, but did not measure whether the new sign-up path leaks account existence by timing in addition to by status code.",
+    "PostgreSQL and Redis deployment configuration in docker-compose.yml - not read, so default credentials or exposed ports there are unassessed.",
+    "Whether anonymous link rows are ever reclaimed. V1 states nothing is ever deleted and I found no sweeper, so the links table grows monotonically with expired anonymous rows; I did not chase whether an external retention job exists, and treated it as capacity rather than security."
   ],
-  "summary": "This is a security-literate change and most of the hard parts are right: generated codes are 128 bits of CSPRNG output with no derivation from row data; ownership is filtered inside the query rather than checked after the fetch, so \"not yours\" and \"never existed\" are one byte-identical 404; every token failure produces one indistinguishable 401; passwords are Argon2id and the unknown-account path still hashes, closing the timing oracle; every query is parameterised; the redirect scheme check rejects javascript:, data: and file: by requiring http/https on an absolute URI (confirmed against JDK parsing); nothing fetches the target server-side, so there is no classic SSRF; and the cache serialiser is typed with no polymorphic type information. The design also names its own worst hole (the alias 409 existence oracle) with reasoning attached, which is the right way to hand something to a reviewer. The weakest area is everything that depends on normalising a string into an identity. Two findings are the same mistake in different places: a host is compared to the denylist without stripping the DNS root dot (SEC-2, a working AC21 bypass), and an address literal is recognised by a dotted-quad regex that misses decimal and short forms (SEC-6). The second theme is identity of the caller: three buckets documented as \"keyed by client IP\" are keyed by the TCP peer, which behind the edge proxy this service is specified to sit behind means one shared bucket for everyone (SEC-3), and the limiter fails open on every bucket including sign-in (SEC-4). The one finding I would not ship past is SEC-1: fixture accounts whose passwords are published in the API specification are installed by an unconditional Flyway migration, so they exist in production, and the abuse endpoint (SEC-5) makes any account enough to take down any link on the service."
+  "summary": "The headline change - HostNormalizer - is the strongest part of this diff and I could not break it. I traced every documented spelling against java.net.URI's own host parser: the trailing-dot, mixed-case, IDN, empty-label, five-part-name, hex/octal/short-form and out-of-range cases all behave as specified, the label walk in DenylistThreatCheck cannot collapse a public host onto a denylisted parent, both call sites fail closed on Optional.empty(), and the decision to hand-parse numeric IPv4 rather than trust InetAddress.getByName is correct and correctly reasoned. Scheme is restricted to http/https at parseOrThrow, so javascript:/data:/file: never reach a Location header; nothing in main fetches a target server-side, so there is no SSRF sink; codes are 128 bits of CSPRNG; owner scoping is in the query rather than in a post-fetch comparison, so anonymous links are invisible by construction rather than by remembering to filter; the 405-not-401 consequence of the non-method-aware filter exemption is tested. The weakest area is not the filter at all - it is the trust boundary. AC4 turned every authenticated endpoint from \"two hand-provisioned accounts\" into \"anyone with an HTTP client\", and the one authenticated capability that deliberately crosses tenant lines is the immediate, unmoderated, irreversible abuse-report takedown, whose only limit is keyed by a customer id an attacker can now mint at will (SEC-1). Second weakest is that sign-up is the only unauthenticated write with no Redis dependency, so it is the one endpoint the fail-open limiter genuinely leaves unmetered during an outage (SEC-2), which compounds the first. The remainder are smaller: a name-resolves-to-loopback gap the design knowingly left open (SEC-4), a rate-limit keying precondition the design consigned to a runbook that was edited in this change and does not carry it (SEC-5), no attribution for anonymous creates (SEC-6), and the account-existence oracle the design node explicitly asked a reviewer to adjudicate (SEC-7)."
 }
