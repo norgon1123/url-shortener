@@ -460,6 +460,28 @@ public final class Fixtures {
     /** {@code app.rate-limit.anonymous-create-per-minute}: anonymous creation, keyed by client IP. */
     public static final String ANONYMOUS_CREATE_LIMIT_KEY = "app.rate-limit.anonymous-create-per-minute";
 
+    /**
+     * {@code app.abuse.min-reporter-age}: how old an account must be before it may
+     * report a link its own creation did not pre-date.
+     *
+     * <p>Self-service sign-up re-scopes the takedown path from two hand-provisioned
+     * accounts to anyone on the internet, and the per-reporter bucket is keyed by
+     * customer id - which an attacker now mints for themselves. The eligibility
+     * rule is what bounds that, so the classes that exercise it drive this key down
+     * rather than sitting out the production default.
+     */
+    public static final String MIN_REPORTER_AGE_KEY = "app.abuse.min-reporter-age";
+
+    /**
+     * A minimum reporter age short enough for a test to sit through, as a property
+     * value. Long enough that creating an account, signing in and posting a report
+     * comfortably fits inside it on a slow machine.
+     */
+    public static final String SHORT_MIN_REPORTER_AGE_VALUE = "PT5S";
+
+    /** {@link #SHORT_MIN_REPORTER_AGE_VALUE} as a {@link Duration}. */
+    public static final Duration SHORT_MIN_REPORTER_AGE = Duration.ofSeconds(5);
+
     /** {@code app.click.flush-interval}: how often click deltas are drained into PostgreSQL. */
     public static final String CLICK_FLUSH_INTERVAL_KEY = "app.click.flush-interval";
 

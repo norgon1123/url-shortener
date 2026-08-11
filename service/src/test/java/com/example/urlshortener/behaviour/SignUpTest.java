@@ -167,6 +167,13 @@ class SignUpTest extends AbstractIntegrationTest {
      * exercised rather than one taken as representative - the failure this
      * catches is a filter or a resolver that recognises only seeded ids.
      *
+     * <p>The reported code is one this account created rather than an arbitrary
+     * one, because an account may only report a link it pre-dates or has outlived
+     * the configured minimum age for - a rule this test is not about, and which
+     * {@code SignUpIsolationTest} covers on both sides. An account necessarily
+     * pre-dates its own links, so the code below exercises the endpoint's
+     * acceptance of the token and nothing else.
+     *
      * <p>Demonstrates: AC5.
      */
     @Test
@@ -175,11 +182,12 @@ class SignUpTest extends AbstractIntegrationTest {
 
         HttpResponse<String> created = api.createLink(session, Fixtures.TARGET_URL);
         LinkResponse link = ApiClient.asLink(created);
+        LinkResponse reportable = ApiClient.asLink(api.createLink(session, Fixtures.OTHER_TARGET_URL));
         HttpResponse<String> listed = api.listLinks(session, 0, 20);
         HttpResponse<String> read = api.getLink(session, link.code());
         HttpResponse<String> patched =
                 api.updateExpiry(session, link.code(), Instant.now().plus(7, ChronoUnit.DAYS));
-        HttpResponse<String> reported = api.reportAbuse(session, Fixtures.UNISSUED_CODE, "Spam");
+        HttpResponse<String> reported = api.reportAbuse(session, reportable.code(), "Spam");
         HttpResponse<String> deleted = api.deleteLink(session, link.code());
 
         assertAll(
