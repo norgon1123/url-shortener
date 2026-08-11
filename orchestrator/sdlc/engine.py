@@ -44,6 +44,8 @@ from .checkpoint import CheckpointManager
 from .gates import GateContext
 from .graph import descendants
 from .model import (
+    Approval,
+    ApprovalDecision,
     Autonomy,
     FailureAction,
     GateOutcome,
@@ -785,16 +787,24 @@ class Engine:
         routed: list[str] = []
         for target in targets:
             spec = self.pipeline.node(target)
-            used = self.store.record_repair(self.run_id, target)
-            if used > spec.repair_attempts:
+            allowed = spec.repair_attempts + self._adjudicated_grants(target)
+            state = self.store.get_node(self.run_id, target)
+            used = (state.repairs if state else 0) + 1
+            if used > allowed:
                 self._record(
                     "repair_budget_exhausted",
                     node_id=target,
                     parent_ids=self._parents(node.id),
                     used=used,
-                    allowed=spec.repair_attempts,
+                    allowed=allowed,
                 )
                 continue
+            # Charged only once the routing is actually going to happen. The
+            # earlier version incremented first and checked after, so a refused
+            # routing still cost the branch a slot it never got to use -- and a
+            # later human grant then had to pay off that phantom debt before it
+            # bought anything.
+            self.store.record_repair(self.run_id, target)
             affected = {target} | descendants(self.pipeline, target)
             for nid in sorted(affected):
                 self.store.set_node(self.run_id, nid, NodeStatus.PENDING, attempt=0)
@@ -805,7 +815,7 @@ class Engine:
                 parent_ids=self._parents(node.id),
                 triggered_by=node.id,
                 attempt=used,
-                allowed=spec.repair_attempts,
+                allowed=allowed,
                 reason=self._repair_brief(
                     target,
                     verdict.output,
@@ -870,6 +880,33 @@ class Engine:
             lines.append(f"  {f.get('evidence')}")
         lines += ["", f"Adjudicator's overall summary: {summary}{verdict}"]
         return "\n".join(lines)
+
+    def _adjudicated_grants(self, target: str) -> int:
+        """Extra repair attempts this branch has been granted by a human.
+
+        `repair_attempts` bounds the *machine*: an agent that keeps re-running
+        itself on its own judgment is the failure mode the bound exists for. A
+        human who adjudicates a contract question and names the branch has
+        supplied exactly the outside authority the bound was demanding, so the
+        decision buys one attempt -- once per decision, counted from the
+        journal, so it cannot be spent twice.
+
+        Without this the run does something much worse than stop: the routed
+        branch is refused, nothing routes, and the fallthrough replans from
+        `decompose` -- re-deriving the whole pipeline to fix one over-asserting
+        assertion, which is how a $2 repair becomes a $40 one.
+        """
+        grants = 0
+        for entry in self.journal.entries():
+            if entry.event != "human_decision":
+                continue
+            payload = entry.payload
+            if payload.get("decision") != ApprovalDecision.APPROVED.value:
+                continue
+            route = str((payload.get("answers") or {}).get("route", ""))
+            if target in [t.strip() for t in route.split(",") if t.strip()]:
+                grants += 1
+        return grants
 
     def _repair_note(self, node_id: str) -> str:
         """Why this node is being asked to run again, from the journal.

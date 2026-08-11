@@ -1184,6 +1184,41 @@ class TestMixedVerdicts:
         assert "errorBodiesMatch" in brief
         assert "never promised equal bodies" in brief  # the ruling, not just the route
 
+    def test_an_adjudication_buys_the_named_branch_an_attempt(
+        self, tmp_path: Path
+    ) -> None:
+        """`repair_attempts` bounds the machine, not the human.
+
+        author-tests gets one attempt and had already spent it. Refusing the
+        human's routing did not stop the run -- it fell through to a replan from
+        `decompose`, re-deriving the whole pipeline to fix one assertion.
+        """
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(TEST_VERDICT))
+        h.run()  # spends author-tests' single machine attempt
+        assert h.events("repair_budget_exhausted")
+        assert h.events("replan_triggered")
+
+        h.store.record_approval(
+            RUN_ID,
+            Approval(
+                "verify",
+                ApprovalDecision.APPROVED,
+                "neil",
+                note="the test over-asserts",
+                answers={"route": "author-tests"},
+            ),
+        )
+        assert h.engine()._adjudicated_grants("author-tests") == 0  # not yet journalled
+        h.journal.append(
+            "human_decision",
+            node_id="verify",
+            decision="approved",
+            approver="neil",
+            answers={"route": "author-tests"},
+        )
+        assert h.engine()._adjudicated_grants("author-tests") == 1
+        assert h.engine()._adjudicated_grants("implement") == 0
+
     def test_the_verdict_reaches_the_branch_being_repaired(self, tmp_path: Path) -> None:
         """A repair with no account of what it is repairing is a re-roll.
 
