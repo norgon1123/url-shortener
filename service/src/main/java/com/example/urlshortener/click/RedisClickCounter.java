@@ -33,6 +33,22 @@ import org.springframework.stereotype.Component;
  * <p>Nothing here throws. A click is served whether or not it can be counted --
  * that is the trade the availability criterion asks for, spelled out -- and a
  * lost increment is logged rather than silently swallowed.
+ *
+ * <p>Draining is a read followed by a subtraction of exactly what was written
+ * durably, never a destructive claim: a claim is delivered to Redis whether or
+ * not its reply arrives, so a slow server turns a timeout into clicks that
+ * exist in neither store. The invariant the two halves keep between them is that
+ * the durable total plus the pending delta is the number of clicks recorded, and
+ * both operations preserve it whichever of them is interrupted.
+ *
+ * <p>That invariant is also what makes a non-exclusive read safe. Every instance
+ * runs the flush schedule, so two of them can read one delta and both add it to
+ * the durable column -- but each then subtracts what it wrote, the pending field
+ * goes negative by the surplus, and the figure a customer is shown stays right
+ * throughout. The next pass flushes that negative like any other delta and the
+ * column settles back. A destructive claim bought exclusivity here at the price
+ * of losing clicks outright to a timeout, which is the worse of the two and the
+ * one that cannot be repaired afterwards.
  */
 @Component
 public class RedisClickCounter implements ClickCounter {
@@ -43,12 +59,12 @@ public class RedisClickCounter implements ClickCounter {
     private final String pendingKey;
 
     @SuppressWarnings("rawtypes")
-    private final RedisScript<List> claimScript;
+    private final RedisScript<List> readScript;
 
     public RedisClickCounter(StringRedisTemplate redis, AppProperties properties) {
         this.redis = redis;
         this.pendingKey = properties.click().keyPrefix() + "pending";
-        this.claimScript = claimScript();
+        this.readScript = readScript();
     }
 
     @Override
@@ -76,52 +92,63 @@ public class RedisClickCounter implements ClickCounter {
     }
 
     /**
-     * Takes up to {@code limit} links' deltas out of Redis. The caller now owns
-     * them: they exist nowhere else until it writes them down, and it must
-     * {@link #restore(UUID, long)} anything it fails to persist.
+     * Reads up to {@code limit} links' un-flushed deltas, leaving them in place.
+     *
+     * <p>The caller writes them durably and then {@link #settle(UUID, long)}s
+     * exactly what it wrote. Anything it does not settle -- because the write
+     * failed, because this call timed out, because the process died -- is simply
+     * read again on the next pass, so no interruption can lose a click.
      */
     @SuppressWarnings("unchecked")
-    Map<UUID, Long> claim(int limit) {
+    Map<UUID, Long> readPending(int limit) {
         List<String> flat;
         try {
-            flat = redis.execute(claimScript, List.of(pendingKey), Integer.toString(limit));
+            flat = redis.execute(readScript, List.of(pendingKey), Integer.toString(limit));
         } catch (RuntimeException unavailable) {
-            log.warn("Could not claim click deltas; retrying on the next pass: {}", unavailable.getMessage());
+            log.warn("Could not read click deltas; retrying on the next pass: {}", unavailable.getMessage());
             return Map.of();
         }
         if (flat == null || flat.isEmpty()) {
             return Map.of();
         }
 
-        Map<UUID, Long> claimed = new LinkedHashMap<>();
+        Map<UUID, Long> pending = new LinkedHashMap<>();
         List<String> unreadable = new ArrayList<>();
         for (int i = 0; i + 1 < flat.size(); i += 2) {
             try {
-                claimed.put(UUID.fromString(flat.get(i)), Long.parseLong(flat.get(i + 1)));
+                pending.put(UUID.fromString(flat.get(i)), Long.parseLong(flat.get(i + 1)));
             } catch (IllegalArgumentException notOurs) {
                 unreadable.add(flat.get(i));
             }
         }
         if (!unreadable.isEmpty()) {
-            log.warn("Discarded {} click delta(s) whose key was not a link id", unreadable.size());
+            log.warn("Ignored {} click delta(s) whose key was not a link id", unreadable.size());
         }
-        return claimed;
+        return pending;
     }
 
-    /** Puts a claimed delta back after a failed durable write, so the clicks are not lost. */
-    void restore(UUID linkId, long delta) {
+    /**
+     * Subtracts a delta that is now in the durable total, so it is not written
+     * twice. Clicks that arrived since the read keep their place in the hash --
+     * this decrements by the amount written rather than deleting the field.
+     */
+    void settle(UUID linkId, long delta) {
         try {
-            redis.opsForHash().increment(pendingKey, linkId.toString(), delta);
+            redis.opsForHash().increment(pendingKey, linkId.toString(), -delta);
         } catch (RuntimeException unavailable) {
-            log.error("Lost {} click(s) on {}: the durable write failed and the delta could not be put back",
-                    delta, linkId, unavailable);
+            // The one direction this design can still get wrong, and the smaller
+            // of the two: the durable write has committed and the delta has not
+            // been taken back, so the next pass adds these clicks a second time.
+            // Loud, because it is the only way an overcount reaches a customer.
+            log.error("Wrote {} click(s) for {} durably but could not settle the pending delta; "
+                    + "they will be counted again on the next pass", delta, linkId, unavailable);
         }
     }
 
     @SuppressWarnings("rawtypes")
-    private static RedisScript<List> claimScript() {
+    private static RedisScript<List> readScript() {
         DefaultRedisScript<List> loaded = new DefaultRedisScript<>();
-        loaded.setScriptSource(new ResourceScriptSource(new ClassPathResource("redis/claim_click_deltas.lua")));
+        loaded.setScriptSource(new ResourceScriptSource(new ClassPathResource("redis/read_click_deltas.lua")));
         loaded.setResultType(List.class);
         return loaded;
     }

@@ -8,6 +8,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 /**
@@ -32,6 +33,11 @@ import java.util.UUID;
  * <p>{@code clickCount} is the <em>durable</em> total only. Clicks land in Redis
  * on the hot path and are drained into this column in batches, so the figure
  * reported to a customer is this number plus whatever has not been drained yet.
+ *
+ * <p>Both timestamps are held at the precision the column has. See
+ * {@link #atStoredPrecision(Instant)}: a response is built from this object
+ * whether it was just constructed or just read back, and those two have to be
+ * the same answer to the same question.
  */
 @Entity
 @Table(
@@ -86,9 +92,22 @@ public class LinkEntity {
         this.customerId = customerId;
         this.longUrl = longUrl;
         this.status = LinkStatus.ACTIVE;
-        this.createdAt = createdAt;
-        this.expiresAt = expiresAt;
+        this.createdAt = atStoredPrecision(createdAt);
+        this.expiresAt = atStoredPrecision(expiresAt);
         this.clickCount = 0L;
+    }
+
+    /**
+     * Rounds an instant down to the precision {@code TIMESTAMP(6)} can hold.
+     *
+     * <p>PostgreSQL rounds anything finer to the nearest microsecond, so an
+     * {@link Instant#now()} kept as-is in memory is not the value a later read of
+     * the row returns. Creating a link and then fetching it would then report two
+     * different creation times for one immutable field. Normalising on the way in
+     * costs sub-microsecond accuracy nobody asked for and makes the two agree.
+     */
+    private static Instant atStoredPrecision(Instant instant) {
+        return instant == null ? null : instant.truncatedTo(ChronoUnit.MICROS);
     }
 
     /**
@@ -124,7 +143,7 @@ public class LinkEntity {
     }
 
     public void setExpiresAt(Instant expiresAt) {
-        this.expiresAt = expiresAt;
+        this.expiresAt = atStoredPrecision(expiresAt);
     }
 
     public UUID getId() {
