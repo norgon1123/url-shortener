@@ -106,12 +106,33 @@ public abstract class AbstractRestartIntegrationTest {
     }
 
     private void start() {
-        context = new SpringApplicationBuilder(UrlShortenerApplication.class)
-                .properties(TestInfrastructure.springProperties())
-                .properties("server.port=0")
-                .run();
+        context = new SpringApplicationBuilder(UrlShortenerApplication.class).run(commandLineArguments());
         int port = ((ServletWebServerApplicationContext) context).getWebServer().getPort();
         api = new ApiClient("http://localhost:" + port);
+    }
+
+    /**
+     * The container coordinates and the port, as command-line arguments.
+     *
+     * <p>Deliberately not {@link SpringApplicationBuilder#properties(String...)}.
+     * That populates Boot's {@code defaultProperties}, which is the
+     * <em>lowest</em>-precedence property source of all - below
+     * {@code application.yml}, whose
+     * {@code spring.datasource.url: ${DB_URL:jdbc:postgresql://localhost:5432/shortener}}
+     * and {@code server.port: ${SERVER_PORT:8080}} therefore win. The application
+     * then boots against a database that is not there and every test in the class
+     * errors in Flyway before it runs. {@code application.yml} is frozen and
+     * protected, so the harness is what has to give: command-line arguments sit
+     * above it, so these are the values the restarted process actually uses.
+     */
+    private static String[] commandLineArguments() {
+        String[] properties = TestInfrastructure.springProperties();
+        String[] arguments = new String[properties.length + 1];
+        for (int i = 0; i < properties.length; i++) {
+            arguments[i] = "--" + properties[i];
+        }
+        arguments[properties.length] = "--server.port=0";
+        return arguments;
     }
 
     private void stop() {
