@@ -360,7 +360,11 @@ def build_parser() -> argparse.ArgumentParser:
         cmd.add_argument(
             "--answer",
             action="append",
-            help="resolve a blocking ambiguity, as id=text (repeatable)",
+            help=(
+                "resolve a blocking ambiguity, as id=text (repeatable). "
+                "`route=<node-id>` names the branch that repairs a contract "
+                "question you are adjudicating"
+            ),
         )
         cmd.set_defaults(func=lambda a, d=decision: cmd_decide(a, d))
 

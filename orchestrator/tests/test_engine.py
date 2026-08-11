@@ -1103,6 +1103,16 @@ CONTRACT_IN_THE_MIX = {
 }
 
 
+CONTRACT_ONLY = {
+    "verdict": "contract",
+    "summary": "one side read line 47, the other read note 2",
+    "failures": [
+        {"test": "errorBodiesMatch", "classification": "contract",
+         "confidence": "high", "evidence": "openapi.yaml:47 vs openapi.yaml:123"},
+    ],
+}
+
+
 class TestMixedVerdicts:
     """Choosing one branch would be wrong. Asking each to fix its own side is
     what a team does, and the branches are already isolated by path."""
@@ -1133,6 +1143,46 @@ class TestMixedVerdicts:
         routed = {e.node_id for e in h.events("repair_routed")}
         assert "implement" in routed
         assert "adjudicated by neil" in h.events("triage_verdict")[-1].payload["reason"]
+
+    def test_an_adjudication_naming_no_branch_says_so(self, tmp_path: Path) -> None:
+        """Clearing the block is only half a decision.
+
+        A verdict that is *only* a contract question has no classification the
+        machine can route on, so an approval that names no branch leaves the run
+        exactly where it was. Escalating again with the same words wastes the
+        human's second look; naming the missing flag does not.
+        """
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(CONTRACT_ONLY))
+        h.run()
+        h.store.record_approval(
+            RUN_ID, Approval("verify", ApprovalDecision.APPROVED, "neil", note="test defect")
+        )
+        h.run(resume=True)
+        assert not h.events("repair_routed")
+        assert "--answer route=" in h.events("triage_verdict")[-1].payload["reason"]
+
+    def test_an_adjudication_can_name_the_branch_that_repairs_it(
+        self, tmp_path: Path
+    ) -> None:
+        """Deciding a contract question *is* deciding which side has to change."""
+        h = Harness(tmp_path, TRIAGE_NODES, triage_script(CONTRACT_ONLY))
+        h.run()
+        h.store.record_approval(
+            RUN_ID,
+            Approval(
+                "verify",
+                ApprovalDecision.APPROVED,
+                "neil",
+                note="the contract never promised equal bodies; the test over-asserts",
+                answers={"route": "author-tests"},
+            ),
+        )
+        h.run(resume=True)
+        routed = h.events("repair_routed")
+        assert [e.node_id for e in routed] == ["author-tests"]
+        brief = routed[-1].payload["reason"]
+        assert "errorBodiesMatch" in brief
+        assert "never promised equal bodies" in brief  # the ruling, not just the route
 
     def test_the_verdict_reaches_the_branch_being_repaired(self, tmp_path: Path) -> None:
         """A repair with no account of what it is repairing is a re-roll.

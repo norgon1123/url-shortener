@@ -765,6 +765,7 @@ class Engine:
 
         approval = self.store.approvals(self.run_id).get(node.id)
         targets, reason = self._triage_targets(verdict.output, approval)
+        route = self._adjudicated_route(approval if approval and approval.approved else None)
         self._record(
             "triage_verdict",
             node_id=handler.id,
@@ -805,7 +806,13 @@ class Engine:
                 triggered_by=node.id,
                 attempt=used,
                 allowed=spec.repair_attempts,
-                reason=self._repair_brief(target, verdict.output, reason),
+                reason=self._repair_brief(
+                    target,
+                    verdict.output,
+                    reason,
+                    routed_contract_to=route[0] if route else "",
+                    adjudication=approval.note if route and approval else "",
+                ),
                 reset_nodes=sorted(affected),
             )
 
@@ -817,7 +824,12 @@ class Engine:
 
     @classmethod
     def _repair_brief(
-        cls, target: str, output: dict[str, Any] | None, summary: str
+        cls,
+        target: str,
+        output: dict[str, Any] | None,
+        summary: str,
+        routed_contract_to: str = "",
+        adjudication: str = "",
     ) -> str:
         """What *this* branch is being asked to fix, itemised.
 
@@ -832,10 +844,21 @@ class Engine:
         mine = [
             f
             for f in (output.get("failures") or [])
-            if cls._TARGET_FOR.get(str(f.get("classification"))) == target
+            if cls._target_for(str(f.get("classification")), routed_contract_to) == target
         ]
         if not mine:
             return summary
+        verdict = ""
+        if adjudication:
+            # A human who adjudicated a contract question said *why*, and the
+            # why is the whole instruction: which side changes, and what must
+            # not change to make the failure go away. Handing the branch the
+            # routing without the reasoning invites it to fix the symptom.
+            verdict = (
+                "\n\n## Human adjudication\n\nA reviewer settled the contract "
+                "question. This is the ruling, not advice:\n\n"
+                f"> {adjudication}"
+            )
         lines = [
             f"`verify` failed and {len(mine)} of its failures were attributed to "
             f"this node. Fix these and only these; another branch is repairing "
@@ -845,7 +868,7 @@ class Engine:
         for f in mine:
             lines.append(f"- **{f.get('test')}** ({f.get('confidence')} confidence)")
             lines.append(f"  {f.get('evidence')}")
-        lines += ["", f"Adjudicator's overall summary: {summary}"]
+        lines += ["", f"Adjudicator's overall summary: {summary}{verdict}"]
         return "\n".join(lines)
 
     def _repair_note(self, node_id: str) -> str:
@@ -869,6 +892,32 @@ class Engine:
         return ""
 
     _TARGET_FOR = {"implementation": "implement", "test": "author-tests"}
+
+    @classmethod
+    def _target_for(cls, classification: str, routed_contract_to: str = "") -> str:
+        """Which branch owns a failure of this classification.
+
+        `contract` deliberately has no entry: it is the one classification the
+        machine cannot resolve, so it maps only to whatever branch a human named
+        when they adjudicated it.
+        """
+        if classification == "contract":
+            return routed_contract_to
+        return cls._TARGET_FOR.get(classification, "")
+
+    @staticmethod
+    def _adjudicated_route(approval: Approval | None) -> list[str]:
+        """The branch(es) a human named when clearing a contract question.
+
+        `--answer route=author-tests` on the approval. Deciding a contract
+        question *is* deciding which side has to change, so the approval is the
+        natural place to carry it, and it lands in the journal with the note
+        that justified it.
+        """
+        if not approval:
+            return []
+        raw = approval.answers.get("route", "")
+        return [t.strip() for t in raw.split(",") if t.strip()]
 
     @classmethod
     def _triage_targets(
@@ -908,14 +957,27 @@ class Engine:
                 f"{blocker} requires a human ({', '.join(named)}): {summary}"
             )
 
+        route = cls._adjudicated_route(approval) if cleared else []
         targets = [
-            cls._TARGET_FOR[c]
-            for c in dict.fromkeys(
-                f.get("classification") for f in failures
+            t
+            for t in dict.fromkeys(
+                cls._target_for(str(f.get("classification")), route[0] if route else "")
+                for f in failures
             )
-            if c in cls._TARGET_FOR
+            if t
         ]
         if not targets:
+            # Clearing the block is only half a decision. A contract question
+            # resolves to "one of these two sides has to change", and nothing in
+            # the classification says which -- so an approval that names no
+            # branch leaves the run exactly where it was, and saying so is more
+            # use than escalating again with the same words.
+            if cleared and contract:
+                return [], (
+                    "the contract question was adjudicated but names no branch to "
+                    "repair it; re-approve with `--answer route=implement` or "
+                    f"`--answer route=author-tests`: {summary}"
+                )
             return [], f"triage attributed nothing to a repairable branch: {summary}"
         if cleared:
             summary = f"{summary} [contract question adjudicated by {approval.approver}]"
