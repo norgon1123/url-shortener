@@ -1,7 +1,17 @@
 package com.example.urlshortener.behaviour;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.example.urlshortener.api.LinkResponse;
 import com.example.urlshortener.support.AbstractIntegrationTest;
+import com.example.urlshortener.support.ApiClient;
+import com.example.urlshortener.support.Fixtures;
+import java.net.http.HttpResponse;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 
 /**
  * A URL the service knows to be dangerous does not become a link, however it is
@@ -33,7 +43,20 @@ class HostEvasionRefusalTest extends AbstractIntegrationTest {
      */
     @Test
     void aDenylistedHostWithATrailingDotIsRefusedIdenticallyToTheHostItself() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+
+        HttpResponse<String> withTheDot = api.createLink(alice, Fixtures.DENYLISTED_TRAILING_DOT_URL);
+        HttpResponse<String> withoutTheDot = api.createLink(alice, Fixtures.DENYLISTED_URL);
+
+        assertAll(
+                () -> assertEquals(422, withTheDot.statusCode(), withTheDot.body()),
+                () -> assertEquals(Fixtures.URL_REJECTED, ApiClient.asError(withTheDot).error()),
+                () -> assertEquals(
+                        "The submitted URL cannot be shortened.", ApiClient.asError(withTheDot).message()),
+                () -> assertEquals(withoutTheDot.statusCode(), withTheDot.statusCode(),
+                        "the trailing dot is a spelling of the same host, not a different request"),
+                () -> assertEquals(withoutTheDot.body(), withTheDot.body(),
+                        "byte-identical, or the response says which route the request took"));
     }
 
     /**
@@ -45,7 +68,17 @@ class HostEvasionRefusalTest extends AbstractIntegrationTest {
      */
     @Test
     void aDenylistedHostInMixedCaseWithATrailingDotIsRefused() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+
+        HttpResponse<String> mixedCaseWithADot =
+                api.createLink(alice, Fixtures.DENYLISTED_MIXED_CASE_TRAILING_DOT_URL);
+        HttpResponse<String> plain = api.createLink(alice, Fixtures.DENYLISTED_URL);
+
+        assertAll(
+                () -> assertEquals(422, mixedCaseWithADot.statusCode(), mixedCaseWithADot.body()),
+                () -> assertEquals(Fixtures.URL_REJECTED, ApiClient.asError(mixedCaseWithADot).error()),
+                () -> assertEquals(plain.body(), mixedCaseWithADot.body(),
+                        "case and a trailing dot are spellings, not two separate evasions"));
     }
 
     /**
@@ -57,7 +90,20 @@ class HostEvasionRefusalTest extends AbstractIntegrationTest {
      */
     @Test
     void anInternalAddressWrittenAsOneDecimalNumberIsRefusedIdenticallyToTheDottedForm() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+
+        HttpResponse<String> asOneNumber = api.createLink(alice, Fixtures.LOOPBACK_DECIMAL_URL);
+        HttpResponse<String> asADottedQuad = api.createLink(alice, Fixtures.LOOPBACK_URL);
+
+        assertAll(
+                () -> assertEquals(422, asOneNumber.statusCode(), asOneNumber.body()),
+                () -> assertEquals(Fixtures.URL_REJECTED, ApiClient.asError(asOneNumber).error()),
+                () -> assertEquals(
+                        "The submitted URL cannot be shortened.", ApiClient.asError(asOneNumber).message()),
+                () -> assertEquals(asADottedQuad.statusCode(), asOneNumber.statusCode(),
+                        "2130706433 is the loopback address written as one decimal number"),
+                () -> assertEquals(asADottedQuad.body(), asOneNumber.body(),
+                        "and the refusal must not say which of the two spellings was used"));
     }
 
     /**
@@ -76,7 +122,22 @@ class HostEvasionRefusalTest extends AbstractIntegrationTest {
      */
     @Test
     void everyEquivalentSpellingOfARefusedHostIsRefusedTheSameWay() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        String theOneRefusal = api.createLink(alice, Fixtures.DENYLISTED_URL).body();
+
+        assertAll(Fixtures.EQUIVALENT_FORM_URLS_REFUSED_AS_UNSHORTENABLE.stream()
+                .map(url -> (Executable) () -> {
+                    HttpResponse<String> refused = api.createLink(alice, url);
+                    assertAll(
+                            () -> assertEquals(422, refused.statusCode(),
+                                    url + " reached the host policy and must be refused there: "
+                                            + refused.body()),
+                            () -> assertEquals(Fixtures.URL_REJECTED, ApiClient.asError(refused).error(),
+                                    url + ": " + refused.body()),
+                            () -> assertEquals(theOneRefusal, refused.body(),
+                                    "one message for every host-policy refusal, or the response is a "
+                                            + "probe of the denylist: " + url));
+                }));
     }
 
     /**
@@ -89,7 +150,25 @@ class HostEvasionRefusalTest extends AbstractIntegrationTest {
      */
     @Test
     void aRefusedSpellingCreatesNoLink() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        long before = linkCountOf(alice);
+
+        HttpResponse<String> trailingDot = api.createLink(alice, Fixtures.DENYLISTED_TRAILING_DOT_URL);
+        HttpResponse<String> decimalLoopback = api.createLink(alice, Fixtures.LOOPBACK_DECIMAL_URL);
+        HttpResponse<String> outOfRange = api.createLink(alice, Fixtures.OVERFLOW_NUMERIC_URL);
+
+        long after = linkCountOf(alice);
+        assertAll(
+                () -> assertEquals(422, trailingDot.statusCode(), trailingDot.body()),
+                () -> assertEquals(422, decimalLoopback.statusCode(), decimalLoopback.body()),
+                () -> assertEquals(422, outOfRange.statusCode(), outOfRange.body()),
+                () -> assertFalse(ApiClient.asTree(trailingDot).has("code"),
+                        "a refusal hands back no code: " + trailingDot.body()),
+                () -> assertFalse(ApiClient.asTree(decimalLoopback).has("code"),
+                        decimalLoopback.body()),
+                () -> assertFalse(ApiClient.asTree(outOfRange).has("code"), outOfRange.body()),
+                () -> assertEquals(before, after,
+                        "a refused target must not leave a row somebody could still resolve"));
     }
 
     /**
@@ -102,7 +181,28 @@ class HostEvasionRefusalTest extends AbstractIntegrationTest {
      */
     @Test
     void theRefusalRevealsNothingAboutWhichCheckFired() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+
+        HttpResponse<String> denylisted = api.createLink(alice, Fixtures.DENYLISTED_URL);
+        HttpResponse<String> internal = api.createLink(alice, Fixtures.LOOPBACK_DECIMAL_URL);
+        HttpResponse<String> ownOrigin = api.createLink(alice, Fixtures.SELF_REFERENTIAL_URL);
+        HttpResponse<String> uncanonicalisable = api.createLink(alice, Fixtures.OVERFLOW_NUMERIC_URL);
+
+        assertAll(
+                () -> assertEquals(422, denylisted.statusCode(), denylisted.body()),
+                () -> assertEquals(denylisted.statusCode(), internal.statusCode(), internal.body()),
+                () -> assertEquals(denylisted.statusCode(), ownOrigin.statusCode(), ownOrigin.body()),
+                () -> assertEquals(denylisted.statusCode(), uncanonicalisable.statusCode(),
+                        uncanonicalisable.body()),
+                () -> assertEquals(denylisted.body(), internal.body(),
+                        "an internal address and a denylisted host are one answer"),
+                () -> assertEquals(denylisted.body(), ownOrigin.body(),
+                        "and so is our own origin"),
+                () -> assertEquals(denylisted.body(), uncanonicalisable.body(),
+                        "and so is a host that could not be canonicalised - it fails closed to the "
+                                + "same 422 rather than to a 400 that would say the spelling did not parse"),
+                () -> assertFalse(ApiClient.asTree(uncanonicalisable).has("fields"),
+                        "fields belongs to invalid_request only: " + uncanonicalisable.body()));
     }
 
     /**
@@ -116,7 +216,19 @@ class HostEvasionRefusalTest extends AbstractIntegrationTest {
      */
     @Test
     void aSpellingWithNoParseableHostKeepsTheRefusalItHasToday() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+
+        assertAll(Fixtures.URLS_REFUSED_AS_MALFORMED.stream().map(url -> (Executable) () -> {
+            HttpResponse<String> refused = api.createLink(alice, url);
+            assertAll(
+                    () -> assertEquals(400, refused.statusCode(),
+                            url + " yields no host from java.net.URI, so the syntax gate decides "
+                                    + "and the 400/422 split does not move: " + refused.body()),
+                    () -> assertEquals(Fixtures.INVALID_REQUEST, ApiClient.asError(refused).error(),
+                            url + ": " + refused.body()),
+                    () -> assertTrue(namesField(refused, "longUrl"),
+                            "a 400 names the field it is about: " + refused.body()));
+        }));
     }
 
     /**
@@ -130,7 +242,18 @@ class HostEvasionRefusalTest extends AbstractIntegrationTest {
      */
     @Test
     void hostsThatMerelyResembleARefusedOneAreStillShortened() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+
+        assertAll(Fixtures.LOOKALIKE_URLS_STILL_ACCEPTED.stream().map(url -> (Executable) () -> {
+            HttpResponse<String> created = api.createLink(alice, url);
+            assertAll(
+                    () -> assertEquals(201, created.statusCode(),
+                            url + " is not a denylisted host and must still be shortenable - "
+                                    + "over-normalisation is the failure no acceptance criterion "
+                                    + "would catch: " + created.body()),
+                    () -> assertEquals(url, ApiClient.asLink(created).longUrl(),
+                            "and it is stored exactly as submitted"));
+        }));
     }
 
     /**
@@ -142,7 +265,18 @@ class HostEvasionRefusalTest extends AbstractIntegrationTest {
      */
     @Test
     void aSubdomainOfADenylistedHostIsStillRefused() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+
+        HttpResponse<String> subdomain = api.createLink(alice, Fixtures.DENYLISTED_SUBDOMAIN_URL);
+        HttpResponse<String> theParentItself = api.createLink(alice, Fixtures.DENYLISTED_URL);
+
+        assertAll(
+                () -> assertEquals(422, subdomain.statusCode(),
+                        "matching must stay label-based over the canonical host, not narrow to an "
+                                + "exact match: " + subdomain.body()),
+                () -> assertEquals(Fixtures.URL_REJECTED, ApiClient.asError(subdomain).error()),
+                () -> assertEquals(theParentItself.body(), subdomain.body(),
+                        "a child of a denylisted host is refused the same way its parent is"));
     }
 
     /**
@@ -155,6 +289,35 @@ class HostEvasionRefusalTest extends AbstractIntegrationTest {
      */
     @Test
     void anOrdinaryTargetIsStoredAndServedExactlyAsSubmitted() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        String alice = alice();
+        String submitted = "https://EXAMPLE.com/A/Path?q=1&Q=2";
+
+        HttpResponse<String> created = api.createLink(alice, submitted);
+        LinkResponse link = ApiClient.asLink(created);
+        HttpResponse<String> readBack = api.getLink(alice, link.code());
+        HttpResponse<String> clicked = api.click(link.code());
+
+        assertAll(
+                () -> assertEquals(201, created.statusCode(), created.body()),
+                () -> assertEquals(submitted, link.longUrl(),
+                        "canonicalisation is for checking only and never rewrites a target"),
+                () -> assertEquals(submitted, ApiClient.asLink(readBack).longUrl(),
+                        "including the copy that was stored"),
+                () -> assertEquals(302, clicked.statusCode(), clicked.body()),
+                () -> assertEquals(submitted, ApiClient.header(clicked, Fixtures.LOCATION).orElse(null),
+                        "the Location header is byte-identical to what was submitted, host case and all"));
+    }
+
+    // ---- helpers ----------------------------------------------------------
+
+    /** How many links this customer owns, according to the service. */
+    private long linkCountOf(String bearer) {
+        return ApiClient.asPage(api.listLinks(bearer, 0, 1)).totalElements();
+    }
+
+    /** Whether an {@code invalid_request} body names the given field. */
+    private boolean namesField(HttpResponse<String> response, String field) {
+        return ApiClient.asError(response).fields() != null
+                && ApiClient.asError(response).fields().containsKey(field);
     }
 }

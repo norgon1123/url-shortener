@@ -1,6 +1,17 @@
 package com.example.urlshortener.unit;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.example.urlshortener.link.HostNormalizer;
+import com.example.urlshortener.support.Fixtures;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 
 /**
  * What one canonical form for a host means (AC1, AC2), at the component that
@@ -35,7 +46,20 @@ class HostCanonicalisationTest {
      */
     @Test
     void aTrailingDotIsNotPartOfAHost() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        Optional<String> withoutTheDot = HostNormalizer.normalize("malware.example.com");
+        Optional<String> withTheDot = HostNormalizer.normalize("malware.example.com.");
+        Optional<String> withTwoDots = HostNormalizer.normalize("malware.example.com..");
+        Optional<String> loopbackName = HostNormalizer.normalize("localhost.");
+
+        assertAll(
+                () -> assertEquals(Optional.of("malware.example.com"), withoutTheDot,
+                        "the host as the denylist holds it is already canonical"),
+                () -> assertEquals(withoutTheDot, withTheDot,
+                        "a trailing dot is a spelling, not a different host - this is the AC1 fix"),
+                () -> assertEquals(withoutTheDot, withTwoDots,
+                        "every trailing dot is removed, not merely the last one"),
+                () -> assertEquals(Optional.of("localhost"), loopbackName,
+                        "the same rule applies to the name that resolves to loopback"));
     }
 
     /**
@@ -49,7 +73,23 @@ class HostCanonicalisationTest {
      */
     @Test
     void caseIsNotPartOfAHost() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        Optional<String> mixedCase = HostNormalizer.normalize("MALWARE.Example.COM.");
+        Optional<String> onATurkishJvm;
+        Locale beforeTheTest = Locale.getDefault();
+        try {
+            // The dotless i: on a Turkish JVM "PHISHING".toLowerCase() is
+            // "phıshıng", which equals no denylist row anybody would write.
+            Locale.setDefault(Locale.forLanguageTag("tr"));
+            onATurkishJvm = HostNormalizer.normalize("PHISHING.EXAMPLE.NET");
+        } finally {
+            Locale.setDefault(beforeTheTest);
+        }
+
+        assertAll(
+                () -> assertEquals(Optional.of("malware.example.com"), mixedCase,
+                        "case and a trailing dot are one host written two ways"),
+                () -> assertEquals(Optional.of("phishing.example.net"), onATurkishJvm,
+                        "lower-casing must use Locale.ROOT, or the denylist misses on a Turkish JVM"));
     }
 
     /**
@@ -63,7 +103,12 @@ class HostCanonicalisationTest {
      */
     @Test
     void everyNumericSpellingOfLoopbackCanonicalisesToOneDottedQuad() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        assertAll(Fixtures.LOOPBACK_HOST_SPELLINGS.stream().map(spelling -> (Executable) () ->
+                assertEquals(
+                        Optional.of(Fixtures.CANONICAL_LOOPBACK_HOST),
+                        HostNormalizer.normalize(spelling),
+                        spelling + " is a spelling of " + Fixtures.CANONICAL_LOOPBACK_HOST
+                                + " and a client would reach loopback through it")));
     }
 
     /**
@@ -78,7 +123,18 @@ class HostCanonicalisationTest {
      */
     @Test
     void aPartWithALeadingZeroIsReadAsOctalAsAClientWouldReadIt() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        Optional<String> octalLoopback = HostNormalizer.normalize("0177.0.0.1");
+        Optional<String> octalPrivate = HostNormalizer.normalize("012.0.0.1");
+
+        assertAll(
+                () -> assertEquals(Optional.of("127.0.0.1"), octalLoopback,
+                        "0177 is octal 127, which is where a client actually connects"),
+                () -> assertNotEquals(Optional.of("177.0.0.1"), octalLoopback,
+                        "177.0.0.1 is a public address and is what InetAddress.getByName answers here"),
+                () -> assertEquals(Optional.of("10.0.0.1"), octalPrivate,
+                        "012 is octal 10, so this is private address space"),
+                () -> assertNotEquals(Optional.of("12.0.0.1"), octalPrivate,
+                        "reading the part as decimal would let a private address through"));
     }
 
     /**
@@ -92,7 +148,19 @@ class HostCanonicalisationTest {
      */
     @Test
     void aNumericHostThatIsOutOfRangeCannotBeCanonicalised() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        Optional<String> everyPartOutOfRange = HostNormalizer.normalize("999.999.999.999");
+        Optional<String> oneMoreThanThirtyTwoBits = HostNormalizer.normalize("4294967296");
+        Optional<String> lastPartOutOfRange = HostNormalizer.normalize("127.0.65536");
+
+        assertAll(
+                () -> assertEquals(Optional.empty(), everyPartOutOfRange,
+                        "an out-of-range candidate is refused, never passed through as a name"),
+                () -> assertEquals(Optional.empty(), oneMoreThanThirtyTwoBits,
+                        "4294967296 is one past the largest address there is"),
+                () -> assertEquals(Optional.empty(), lastPartOutOfRange,
+                        "the final part may only occupy the bytes the earlier parts left"),
+                () -> assertNotEquals(Optional.of("999.999.999.999"), everyPartOutOfRange,
+                        "returning the input would make the refusal look like acceptance"));
     }
 
     /**
@@ -104,7 +172,17 @@ class HostCanonicalisationTest {
      */
     @Test
     void aHostWithAnEmptyLabelCannotBeCanonicalised() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        assertAll(
+                () -> assertEquals(Optional.empty(), HostNormalizer.normalize("a..b"),
+                        "an empty label in the middle has no unambiguous reading"),
+                () -> assertEquals(Optional.empty(), HostNormalizer.normalize("."),
+                        "a bare dot is nothing but a trailing dot, and what is left is empty"),
+                () -> assertEquals(Optional.empty(), HostNormalizer.normalize(".."),
+                        "and so is a pair of them"),
+                () -> assertEquals(Optional.empty(), HostNormalizer.normalize(".example.com"),
+                        "a leading dot is an empty first label, not a tidy-up"),
+                () -> assertEquals(Optional.empty(), HostNormalizer.normalize(""),
+                        "there is no canonical form of no host at all"));
     }
 
     /**
@@ -123,7 +201,28 @@ class HostCanonicalisationTest {
      */
     @Test
     void noLabelIsEverRemovedFromARegisteredName() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        Optional<String> lookalike = HostNormalizer.normalize("notmalware.example.com");
+        Optional<String> denylistedHostAsAPrefix =
+                HostNormalizer.normalize("malware.example.com.evil.test");
+        Optional<String> aSubdomainOfTheDenylistedHost =
+                HostNormalizer.normalize("sub.campaign.malware.example.com");
+
+        assertAll(
+                () -> assertEquals(Optional.of("notmalware.example.com"), lookalike,
+                        "a label is not a substring: notmalware is not malware"),
+                () -> assertNotEquals(Optional.of("malware.example.com"), lookalike,
+                        "collapsing this onto the denylisted parent would refuse an ordinary URL"),
+                () -> assertEquals(Optional.of("malware.example.com.evil.test"), denylistedHostAsAPrefix,
+                        "no trailing label is ever dropped, however suspicious the left of the name looks"),
+                () -> assertEquals(Optional.of("sub.campaign.malware.example.com"),
+                        aSubdomainOfTheDenylistedHost,
+                        "nor is a leading one: matching the parent is the denylist's job, not the "
+                                + "normaliser's"),
+                () -> assertEquals(
+                        5,
+                        aSubdomainOfTheDenylistedHost.orElseThrow().split("\\.", -1).length,
+                        "every one of the five labels survives: "
+                                + aSubdomainOfTheDenylistedHost.orElse(null)));
     }
 
     /**
@@ -136,7 +235,17 @@ class HostCanonicalisationTest {
      */
     @Test
     void aHostThatIsNotAnAddressCandidateStaysARegisteredName() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        assertAll(
+                () -> assertEquals(Optional.of("1.2.3.4.5"), HostNormalizer.normalize("1.2.3.4.5"),
+                        "five parts is not an address, so this is a name and survives intact"),
+                () -> assertEquals(Optional.of("09.example.com"),
+                        HostNormalizer.normalize("09.example.com"),
+                        "09 has a leading zero and an 9 in it, so it is a number in no base read here"),
+                () -> assertEquals(Optional.of("0x7g.example.com"),
+                        HostNormalizer.normalize("0x7g.example.com"),
+                        "0x7g is not hexadecimal either"),
+                () -> assertEquals(Optional.of("example.com"), HostNormalizer.normalize("Example.COM"),
+                        "an ordinary name is only lower-cased"));
     }
 
     /**
@@ -148,7 +257,18 @@ class HostCanonicalisationTest {
      */
     @Test
     void anIpv6LiteralKeepsItsBracketsAndIsLowerCased() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        Optional<String> ipv4Mapped = HostNormalizer.normalize("[::FFFF:127.0.0.1]");
+        Optional<String> loopback = HostNormalizer.normalize("[::1]");
+        Optional<String> documentation = HostNormalizer.normalize("[2001:DB8::1]");
+
+        assertAll(
+                () -> assertEquals(Optional.of("[::ffff:127.0.0.1]"), ipv4Mapped,
+                        "brackets are kept and the literal is only lower-cased"),
+                () -> assertEquals(Optional.of("[::1]"), loopback),
+                () -> assertEquals(Optional.of("[2001:db8::1]"), documentation),
+                () -> assertTrue(
+                        ipv4Mapped.orElseThrow().startsWith("[") && ipv4Mapped.orElseThrow().endsWith("]"),
+                        "an unbracketed literal is not the form java.net.URI hands over: " + ipv4Mapped));
     }
 
     /**
@@ -161,6 +281,19 @@ class HostCanonicalisationTest {
      */
     @Test
     void canonicalisingACanonicalHostChangesNothing() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        List<String> everySpellingThisContractNames = java.util.stream.Stream.of(
+                        Fixtures.LOOPBACK_HOST_SPELLINGS.stream(),
+                        Fixtures.NAMES_PRESERVED_BY_NORMALISATION.stream(),
+                        java.util.stream.Stream.of(
+                                "MALWARE.Example.COM.", "localhost.", "[::FFFF:127.0.0.1]", "012.0.0.1"))
+                .flatMap(s -> s)
+                .toList();
+
+        assertAll(everySpellingThisContractNames.stream().map(host -> (Executable) () -> {
+            String canonical = HostNormalizer.normalize(host)
+                    .orElseThrow(() -> new AssertionError(host + " should canonicalise, but did not"));
+            assertEquals(Optional.of(canonical), HostNormalizer.normalize(canonical),
+                    "normalising " + canonical + " again must not move it: there is one canonical form");
+        }));
     }
 }

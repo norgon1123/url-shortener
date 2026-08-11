@@ -1,7 +1,15 @@
 package com.example.urlshortener.behaviour;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import com.example.urlshortener.support.AbstractIntegrationTest;
+import com.example.urlshortener.support.ApiClient;
 import com.example.urlshortener.support.Fixtures;
+import java.net.http.HttpResponse;
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -30,6 +38,9 @@ import org.springframework.boot.test.context.SpringBootTest;
         })
 class SignUpRateLimitTest extends AbstractIntegrationTest {
 
+    /** The capacity this class configures, quoted once so the assertions can name it. */
+    private static final int CAPACITY = 5;
+
     /**
      * The buckets are keyed by client address and shared by every context in this
      * JVM, so a class that wants to observe a limit being reached starts from a
@@ -49,7 +60,26 @@ class SignUpRateLimitTest extends AbstractIntegrationTest {
      */
     @Test
     void repeatedSignUpsFromOneAddressAreThrottled() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        List<HttpResponse<String>> attempts = signUpRepeatedly(CAPACITY + 3);
+
+        long accepted = attempts.stream().filter(r -> r.statusCode() == 201).count();
+        HttpResponse<String> throttled = attempts.stream()
+                .filter(r -> r.statusCode() == 429)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(
+                        "signing up faster than the limit was never refused: " + statuses(attempts)));
+        String retryAfter = ApiClient.header(throttled, Fixtures.RETRY_AFTER)
+                .orElseThrow(() -> new AssertionError("a 429 must say when to come back"));
+        assertAll(
+                () -> assertEquals(201, attempts.get(0).statusCode(),
+                        "the first sign-up is served: " + attempts.get(0).body()),
+                () -> assertTrue(accepted <= CAPACITY,
+                        "no more than the bucket holds were accepted: " + statuses(attempts)),
+                () -> assertEquals(Fixtures.RATE_LIMITED, ApiClient.asError(throttled).error()),
+                () -> assertEquals("Too many requests.", ApiClient.asError(throttled).message()),
+                () -> assertTrue(retryAfter.matches("\\d+"), "whole seconds: " + retryAfter),
+                () -> assertTrue(Long.parseLong(retryAfter) >= 1,
+                        "never 0 - a client told to retry immediately is not throttled: " + retryAfter));
     }
 
     /**
@@ -62,7 +92,31 @@ class SignUpRateLimitTest extends AbstractIntegrationTest {
      */
     @Test
     void aThrottledSignUpCreatesNoAccount() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        List<String> addresses = new ArrayList<>();
+        List<HttpResponse<String>> attempts = new ArrayList<>();
+        for (int i = 0; i < CAPACITY + 3; i++) {
+            String email = Fixtures.uniqueEmail("carol");
+            addresses.add(email);
+            attempts.add(api.signUp(email, Fixtures.NEW_ACCOUNT_PASSWORD));
+        }
+
+        long accepted = attempts.stream().filter(r -> r.statusCode() == 201).count();
+        long existing = addresses.stream().filter(email -> !storedAccountsNamed(email).isEmpty()).count();
+        List<String> throttledAddresses = new ArrayList<>();
+        for (int i = 0; i < attempts.size(); i++) {
+            if (attempts.get(i).statusCode() == 429) {
+                throttledAddresses.add(addresses.get(i));
+            }
+        }
+        assertAll(
+                () -> assertTrue(accepted <= CAPACITY, statuses(attempts)),
+                () -> assertTrue(!throttledAddresses.isEmpty(),
+                        "the bucket was never emptied: " + statuses(attempts)),
+                () -> assertEquals(accepted, existing,
+                        "exactly the accepted sign-ups exist, and no more: " + statuses(attempts)),
+                () -> assertTrue(
+                        throttledAddresses.stream().allMatch(email -> storedAccountsNamed(email).isEmpty()),
+                        "an address named by a throttled sign-up is still free: " + throttledAddresses));
     }
 
     /**
@@ -75,7 +129,28 @@ class SignUpRateLimitTest extends AbstractIntegrationTest {
      */
     @Test
     void probingForExistingAccountNamesIsThrottledAtTheSameRate() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        List<HttpResponse<String>> probes = new ArrayList<>();
+        for (int i = 0; i < CAPACITY + 3; i++) {
+            // Every one of these is a well-formed sign-up for an address that is
+            // already taken: the shape of an enumeration sweep.
+            probes.add(api.signUp(Fixtures.ALICE.email(), Fixtures.NEW_ACCOUNT_PASSWORD));
+        }
+
+        long disclosed = probes.stream().filter(r -> r.statusCode() == 409).count();
+        long throttled = probes.stream().filter(r -> r.statusCode() == 429).count();
+        assertAll(
+                () -> assertEquals(409, probes.get(0).statusCode(),
+                        "the first probe is answered: " + probes.get(0).body()),
+                () -> assertTrue(throttled >= 1,
+                        "duplicate attempts must spend the same bucket, or the 409 is an unmetered "
+                                + "account-existence oracle: " + statuses(probes)),
+                () -> assertTrue(disclosed <= CAPACITY,
+                        "the disclosure is bounded by the bucket, not by the endpoint's willingness: "
+                                + statuses(probes)),
+                () -> assertEquals(probes.size(), disclosed + throttled,
+                        "every answer was a 409 or a 429: " + statuses(probes)),
+                () -> assertEquals(1, storedAccountsNamed(Fixtures.ALICE.email()).size(),
+                        "and none of the probing created anything"));
     }
 
     /**
@@ -88,6 +163,44 @@ class SignUpRateLimitTest extends AbstractIntegrationTest {
      */
     @Test
     void theSignUpBucketAndTheSignInBucketAreSeparate() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        List<HttpResponse<String>> signUpBurst = signUpRepeatedly(CAPACITY + 3);
+        HttpResponse<String> signInWithTheSignUpBucketEmpty =
+                api.signIn(Fixtures.ALICE.email(), Fixtures.ALICE.plaintext());
+
+        resetSharedTierState();
+        List<HttpResponse<String>> signInBurst = new ArrayList<>();
+        for (int i = 0; i < CAPACITY; i++) {
+            signInBurst.add(api.signIn(Fixtures.ALICE.email(), Fixtures.ALICE.plaintext()));
+        }
+        HttpResponse<String> signUpAfterThoseSignIns =
+                api.signUp(Fixtures.uniqueEmail("carol"), Fixtures.NEW_ACCOUNT_PASSWORD);
+
+        assertAll(
+                () -> assertTrue(signUpBurst.stream().anyMatch(r -> r.statusCode() == 429),
+                        "the sign-up bucket really was emptied: " + statuses(signUpBurst)),
+                () -> assertEquals(200, signInWithTheSignUpBucketEmpty.statusCode(),
+                        "an empty sign-up bucket must not close sign-in: "
+                                + signInWithTheSignUpBucketEmpty.body()),
+                () -> assertTrue(signInBurst.stream().allMatch(r -> r.statusCode() == 200),
+                        "the sign-ins themselves were served: " + statuses(signInBurst)),
+                () -> assertEquals(201, signUpAfterThoseSignIns.statusCode(),
+                        "and they spent no sign-up tokens - " + CAPACITY + " sign-ins would have "
+                                + "emptied a shared bucket: " + signUpAfterThoseSignIns.body()));
+    }
+
+    // ---- helpers ----------------------------------------------------------
+
+    /** Signs up for that many fresh addresses, as fast as one client can, keeping every answer. */
+    private List<HttpResponse<String>> signUpRepeatedly(int howMany) {
+        List<HttpResponse<String>> responses = new ArrayList<>(howMany);
+        for (int i = 0; i < howMany; i++) {
+            responses.add(api.signUp(Fixtures.uniqueEmail("carol"), Fixtures.NEW_ACCOUNT_PASSWORD));
+        }
+        return responses;
+    }
+
+    /** The status codes of a run of responses, for a failure message worth reading. */
+    private String statuses(List<HttpResponse<String>> responses) {
+        return responses.stream().map(r -> String.valueOf(r.statusCode())).toList().toString();
     }
 }

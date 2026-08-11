@@ -1,6 +1,20 @@
 package com.example.urlshortener.behaviour;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.example.urlshortener.api.AnonymousLinkResponse;
+import com.example.urlshortener.api.LinkResponse;
+import com.example.urlshortener.link.ShortCodeGenerator;
 import com.example.urlshortener.support.AbstractIntegrationTest;
+import com.example.urlshortener.support.ApiClient;
+import com.example.urlshortener.support.Fixtures;
+import java.net.http.HttpResponse;
+import java.util.List;
+import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -25,6 +39,22 @@ import org.junit.jupiter.api.Test;
 class AnonymousLinkRedirectTest extends AbstractIntegrationTest {
 
     /**
+     * Starts from full buckets and an empty shared tier.
+     *
+     * <p>This is a counting class, so the rule about never discarding a click
+     * delta applies - and is respected: this runs before the first click of every
+     * test here, so the only deltas it can discard belong to a class that has
+     * already made its assertions. What it buys is that the anonymous-create
+     * bucket, which another class empties on purpose, is full when these
+     * behaviours need a link, and that the click and not-found buckets are not
+     * inherited part-spent.
+     */
+    @BeforeEach
+    void startFromFullBuckets() {
+        resetSharedTierState();
+    }
+
+    /**
      * Following an anonymous code and following an owned code with the same target
      * produce the same response: the same status, the same {@code Location}, and
      * the same cache headers. 302 and never 301, because a 301 is cached
@@ -34,7 +64,36 @@ class AnonymousLinkRedirectTest extends AbstractIntegrationTest {
      */
     @Test
     void followingAnAnonymousCodeReturnsTheSameRedirectAsAnOwnedLink() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        AnonymousLinkResponse anonymous = givenAnonymousLink(Fixtures.OTHER_TARGET_URL);
+        LinkResponse owned = givenLink(alice(), Fixtures.OTHER_TARGET_URL);
+
+        HttpResponse<String> anonymousClick = api.click(anonymous.code());
+        HttpResponse<String> ownedClick = api.click(owned.code());
+
+        assertAll(
+                () -> assertEquals(302, anonymousClick.statusCode(), anonymousClick.body()),
+                () -> assertNotEquals(301, anonymousClick.statusCode(),
+                        "a 301 is cached indefinitely and the later clicks never reach us"),
+                () -> assertEquals(ownedClick.statusCode(), anonymousClick.statusCode(),
+                        "the same status as an owned link with the same target"),
+                () -> assertEquals(Fixtures.OTHER_TARGET_URL,
+                        ApiClient.header(anonymousClick, Fixtures.LOCATION).orElse(null)),
+                () -> assertEquals(
+                        ApiClient.header(ownedClick, Fixtures.LOCATION),
+                        ApiClient.header(anonymousClick, Fixtures.LOCATION),
+                        "and the same Location"),
+                () -> assertEquals(Optional.of(Fixtures.NO_STORE),
+                        ApiClient.header(anonymousClick, Fixtures.CACHE_CONTROL)),
+                () -> assertEquals(
+                        ApiClient.header(ownedClick, Fixtures.CACHE_CONTROL),
+                        ApiClient.header(anonymousClick, Fixtures.CACHE_CONTROL)),
+                () -> assertEquals(
+                        ApiClient.header(ownedClick, Fixtures.PRAGMA),
+                        ApiClient.header(anonymousClick, Fixtures.PRAGMA),
+                        "including the header for intermediaries that predate Cache-Control"),
+                () -> assertEquals(
+                        ApiClient.header(ownedClick, Fixtures.EXPIRES),
+                        ApiClient.header(anonymousClick, Fixtures.EXPIRES)));
     }
 
     /**
@@ -46,7 +105,23 @@ class AnonymousLinkRedirectTest extends AbstractIntegrationTest {
      */
     @Test
     void aHeadRequestOnAnAnonymousCodeAnswersLikeTheGetPath() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        AnonymousLinkResponse anonymous = givenAnonymousLink();
+
+        HttpResponse<String> head = api.clickHead(anonymous.code());
+        HttpResponse<String> get = api.click(anonymous.code());
+
+        assertAll(
+                () -> assertEquals(302, head.statusCode(), "HEAD is dispatched to the GET mapping"),
+                () -> assertEquals(get.statusCode(), head.statusCode()),
+                () -> assertEquals(
+                        ApiClient.header(get, Fixtures.LOCATION),
+                        ApiClient.header(head, Fixtures.LOCATION),
+                        "with the same Location"),
+                () -> assertEquals(
+                        ApiClient.header(get, Fixtures.CACHE_CONTROL),
+                        ApiClient.header(head, Fixtures.CACHE_CONTROL)),
+                () -> assertTrue(head.body() == null || head.body().isEmpty(),
+                        "and no body: " + head.body()));
     }
 
     /**
@@ -57,7 +132,25 @@ class AnonymousLinkRedirectTest extends AbstractIntegrationTest {
      */
     @Test
     void aCredentialOnTheClickPathChangesNothingForAnAnonymousCode() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        AnonymousLinkResponse anonymous = givenAnonymousLink();
+
+        HttpResponse<String> withNone = api.click(anonymous.code());
+        HttpResponse<String> withAValidOne = api.clickWithBearer(anonymous.code(), alice());
+        HttpResponse<String> withAForgedOne =
+                api.clickWithBearer(anonymous.code(), Fixtures.FORGED_BEARER);
+
+        assertAll(
+                () -> assertEquals(302, withAValidOne.statusCode(), withAValidOne.body()),
+                () -> assertEquals(302, withAForgedOne.statusCode(),
+                        "the click path takes no credential, so a bad one is not a 401: "
+                                + withAForgedOne.body()),
+                () -> assertEquals(withNone.statusCode(), withAValidOne.statusCode()),
+                () -> assertEquals(
+                        ApiClient.header(withNone, Fixtures.LOCATION),
+                        ApiClient.header(withAValidOne, Fixtures.LOCATION)),
+                () -> assertEquals(
+                        ApiClient.header(withNone, Fixtures.LOCATION),
+                        ApiClient.header(withAForgedOne, Fixtures.LOCATION)));
     }
 
     /**
@@ -70,7 +163,23 @@ class AnonymousLinkRedirectTest extends AbstractIntegrationTest {
      */
     @Test
     void clicksOnAnAnonymousLinkAreCountedByTheSameMechanism() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        AnonymousLinkResponse anonymous = givenAnonymousLink();
+        LinkResponse owned = givenLink(alice());
+
+        clickRepeatedly(anonymous.code(), 4);
+        clickRepeatedly(owned.code(), 4);
+        awaitClickFlush();
+
+        Optional<Long> anonymousCount = storedClickCount(anonymous.code());
+        Optional<Long> ownedCount = storedClickCount(owned.code());
+        assertAll(
+                () -> assertEquals(Optional.of(4L), anonymousCount,
+                        "four clicks on an anonymous link are four counted clicks"),
+                () -> assertEquals(ownedCount, anonymousCount,
+                        "counted by the same mechanism as an owned link clicked as often: owned "
+                                + ownedCount + " against anonymous " + anonymousCount),
+                () -> assertEquals(Optional.of(4L), ownedCount,
+                        "and the comparison is not two matching zeroes"));
     }
 
     /**
@@ -82,7 +191,27 @@ class AnonymousLinkRedirectTest extends AbstractIntegrationTest {
      */
     @Test
     void clicksThatDoNotRedirectAreNotCounted() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        AnonymousLinkResponse anonymous = givenAnonymousLink();
+        clickRepeatedly(anonymous.code(), 2);
+        awaitClickFlush();
+        Optional<Long> afterTwoRealClicks = storedClickCount(anonymous.code());
+
+        List<HttpResponse<String>> onAnUnissuedCode = clickRepeatedly(Fixtures.UNISSUED_CODE, 3);
+        LinkResponse expired = givenExpiredLink(alice());
+        List<HttpResponse<String>> afterExpiry = clickRepeatedly(expired.code(), 3);
+        awaitClickFlush();
+
+        assertAll(
+                () -> assertEquals(Optional.of(2L), afterTwoRealClicks,
+                        "the two redirects were counted"),
+                () -> assertTrue(onAnUnissuedCode.stream().allMatch(r -> r.statusCode() == 404),
+                        "the unissued code really did not redirect"),
+                () -> assertTrue(afterExpiry.stream().allMatch(r -> r.statusCode() == 404),
+                        "and neither did the expired one"),
+                () -> assertEquals(afterTwoRealClicks, storedClickCount(anonymous.code()),
+                        "nothing that answered 404 was added to the anonymous link's count"),
+                () -> assertEquals(Optional.of(0L), storedClickCount(expired.code()),
+                        "and a link clicked only after it expired counted nothing at all"));
     }
 
     /**
@@ -94,7 +223,17 @@ class AnonymousLinkRedirectTest extends AbstractIntegrationTest {
      */
     @Test
     void concurrentClicksOnAnAnonymousLinkAreAllCounted() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        AnonymousLinkResponse anonymous = givenAnonymousLink();
+
+        List<HttpResponse<String>> burst = clickConcurrently(anonymous.code(), 20, 5);
+        awaitClickFlush();
+
+        assertAll(
+                () -> assertTrue(burst.stream().allMatch(r -> r.statusCode() == 302),
+                        "every click in the burst was served"),
+                () -> assertEquals(Optional.of(20L), storedClickCount(anonymous.code()),
+                        "and every one of them was counted: a counter that is right sequentially "
+                                + "and lossy under load is the defect worth catching"));
     }
 
     /**
@@ -107,6 +246,18 @@ class AnonymousLinkRedirectTest extends AbstractIntegrationTest {
      */
     @Test
     void anAnonymousCodeIsIndistinguishableInShapeFromAnOwnedOne() {
-        org.junit.jupiter.api.Assertions.fail("not implemented");
+        AnonymousLinkResponse anonymous = givenAnonymousLink();
+        LinkResponse owned = givenLink(alice());
+
+        assertAll(
+                () -> assertEquals(owned.code().length(), anonymous.code().length(),
+                        "same length: " + anonymous.code() + " against " + owned.code()),
+                () -> assertEquals(ShortCodeGenerator.CODE_LENGTH, anonymous.code().length()),
+                () -> assertTrue(
+                        anonymous.code().chars().allMatch(c -> ShortCodeGenerator.ALPHABET.indexOf(c) >= 0),
+                        "same alphabet, so codes cannot be sorted into owned and unowned by shape: "
+                                + anonymous.code()),
+                () -> assertNotEquals(owned.code(), anonymous.code(),
+                        "and they are still separate codes in one namespace"));
     }
 }
