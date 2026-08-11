@@ -5,6 +5,44 @@ reader can judge whether it still does.
 
 ---
 
+## SEC-1: seeded customer accounts ship to production — accepted risk, must be fixed
+
+**Status: risk accepted by neil at `review-synthesis`, greenfield-3, to let the
+run finish. Not fixed. This is the first thing to fix in the next run.**
+
+`service/src/main/resources/db/migration/V2__seed_customers_and_denylist.sql:13`
+inserts two customer accounts through an ordinary Flyway migration. There is no
+profile and no placeholder gate — `spring.flyway.enabled: true`,
+`locations: classpath:db/migration` — so **a production deploy creates them**.
+Their plaintext passwords are published in `artifacts/openapi.yaml:99-102`
+(`alice-dev-password`, `bob-dev-password`). The migration comment says "local
+and test use only"; nothing enforces that, and a comment is not a control.
+
+Because the service has no registration endpoint, these *are* the accounts.
+Either one can create links and, via the abuse endpoint (SEC-5, medium), take
+any link on the service down permanently. Two lenses concurred at high
+confidence: a published credential in an unconditional migration, not a
+hardening nit.
+
+**Fix.** Move the two customer `INSERT`s to `classpath:db/testdata`, added to
+`spring.flyway.locations` only under a dev/test profile. Leave the denylist rows
+in the main migration — they are real data. Provision real accounts by an
+operator step. Rotate the plaintexts out of `openapi.yaml`, or mark them
+explicitly as fixtures that exist only when the test location is active.
+
+**Note the interaction with SEC-5.** As long as any account can take down any
+link, the blast radius of one leaked credential is the whole service. Fixing
+SEC-1 alone narrows who has the credential; it does not narrow what the
+credential can do.
+
+**Why it was accepted.** The build is green and the remaining budget did not
+cover a reject-and-repair cycle ($106.11 of a $120 ceiling at the decision
+point). Accepting it buys the completed run and its metrics; it does not buy a
+shippable service. Nothing here should be deployed anywhere reachable until this
+is closed.
+
+---
+
 ## Maintain `CONTEXT.md`, `AGENTS.md` and `CLAUDE.md` from every run
 
 Follow the established conventions rather than inventing a format:
