@@ -14,6 +14,7 @@ import com.example.urlshortener.support.Fixtures;
 import java.net.http.HttpResponse;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -36,6 +37,28 @@ import org.junit.jupiter.api.Test;
  * itself belongs to {@code AbuseReportTest}.
  */
 class TenantIsolationTest extends AbstractIntegrationTest {
+
+    /**
+     * Starts from a full sign-in bucket.
+     *
+     * <p>Every test here begins by signing in as both customers, and the sign-in
+     * bucket is keyed by client address - one address for the whole suite - in the
+     * one Redis every context in the JVM shares. {@code SignInRateLimitTest} runs
+     * immediately before this class, alphabetically, and empties that bucket with
+     * ten deliberate wrong guesses; the key carries no capacity component, so it
+     * crosses the context boundary still empty and refills at one token a second,
+     * while this class runs in a few tens of milliseconds. The sign-ins are then
+     * 429s, no session is obtained, and the failures land on the isolation
+     * assertions rather than on the throttling that caused them. A test that needs
+     * a session establishes the bucket state it needs rather than inheriting it.
+     *
+     * <p>This runs before the first link and the first click of every test in the
+     * class, so it discards no click delta any assertion here depends on.
+     */
+    @BeforeEach
+    void startFromAFullSignInBucket() {
+        resetSharedTierState();
+    }
 
     /**
      * Fetch, patch, delete and report, aimed at another customer's link and then

@@ -132,7 +132,18 @@ public final class ApiClient {
      * tests where getting a session is a precondition rather than the subject.
      */
     public String signInFor(Fixtures.SeededCustomer customer) {
-        return asSession(signIn(customer.email(), customer.plaintext())).accessToken();
+        HttpResponse<String> response = signIn(customer.email(), customer.plaintext());
+        if (response.statusCode() != 200) {
+            // A precondition that failed, said out loud. Parsing a 429 or a 401
+            // body into a SignInResponse yields a null accessToken, every later
+            // call in the test goes out unauthenticated, and the test fails much
+            // further downstream with a NullPointerException on a code that was
+            // never issued - pointing at everything except the sign-in.
+            throw new IllegalStateException(
+                    "could not sign in as " + customer.email() + ": HTTP " + response.statusCode()
+                            + " " + response.body());
+        }
+        return asSession(response).accessToken();
     }
 
     // ---- links ------------------------------------------------------------

@@ -13,6 +13,7 @@ import com.example.urlshortener.support.Fixtures;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -33,6 +34,28 @@ class AbuseReportTest extends AbstractIntegrationTest {
 
     /** An ordinary reason, well inside the documented maximum length. */
     private static final String REASON = "Phishing page imitating a bank sign-in";
+
+    /**
+     * Starts from a full abuse-report bucket.
+     *
+     * <p>Not a rate-limit test, and that is exactly why this is here: the bucket
+     * is keyed by reporter and lives in the one Redis every context in the JVM
+     * shares, and {@code AbuseReportRateLimitTest} - which runs immediately before
+     * this class, alphabetically - empties Bob's on purpose. The key carries no
+     * capacity component, so it survives the context switch still empty and refills
+     * at the default rate of one token a second; this class then reports as Bob
+     * several times in well under a second and is answered 429. Every test here
+     * needs a report to be accepted for any of its assertions to mean anything, so
+     * the bucket state is a precondition and is established rather than inherited.
+     *
+     * <p>The "never reset from a counting test" rule is not breached by this: it
+     * forbids discarding click deltas that a test has already produced and is about
+     * to assert on, and this runs before the first click of every test in the class.
+     */
+    @BeforeEach
+    void startFromAFullReporterBucket() {
+        resetSharedTierState();
+    }
 
     /**
      * A reported link stops redirecting: the click path answers the single 404 and
