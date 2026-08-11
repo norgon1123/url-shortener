@@ -9,6 +9,12 @@ is in [`service/`](../service); the design is in
 [`METRICS.md`](METRICS.md). This page is the part none of those hold: the
 narrative, the mistakes, and what to build next because of them.
 
+**Assumptions** live where they were made rather than in a list here: every run's
+`clarify` node emits `assumptions[]` even when it raises no blocking question
+(ADR-001 requires it), those artifacts are in each fixture's journal, and the
+engineering positions deliberately withheld from the requirement are in
+[`REQUIREMENTS_BRIEF.md`](REQUIREMENTS_BRIEF.md).
+
 ---
 
 ## 1. The shape of the work
@@ -28,6 +34,24 @@ class decides what its verdict is allowed to do. The rule is enforced when the
 pipeline *loads*: a graph whose gates would let a model pass its own work is a
 startup error, not a runtime surprise. ([ADR-001](adr/001-the-llm-never-approves.md))
 
+### Testing approach
+
+Three layers, each answering a different question.
+
+- **The orchestrator's own suite** — 429 pytest tests over scripted backends, no
+  network, no credentials, seven seconds. Every defect in §3 became a test here.
+- **The service's suite** — behaviour-named black-box tests through the HTTP API
+  against real PostgreSQL and Redis via Testcontainers, authored by a node that
+  cannot write `src/main/**` (ADR-003), gated by a 70% line-coverage floor and by
+  `tests_not_weakened`, which records its own baseline.
+- **The runs themselves** — four recorded journals, hash-chained and replayable,
+  which is how claims about the *pipeline's* behaviour are checked rather than
+  asserted.
+
+What none of them covers is in §5: there is no point in the graph where a new
+test meets the old code, so "this test fails for the reason the bug exists" is
+still evidenced by hand.
+
 **Mock mode came first**, before any live run. Scripted backends make the graph,
 gates, checkpoints, approvals, failure handling and metrics testable in seconds
 instead of twenty-minute multi-dollar runs. That decision paid for itself
@@ -46,8 +70,16 @@ key can still exercise every control.
 | `ambiguous-1` | "more reliable, and we want analytics" | safe-stopped after `decompose` | $6.73 |
 | `ambiguous-2` | the same ask, answered the opposite way | safe-stopped after `decompose` | $11.37 |
 
-**$224.96 total.** All four replay with no API key and no spend; the chains
-verify at 345, 250, 35 and 52 entries.
+**$224.96 across the four narrated here.** A fifth run ships and is not narrated:
+`greenfield-2` ($24.88) stopped at `verify` on the 19-node graph and is kept
+because how it ended is the useful part of it — see
+[its README](../orchestrator/fixtures/runs/greenfield-2/README.md). A sixth,
+`greenfield-1`, is discussed in [`OPERATIONS.md`](OPERATIONS.md) and deliberately
+not shipped: it predates the cost-accounting fix, so its journal under-reports
+and cannot be corrected. **Shipped fixtures total $249.84.**
+
+All five shipped runs replay with no API key and no spend; the chains verify at
+345, 250, 35, 52 and 85 entries.
 
 Both completed runs were **signed off by a human over a `ready: false` verdict**
 from `release-readiness`. Completed means the pipeline reached its end with every
@@ -108,6 +140,14 @@ carrying to the next project. The agents behaved well — better than expected a
 governance layer: in the human-in-the-loop path, or in an assumption about the
 starting state.
 
+That cuts both ways and the flattering half is not the point. The hand-written
+layer is where the bugs were. It is also the layer whose instrumentation
+*surfaced* every one of them — five were caught by the pipeline's own journal,
+gates or release node rather than by a person reading code — and each was fixed
+within one run of appearing and pinned by a test in a suite that runs in seven
+seconds. A governance layer that could not find its own defects would be the
+serious result.
+
 Four patterns account for all seven.
 
 ### A control tested only by agreement is not tested
@@ -164,26 +204,22 @@ the fix, cost $0.91 and one attempt, with the journal recording
 
 ## 4. The most expensive thing was the operator
 
-Of `greenfield-3`'s $60.51 of rework, **$42.86 was re-running nodes invalidated
-by prompt edits made while the run was in flight** — 39% of everything that run
-spent. Change-driven replanning working exactly as designed: inputs are
-content-hashed, editing a prompt changes the hash, and every node downstream is
-stale.
+$42.86 of `greenfield-3`'s spend went on re-running nodes invalidated by prompt
+edits made *while the run was in flight* — against $1.70 for `brownfield-1`, run
+without touching prompts mid-flight. The arithmetic is in
+[`METRICS.md`](METRICS.md); the lesson is here.
 
-`brownfield-1`, run without touching prompts mid-flight, spent **$1.70** on the
-same mechanism.
+In a pipeline where upstream artifacts are content-addressed, **the cost of a
+change scales with how late it is made** — and an operator with a terminal open
+is the fastest source of late changes. Change-driven replanning was working
+exactly as designed. It simply never asked whether the human meant to spend $43,
+and that control still does not exist.
 
-The general form: in a pipeline where upstream artifacts are content-addressed,
-**the cost of a change scales with how late it is made** — and an operator with a
-terminal open is the fastest source of late changes. The engine does the right
-thing and never asks whether the human meant to spend $43. That control does not
-exist yet.
-
-Rework overall was 56% and 53% of the two full runs. Excluding operator-induced
-staleness, `greenfield-3`'s genuine rework was **27%**. These numbers exist at
-all only because failed attempts are journalled with their cost — three
-accounting defects had to be fixed before they meant anything, and all three had
-made rework look cheaper than it was.
+The corollary matters more than the anecdote: **56% headline rework becomes 27%
+once operator-induced staleness is removed**, and neither number would exist if
+failed attempts were not journalled with their cost. Three accounting defects had
+to be fixed before either meant anything, and all three had made rework look
+cheaper than it was.
 
 ---
 

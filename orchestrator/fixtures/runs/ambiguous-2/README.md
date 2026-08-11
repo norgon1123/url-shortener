@@ -5,8 +5,8 @@ asked, how the two answer sets differed, and the defect the comparison exposed â
 is in [`../ambiguous-1/README.md`](../ambiguous-1/README.md).
 
 ```bash
-python -m sdlc.cli replay orchestrator/fixtures/runs/ambiguous-2
-python -m sdlc.cli verify ambiguous-2      # 52 entries
+PYTHONPATH=orchestrator python -m sdlc.cli replay orchestrator/fixtures/runs/ambiguous-2
+PYTHONPATH=orchestrator python -m sdlc.cli --runs-dir orchestrator/fixtures/runs verify ambiguous-2      # 52 entries
 ```
 
 `plan.json` here is the 21-task plan produced *after* `f4258e4`, when the

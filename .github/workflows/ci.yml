@@ -1,7 +1,7 @@
 # CI for both halves of the repository.
 #
 # This is also the Stage 2 deployment argument made concrete (see
-# docs/deployment-staging.md). The orchestrator has no daemon and no shared
+# docs/IMPLEMENTATION_PLAN.md §8). The orchestrator has no daemon and no shared
 # mutable state -- SQLite, a JSONL journal, and git checkpoints, all inside the
 # workspace -- so the same entry point that runs on a laptop runs here
 # unchanged. The only thing that changes is where the human gates surface: on a

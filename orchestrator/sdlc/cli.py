@@ -326,7 +326,20 @@ def cmd_report(args: argparse.Namespace) -> int:
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
-    journal = _journal(Path(args.runs_dir), args.run_id)
+    runs_root = Path(args.runs_dir)
+    path = run_dir(runs_root, args.run_id) / "journal.jsonl"
+    # A chain with nothing in it is trivially intact, which is the most
+    # misleading true sentence this command could print. It reached a reader
+    # once: `verify <shipped-run>` from a fresh clone looked in the gitignored
+    # `runs/`, found nothing, and reported "0 entries, chain intact".
+    if not path.is_file():
+        raise SystemExit(
+            f"no journal for run {args.run_id} at {path}.\n"
+            f"  shipped runs live in the fixtures directory:\n"
+            f"    python -m sdlc.cli --runs-dir orchestrator/fixtures/runs "
+            f"verify {args.run_id}"
+        )
+    journal = _journal(runs_root, args.run_id)
     try:
         journal.verify()
     except TamperError as exc:

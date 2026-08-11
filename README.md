@@ -8,9 +8,14 @@ Two artifacts in one repository:
    safe-stop, policy guardrails, a hash-chained audit trail, reliability metrics,
    and dynamic re-planning.
 2. **[`service/`](service) — the work product.** A URL shortener: Java 21, Spring
-   Boot 3.5, PostgreSQL, Redis. **Every line of it was written by the
-   orchestrator**, across two recorded runs, against the frozen contract in
-   [`artifacts/openapi.yaml`](artifacts/openapi.yaml).
+   Boot 3.5, PostgreSQL, Redis. **Every production class and test in it landed
+   through an orchestrator run**, against the frozen contract in
+   [`artifacts/openapi.yaml`](artifacts/openapi.yaml); node checkpoints carry
+   `Run-Id` / `Node-Id` / `Attempt` trailers, so `git log` is provenance per
+   commit. Two exceptions, both auditable: a hand-built initial scaffold
+   (`e85ef36` — build files and compose, later superseded by `design` at
+   `c557a64`), and one operator commit that swept a paused node's files into
+   itself (`7753468` — the incident `docs/TODO.md` dissects).
 
 The interesting claim is not that an agent wrote a URL shortener. It is that
 every decision it made is attributable, every gate it passed is checkable, and
@@ -20,16 +25,22 @@ computes about itself and publishes.**
 ## Start here
 
 ```bash
-# 1. The whole machine, deterministically, in six seconds. No API key, no spend.
-pytest orchestrator/tests                       # 429 tests
+# 0. Once.
+python -m venv .venv && .venv/bin/pip install -r orchestrator/requirements.txt
+
+# 1. The whole machine, deterministically, in seven seconds. No API key, no spend.
+.venv/bin/pytest orchestrator/tests                 # 429 tests
 
 # 2. Replay a real run, entry by entry. Still no API key, still no spend.
-python -m sdlc.cli replay orchestrator/fixtures/runs/greenfield-3
-python -m sdlc.cli verify greenfield-3          # re-check the hash chain yourself
-python -m sdlc.cli report greenfield-3          # metrics, derived from the journal
+export PYTHONPATH=orchestrator
+alias sdlc='.venv/bin/python -m sdlc.cli --runs-dir orchestrator/fixtures/runs'
+
+sdlc replay orchestrator/fixtures/runs/greenfield-3   # read the run, entry by entry
+sdlc verify greenfield-3                              # re-check the hash chain yourself
+sdlc report greenfield-3                              # metrics, derived from the journal
 
 # 3. The service it produced.
-cd service && ./mvnw verify                     # 276 tests; needs a Docker daemon
+cd service && ./mvnw verify                         # 276 tests; needs a Docker daemon
 ```
 
 Nothing in steps 1 and 2 calls a model. That is deliberate: an evaluator with no
@@ -45,7 +56,7 @@ the failure handling and the metrics end to end, in under a minute.
 | Gate pass rate | 84.6% | 97.0% |
 | Human decisions | 7 | 5 |
 | Cost | $108.70 | $98.16 |
-| Rework | $60.51 (56%) | $51.90 (53%) |
+| Rework | $60.51 (56%; **27%** excluding operator-induced staleness) | $51.90 (53%) |
 
 Both were **signed off by a human over a `ready: false` verdict.** Completed
 means the pipeline reached its end with every decision recorded — not that the
@@ -54,8 +65,16 @@ with its mechanism, blast radius and fix.
 
 A third pair, [`ambiguous-1`](orchestrator/fixtures/runs/ambiguous-1) and
 `ambiguous-2`, ran one deliberately underspecified requirement twice with
-opposite answers to the same questions — and found that the answers were
-reaching nobody. See below.
+opposite answers to the same questions. Both safe-stopped after `decompose` on
+purpose: **for an ambiguous requirement the artifact under test is the plan**, so
+the validation *is* the differential — same graph, same prompts, opposite
+answers, 14 tasks against 21. They also found that the answers were reaching
+nobody. See below.
+
+A fifth run, [`greenfield-2`](orchestrator/fixtures/runs/greenfield-2), ships
+without being narrated here: it stopped at `verify` on an earlier 19-node graph
+and is kept because how it ended is the useful part. Shipped fixtures total
+$249.84.
 
 Full analysis, including what each metric hides: **[`docs/METRICS.md`](docs/METRICS.md)**.
 
@@ -71,22 +90,34 @@ startup error.
 See [ADR-001](docs/adr/001-the-llm-never-approves.md). The other five decision
 records are [here](docs/adr/).
 
-## Where each capability lives
+## Where each §4.4 capability lives
 
 | Capability | Implementation | Evidence it ran |
 |---|---|---|
 | Dependency graph | [`pipelines/sdlc.yaml`](orchestrator/pipelines/sdlc.yaml) — 21 nodes, declarative | both runs, `parallel_groups` in the metrics |
-| Entry / exit gates | [`gates.py`](orchestrator/sdlc/gates.py) — 30 checks | 148 and 125 gate evaluations |
-| Human checkpoints | `human` gate class; `approve` / `reject` / `repair` CLI | 14 recorded decisions, whose answers reach the nodes |
+| Entry / exit gates | [`gates.py`](orchestrator/sdlc/gates.py) — 24 checks | 148 and 125 gate evaluations |
+| Human checkpoints | `human` gate class; `approve` / `reject` / `repair` CLI | 17 recorded decisions across the shipped fixtures, whose answers reach the nodes |
 | Bounded retries | `retry.max_attempts` per node, with the failure fed back into the next prompt | 17 failed attempts, none unbounded |
-| Fallback | `on_failure: fallback` — one more attempt at reduced autonomy, proposing rather than applying | tested; not triggered live |
-| Rollback | `on_failure: rollback` — reset the worktree to the last good checkpoint | tested; not triggered live |
-| Safe-stop | budget breach, or `stop` from another process, halting at a node boundary | 3, one per ambiguous run plus `greenfield-3` |
+| Fallback | `on_failure: fallback` — one more attempt at reduced autonomy, proposing rather than applying | declared on `docs` (`sdlc.yaml:389`); covered by `test_engine.py::TestFallback`; never triggered live |
+| Rollback | `on_failure: rollback` — reset the worktree to the last good checkpoint | covered by `test_engine.py::TestRollback` and `test_checkpoint.py`; declared on no node — see [ENGINEERING_SUMMARY §5](docs/ENGINEERING_SUMMARY.md#5-what-to-build-next) |
+| Safe-stop | budget breach, or `stop` from another process, halting at a node boundary | 4 — one in `greenfield-3`, one in `ambiguous-1`, two in `ambiguous-2` (before and after `f4258e4`) |
 | Policy guardrails | [`policy.py`](orchestrator/sdlc/policy.py) — path allowlists at the tool layer, re-checked against the diff | `paths_confined` on every node |
 | Audit trail | [`audit.py`](orchestrator/sdlc/audit.py) — hash-chained JSONL | 345 and 250 entries, both verify |
 | Reliability metrics | [`metrics.py`](orchestrator/sdlc/metrics.py) — computed from the journal only | [`docs/METRICS.md`](docs/METRICS.md) |
 | Dynamic re-planning | content-hashed inputs; stale nodes and their descendants re-run | 29 and 3 nodes invalidated |
 | Failure triage | `triage` handler classifies and routes to the branch that owns the failure | 23 failing methods → 1 → 0 |
+
+**On "security, compliance, and change control".** Security is
+[`policy.py`](orchestrator/sdlc/policy.py): path allowlists at the tool layer,
+forbidden commands, and a secret scan that reports the pattern and line number
+and **never echoes the match**. Change control is the branch discipline — no run
+touches `main`, every node checkpoint carries `Run-Id` / `Node-Id` / `Attempt`
+trailers, and protected paths (migrations, ADRs, CI config) escalate to a human
+before a write lands. Compliance is what the first two produce together: a
+tamper-evident record of who approved what, on which diff, with their reasoning
+attached — four-eyes approval and segregation of duties, in the form an auditor
+asks for. `sdlc.cli lineage` traces any journal entry back to the decision that
+caused it.
 
 ## What the runs found out
 

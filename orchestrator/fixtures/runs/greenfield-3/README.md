@@ -3,8 +3,8 @@
 Replayable with no API key and no spend:
 
 ```bash
-python -m sdlc.cli replay orchestrator/fixtures/runs/greenfield-3
-python -m sdlc.cli verify greenfield-3      # re-check the hash chain yourself
+PYTHONPATH=orchestrator python -m sdlc.cli replay orchestrator/fixtures/runs/greenfield-3
+PYTHONPATH=orchestrator python -m sdlc.cli --runs-dir orchestrator/fixtures/runs verify greenfield-3      # re-check the hash chain yourself
 ```
 
 **Outcome: completed.** 148 tests, 0 failures. Every scheduled node passed. The

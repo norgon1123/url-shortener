@@ -16,6 +16,17 @@ fixed during the runs — see `docs/evidence/` for AC3's failing run, and the
 `no_assertions` / `tests_not_weakened` commits for two gates that only worked on
 an empty repository.
 
+**Ordered by what it costs to leave undone.** The first three are open security
+positions taken deliberately; the fourth is the pipeline gap the runs exposed;
+the rest are engineering debt. Nothing here is deployed.
+
+| | Item |
+|---|---|
+| 1-3 | abuse-report takedown, `greenfield-3` residuals, SEC-1 — **security, accepted not fixed** |
+| 4 | the missing `discriminate` node — the deliverable's own top recommendation |
+| 5-8 | orchestrator debt: an unadjudicated failure, checkpoint staging, scenario-derived input, run heartbeat |
+| 9 | `CONTEXT.md` / `AGENTS.md` maintenance — a wishlist, kept last on purpose |
+
 ---
 
 ## Abuse-report takedown stays irreversible — adjudicated, brownfield-1
@@ -149,28 +160,6 @@ is closed.
 
 ---
 
-## The run's input should be `input/<scenario>.txt`, not one file overwritten
-
-`intake` reads `input/requirement.txt`, hard-coded in its prompt and in an
-`artifact_present` gate. So each run overwrites the last run's ask, and the
-history of *what was asked* survives only in git — which is exactly the history
-worth having side by side when comparing a greenfield build against a brownfield
-change.
-
-`input/` now keeps `greenfield.txt` and `brownfield.txt` alongside the live
-`requirement.txt`, which is a copy. That works and is a duplication waiting to
-drift: nothing checks that the copy matches the file it was copied from.
-
-**Fix.** Derive the path from the run's scenario, which the manifest already
-carries: `input/{scenario}.txt`. Two touch points, both small — the gate's
-`path` parameter and the line in `intake.md`.
-
-**Do it between runs.** Editing `intake.md` changes its content hash, which
-marks `intake` stale and re-runs everything downstream of it. That is the
-change-driven replanning working correctly, and it costs a full run.
-
----
-
 ## The graph has no node where a new test meets the old code
 
 A bug fix is supposed to produce a test that fails for the reason the bug exists.
@@ -203,77 +192,6 @@ show what the test caught".
 **Not for every run.** A greenfield change has no pre-change code to fail
 against. This wants to be conditional on the scenario, or on whether any
 acceptance criterion is a defect rather than a feature.
-
----
-
-## Maintain `CONTEXT.md`, `AGENTS.md` and `CLAUDE.md` from every run
-
-Follow the established conventions rather than inventing a format:
-[agents.md](https://agents.md) for `AGENTS.md`, and Anthropic's project-memory
-guidance for `CLAUDE.md`. Both say the same things, and they are the things that
-matter: short, specific, actionable, and about *this* repository. Runnable
-commands over prose. No restating what the code already says.
-
-**Length is the discipline.** `AGENTS.md` should fit on a screen — a file that
-gets skimmed is worse than a short one, because its length buys nothing and
-costs attention. `CONTEXT.md` can be longer, but only where it explains
-something a reader could not get faster from the code.
-
-**`AGENTS.md`** — how to work here: setup and test commands, the definition of
-done for a bug (a test that fails for the reason the bug exists, written first,
-kept afterwards as regression protection) and for a feature (every acceptance
-criterion has a test that would fail without the behaviour), which kind of test
-to write and when, and the boundaries that are enforced — path allowlists,
-protected paths, the coverage floor.
-
-**`CONTEXT.md`** — what the thing is: behaviour, project structure, the API in
-summary pointing at `artifacts/openapi.yaml` as the authority, the data model,
-and the decisions worth not re-litigating (302 not 301; 404 not 403 on a foreign
-code; random base62, not a sequence).
-
-**`CLAUDE.md`** — prefer an import over a symlink:
-
-```markdown
-@CONTEXT.md
-```
-
-Claude Code resolves `@path` imports, so the content stays in one file without a
-symlink, which git and Windows checkouts both handle badly.
-
-### Placement: a node in the post-`verify` fan-out
-
-`project-memory`, on the level with `docs` and the review lenses, in its own
-worktree. The code is final there (everything on that level runs after `verify`
-passes), the level is already six-wide so a seventh node costs no wall clock,
-and keeping it out of `docs` is what lets them run concurrently — the loader
-requires concurrent writers to hold disjoint paths. `docs` owns `docs/**` and
-`README.md`; this owns `CONTEXT.md`, `AGENTS.md` and `CLAUDE.md`.
-
-Not inside `review-synthesis`: that node's output is checked mechanically
-against the lens artifacts, and a second unrelated responsibility makes that
-check harder to reason about for no gain.
-
-### Two project-specific requirements
-
-**A human region that runs never touch.** Sentinel markers, plus a
-`human_sections_preserved` gate asserting the bytes between them are unchanged
-and the markers still exist. Prompts asking politely are not controls.
-
-```
-<!-- BEGIN HUMAN -->
-<!-- END HUMAN -->
-```
-
-**Staleness.** Regenerate from the repository each run, not from the run's
-memory of what it did. A generated file that quietly stops matching the code is
-worse than no file, because it is trusted.
-
-### One consequence worth knowing
-
-The pipeline's own nodes will not read these files — `setting_sources` is unset,
-so no session inherits a `CLAUDE.md`, and a run that behaves differently
-depending on workspace files is not reproducible. These are for humans and for
-interactive tooling.
 
 ---
 
@@ -348,6 +266,28 @@ the commit contains when it does not. The gitignore rule holds in the meantime.
 
 ---
 
+## The run's input should be `input/<scenario>.txt`, not one file overwritten
+
+`intake` reads `input/requirement.txt`, hard-coded in its prompt and in an
+`artifact_present` gate. So each run overwrites the last run's ask, and the
+history of *what was asked* survives only in git — which is exactly the history
+worth having side by side when comparing a greenfield build against a brownfield
+change.
+
+`input/` now keeps `greenfield.txt` and `brownfield.txt` alongside the live
+`requirement.txt`, which is a copy. That works and is a duplication waiting to
+drift: nothing checks that the copy matches the file it was copied from.
+
+**Fix.** Derive the path from the run's scenario, which the manifest already
+carries: `input/{scenario}.txt`. Two touch points, both small — the gate's
+`path` parameter and the line in `intake.md`.
+
+**Do it between runs.** Editing `intake.md` changes its content hash, which
+marks `intake` stale and re-runs everything downstream of it. That is the
+change-driven replanning working correctly, and it costs a full run.
+
+---
+
 ## Run heartbeat, in two tiers
 
 **Problem.** A run has no heartbeat. The journal only gains an entry when a node
@@ -392,3 +332,74 @@ one: it would put liveness information somewhere an auditor cannot replay. Tier
 per-node duration would become measurable *during* a run rather than only after
 it, and a stuck node would be visible as a progress gap rather than as an
 absence of events.
+
+---
+
+## Maintain `CONTEXT.md`, `AGENTS.md` and `CLAUDE.md` from every run
+
+Follow the established conventions rather than inventing a format:
+[agents.md](https://agents.md) for `AGENTS.md`, and Anthropic's project-memory
+guidance for `CLAUDE.md`. Both say the same things, and they are the things that
+matter: short, specific, actionable, and about *this* repository. Runnable
+commands over prose. No restating what the code already says.
+
+**Length is the discipline.** `AGENTS.md` should fit on a screen — a file that
+gets skimmed is worse than a short one, because its length buys nothing and
+costs attention. `CONTEXT.md` can be longer, but only where it explains
+something a reader could not get faster from the code.
+
+**`AGENTS.md`** — how to work here: setup and test commands, the definition of
+done for a bug (a test that fails for the reason the bug exists, written first,
+kept afterwards as regression protection) and for a feature (every acceptance
+criterion has a test that would fail without the behaviour), which kind of test
+to write and when, and the boundaries that are enforced — path allowlists,
+protected paths, the coverage floor.
+
+**`CONTEXT.md`** — what the thing is: behaviour, project structure, the API in
+summary pointing at `artifacts/openapi.yaml` as the authority, the data model,
+and the decisions worth not re-litigating (302 not 301; 404 not 403 on a foreign
+code; random base62, not a sequence).
+
+**`CLAUDE.md`** — prefer an import over a symlink:
+
+```markdown
+@CONTEXT.md
+```
+
+Claude Code resolves `@path` imports, so the content stays in one file without a
+symlink, which git and Windows checkouts both handle badly.
+
+### Placement: a node in the post-`verify` fan-out
+
+`project-memory`, on the level with `docs` and the review lenses, in its own
+worktree. The code is final there (everything on that level runs after `verify`
+passes), the level is already six-wide so a seventh node costs no wall clock,
+and keeping it out of `docs` is what lets them run concurrently — the loader
+requires concurrent writers to hold disjoint paths. `docs` owns `docs/**` and
+`README.md`; this owns `CONTEXT.md`, `AGENTS.md` and `CLAUDE.md`.
+
+Not inside `review-synthesis`: that node's output is checked mechanically
+against the lens artifacts, and a second unrelated responsibility makes that
+check harder to reason about for no gain.
+
+### Two project-specific requirements
+
+**A human region that runs never touch.** Sentinel markers, plus a
+`human_sections_preserved` gate asserting the bytes between them are unchanged
+and the markers still exist. Prompts asking politely are not controls.
+
+```
+<!-- BEGIN HUMAN -->
+<!-- END HUMAN -->
+```
+
+**Staleness.** Regenerate from the repository each run, not from the run's
+memory of what it did. A generated file that quietly stops matching the code is
+worse than no file, because it is trusted.
+
+### One consequence worth knowing
+
+The pipeline's own nodes will not read these files — `setting_sources` is unset,
+so no session inherits a `CLAUDE.md`, and a run that behaves differently
+depending on workspace files is not reproducible. These are for humans and for
+interactive tooling.
