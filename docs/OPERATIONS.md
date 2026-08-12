@@ -96,8 +96,11 @@ sound numbers, in `greenfield-3`.
 
 ### `greenfield-2` — the 19-node graph, stopped at `verify`
 
-Shipped, and worth reading precisely because it did not finish: 163 tests ran,
-160 passed, and the run is preserved as it ended rather than nursed to green.
+Shipped, and worth reading precisely because it did not finish. The journal ends
+mid-retry at a `verify` that **timed out** after 1800s (seq 80-84); the
+163-run / 160-pass figures quoted in its README come from a local re-run after
+the Testcontainers fix and are **not** in the shipped journal, which is stated
+there too. Preserved as it ended rather than nursed to green.
 The graph is now 21 nodes, so its shape is one generation behind — `test-contract`
 and `triage` came out of what this run exposed.
 

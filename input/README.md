@@ -11,7 +11,7 @@ in place says only what was asked last.
 | `ambiguous.txt` | `ambiguous-1`, `ambiguous-2` | "More reliable, and we want analytics." 18 lines, deliberately underspecified — the same file run twice with different human answers. |
 | `requirement.txt` | whichever run is live | What `intake` actually reads. A copy of the run's file. |
 
-Both are verbatim what the agents were handed, recoverable from git as well:
+`greenfield.txt` and `brownfield.txt` are verbatim what the agents were handed, and are recoverable from git as well:
 `greenfield.txt` is `4625ee9^:input/requirement.txt`.
 
 ## What is worth comparing

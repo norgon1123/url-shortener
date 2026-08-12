@@ -91,7 +91,7 @@ declares the error shape. Validate the code at the edge; add a catch-all handler
 that emits the declared shape.
 
 **Four acceptance criteria are unverified, not satisfied.**
-AC3 (click count exact under concurrency), AC19 (abusive source throttled while
+AC3 — greenfield's, i.e. click count exact under concurrency, not brownfield's AC3 in `docs/evidence/` — AC19 (abusive source throttled while
 others are not), AC20 (clicks preferred over creates under pressure), AC22 (hot
 link stays fast and counted). Marked `unknown` — no evidence either way. Each
 needs a test that could fail.

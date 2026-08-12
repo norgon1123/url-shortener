@@ -7,9 +7,13 @@ PYTHONPATH=orchestrator python -m sdlc.cli replay orchestrator/fixtures/runs/gre
 PYTHONPATH=orchestrator python -m sdlc.cli --runs-dir orchestrator/fixtures/runs verify greenfield-2      # re-check the hash chain yourself
 ```
 
-**Outcome: stopped at `verify`, deliberately.** 163 tests ran, 160 passed. The
-run is preserved as it ended rather than nursed to green, because how it ended
-is the most useful thing in it.
+**Outcome: abandoned at `verify`, and preserved as it ended.** The shipped
+journal ends mid-retry at seq 84: `mvn verify` **timed out** after 1800s with no
+JaCoCo report — the Testcontainers defect described below. The often-quoted
+"163 tests ran, 160 passed" comes from a **local re-run after that defect was
+fixed** and is deliberately not in this journal; treat it as context, not as
+evidence from this run. What this fixture evidences is the timeout and the
+bounded retry around it.
 
 ## What it demonstrates
 

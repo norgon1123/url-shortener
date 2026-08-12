@@ -152,12 +152,14 @@ catches anything that escapes, answering `404` rather than a server error.
 
 - **No admin endpoint for the threat denylist.** Adding a host in production is
   a Flyway migration today.
-- **No moderation console.** An abuse report blocks the link immediately, and
-  only a database write can unblock it.
+- **No moderation console.** An abuse report from an eligible reporter (one that
+  pre-dates the link, or is older than `app.abuse.min-reporter-age`) blocks the
+  link immediately, and only a database write can unblock it. Lowering that
+  property is a security change, not a tuning knob — see `docs/API.md` §9.
 - **An anonymous link cannot be taken down through the API by anyone but a
   reporter.** Nobody owns it, so `DELETE` answers 404 for every caller; the
-  routes to removing one are an abuse report (which blocks it immediately) or a
-  database write.
+  routes to removing one are an abuse report from an eligible reporter (see
+  above) or a database write.
 - **The `{code}` path variable is not validated at the edge.** It is passed to
   the datastores as written, and `abuse_reports.code` is `VARCHAR(64)`, so a
   report carrying a longer code fails on the insert. `ApiExceptionHandler` has

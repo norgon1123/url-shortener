@@ -38,7 +38,7 @@ startup error, not a runtime surprise. ([ADR-001](adr/001-the-llm-never-approves
 
 Three layers, each answering a different question.
 
-- **The orchestrator's own suite** — 429 pytest tests over scripted backends, no
+- **The orchestrator's own suite** — 430 pytest tests over scripted backends, no
   network, no credentials, seven seconds. Every defect in §3 became a test here.
 - **The service's suite** — behaviour-named black-box tests through the HTTP API
   against real PostgreSQL and Redis via Testcontainers, authored by a node that
@@ -55,7 +55,7 @@ still evidenced by hand.
 **Mock mode came first**, before any live run. Scripted backends make the graph,
 gates, checkpoints, approvals, failure handling and metrics testable in seconds
 instead of twenty-minute multi-dollar runs. That decision paid for itself
-repeatedly: 429 tests run in seven seconds with no credentials, every defect
+repeatedly: 430 tests run in seven seconds with no credentials, every defect
 found in a live run became a test in that suite, and an evaluator with no API
 key can still exercise every control.
 
@@ -126,13 +126,13 @@ Each was found by a live run, each cost real money, and each is now a test.
 
 | | Defect | Cost | Fix |
 |---|---|---|---|
-| 1 | A provider session limit retried three times as though it were transient | $7.42 | [`fa232a2`](../../commit/fa232a2) |
-| 2 | An approval cleared a contract question and then dead-ended, because `contract` maps to no branch and the approval could not name one | run halted | [`44c255e`](../../commit/44c255e) |
-| 3 | A repair budget refused the branch a human had just named, so nothing routed and the run replanned from `decompose` | $1.05 + a near-miss on the whole pipeline | [`2d6d4d9`](../../commit/2d6d4d9) |
-| 4 | `_finish` required every node to have passed, including the handler that is never scheduled — so a fully successful run reported `FAILED` | success unreportable | [`d4004ef`](../../commit/d4004ef) |
-| 5 | `no_assertions` scanned the whole test tree and failed a node for 880 assertions it had not written | $6.91 | [`7753468`](../../commit/7753468) |
-| 6 | `tests_not_weakened` kept a baseline from the previous run, so 18 inherited tests could have been deleted undetected | silent | [`7753468`](../../commit/7753468) |
-| 7 | Human answers reached no node: the gate checked an answer *existed*, nothing read what it said | three runs of theatre | [`f4258e4`](../../commit/f4258e4) |
+| 1 | A provider session limit retried three times as though it were transient | $7.42 | [`fa232a2`](../../../commit/fa232a2) |
+| 2 | An approval cleared a contract question and then dead-ended, because `contract` maps to no branch and the approval could not name one | run halted | [`44c255e`](../../../commit/44c255e) |
+| 3 | A repair budget refused the branch a human had just named, so nothing routed and the run replanned from `decompose` | $1.05 + a near-miss on the whole pipeline | [`2d6d4d9`](../../../commit/2d6d4d9) |
+| 4 | `_finish` required every node to have passed, including the handler that is never scheduled — so a fully successful run reported `FAILED` | success unreportable | [`d4004ef`](../../../commit/d4004ef) |
+| 5 | `no_assertions` scanned the whole test tree and failed a node for 880 assertions it had not written | $6.91 | [`7753468`](../../../commit/7753468) |
+| 6 | `tests_not_weakened` kept a baseline from the previous run, so 18 inherited tests could have been deleted undetected | silent | [`7753468`](../../../commit/7753468) |
+| 7 | Human answers reached no node: the gate checked an answer *existed*, nothing read what it said | three runs of theatre | [`f4258e4`](../../../commit/f4258e4) |
 
 **None of them was the model doing something wrong.** That is the finding worth
 carrying to the next project. The agents behaved well — better than expected at
@@ -329,8 +329,7 @@ feature working correctly.
 
 **Keep the unflattering numbers in the headline.** 56% rework, `ready: false`
 signed off twice, a control that was theatre for three runs. Each of those is in
-the README and the metrics report rather than a footnote, and they are the parts
-that make the rest credible.
+the README and the metrics report rather than a footnote.
 
 **Trust the mock suite more, earlier.** Every defect above became a test in a
 suite that runs in seven seconds. Several could have been written *before* the

@@ -18,7 +18,7 @@ python -m sdlc.cli report greenfield-3 --json   # the numbers below
 | Ask | build the service | fix a filter, add sign-up, add anonymous links |
 | Starting point | empty repository | the previous run's output |
 | **Node success rate** | 100% | 100% |
-| **Gate pass rate** | 84.6% | 97.0% |
+| **Gate pass rate** | 84.6% | 97.5% |
 | **Retry frequency** | 35% of nodes | 70% of nodes |
 | **Rollback frequency** | 0% | 0% |
 | Replans | 1 | 0 |
@@ -93,9 +93,10 @@ measures.
 ### MTTR halved, and the definition matters
 
 **MTTR here is wall-clock from the journal entry recording a failure to the
-journal entry recording the recovery** — a gate failure to that node's
-subsequent pass, or a `run_pending_approval` to the `human_decision` that
-cleared it. It therefore *includes human thinking time*, which is why
+journal entry recording that node's next pass.** A failure opens the sample and
+a pass closes it; an approval pause with no failure behind it is not a sample at
+all. It therefore *includes human thinking time* whenever a recovery waited on a
+person, which is why
 `greenfield-3`'s 10,231 s is dominated by one contract question a person had to
 adjudicate.
 
@@ -182,10 +183,13 @@ shown it.
 about how many attempts it took. Handler nodes are excluded, because a `triage`
 that never had to run is the good case.
 
-**Gate pass rate** — gate evaluations returning `pass`, over all evaluations.
-Escalations count as not-passing, so a run with many human checkpoints scores
-lower by construction. That is intentional: a gate that escalated did not pass,
-and a metric that pretended otherwise would reward removing the checkpoints.
+**Gate pass rate** — passes over passes-plus-failures. **Escalations are excluded
+from both sides**, deliberately: a gate that escalated is neither a pass nor a
+defect, it is the machinery doing its job, and counting it as a failure would
+score a pipeline down for having human checkpoints at all. The cost of that
+choice is that the headline rate says nothing about how often a run stopped for
+a person — which is why escalations are reported separately below. Including
+them would give 81.8% and 92.0%.
 
 **Retry frequency** — nodes needing more than one attempt, over nodes run. Does
 not distinguish a retry caused by the node from one caused by an operator's
@@ -195,7 +199,12 @@ prompt edit, which is why the staleness figure is reported separately above.
 rollback path exists and is tested, but no failure in either run was of the kind
 that needed it.
 
-**MTTR** — as defined above, including human time.
+**MTTR** — wall-clock from the journal entry recording a **failure** to the entry
+recording that node's next pass. Only failures open a sample: a node that paused
+for approval without failing first is not counted, so this is
+time-to-recover-from-a-failure, not time-to-clear-a-checkpoint. Human time is
+included whenever a recovery waited on a person, which is exactly why
+`greenfield-3`'s figure is dominated by one contract question.
 
 **E2E latency** — first journal entry to last, including every pause. Split into
 machine and human above, because the aggregate hides which one is the
@@ -206,8 +215,11 @@ rates. **These are estimates and nobody is billed them.** The runs draw on a
 Claude Max subscription; see [ADR-005](adr/005-where-inference-runs.md).
 
 **Rework cost** — spend on attempts that were rejected, retried, or replanned
-away. The number this project is most reluctant to publish and the one most
-worth having.
+away. Mechanically: once a node spends again, whatever it spent before counts as
+rework. That over-counts a handler like `triage`, whose five invocations in
+`greenfield-3` were five distinct useful adjudications rather than four wasted
+ones — the error runs against the submission, not for it. The number this
+project is most reluctant to publish, and the one most worth having.
 
 ## What is not measured, and should be
 

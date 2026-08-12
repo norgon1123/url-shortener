@@ -16,7 +16,7 @@ the record says so in both places.
 
 | | |
 |---|---|
-| Nodes passed | 20 of 20 scheduled (`triage` is a handler; it ran three times but is never *scheduled*) |
+| Nodes passed | 20 of 20 scheduled (`triage` is a handler; it returned five verdicts and routed three repairs, and is never *scheduled*) |
 | Human decisions | 7 |
 | Gate pass rate | 85% |
 | Replans | 1 — and it was a mistake the engine has since been fixed not to make |
