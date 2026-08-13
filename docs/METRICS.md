@@ -40,6 +40,10 @@ Both runs **completed**, and both were signed off by a human **over a
 reached its end with every decision recorded. It does not mean the service is
 shippable, and `docs/TODO.md` holds the residuals.
 
+Note: E2E latency is inflated due to running the agents against my personal claude
+subscription. Some runs exhausted my session limit and required to wait for the session
+to refresh. Actual runtime was closer to 30 minutes to an hour.
+
 ## What the numbers say
 
 ### The most expensive thing in either run was the operator
